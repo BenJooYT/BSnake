@@ -1,7 +1,6 @@
 package com.benjoo.bsnake;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
@@ -10,13 +9,15 @@ import android.graphics.Paint;
 import android.graphics.Point;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.AttributeSet;
+import android.view.inputmethod.InputMethodManager;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -28,7 +29,7 @@ import java.util.Random;
 public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Callback {
 
     // ---- game state machine ----
-    private enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD }
+    private enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS }
     private State state = State.MENU;
 
     private enum SortMode { HIGH_SCORE, RECENT }
@@ -70,6 +71,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     // menu buttons
     RectF startBtn, speedBtn, settingsBtn, leaderboardBtn, exitBtn;
+    RectF headInputBtn, bodyInputBtn, settingsApplyBtn, settingsBackBtn;
     // pause overlay buttons
     RectF resumeBtn, pauseMenuBtn;
     // game over overlay buttons
@@ -82,6 +84,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     float downX, downY;
     int headColor = Color.GREEN;
     int bodyColor = Color.GREEN;
+    String headHex = "#00FF00";
+    String bodyHex = "#00FF00";
+    int editingColor = -1;
+    EditText keyboardInput;
 
     public GameView(Context context) { super(context); init(); loadColors(); }
     public GameView(Context context, AttributeSet attrs) { super(context, attrs); init(); loadColors(); }
@@ -120,6 +126,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         settingsBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
         leaderboardBtn = makeBtn(cx, startY + (bh + gap) * 3, bw, bh);
         exitBtn = makeBtn(cx, startY + (bh + gap) * 4, bw, bh);
+
+        headInputBtn = makeBtn(cx, screenH * 0.36f, bw, bh);
+        bodyInputBtn = makeBtn(cx, screenH * 0.48f, bw, bh);
+        settingsApplyBtn = makeBtn(cx, screenH * 0.67f, bw, bh);
+        settingsBackBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
 
         resumeBtn = makeBtn(cx, screenH * 0.5f, bw, bh);
         pauseMenuBtn = makeBtn(cx, screenH * 0.5f + bh + gap, bw, bh);
@@ -277,6 +288,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             case LEADERBOARD:
                 drawLeaderboard(canvas);
                 break;
+            case SETTINGS:
+                drawSettings(canvas);
+                break;
             case PLAYING:
                 drawGameField(canvas, t);
                 drawPauseIcon(canvas);
@@ -345,41 +359,73 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     private void openSettings() {
-        Context context = getContext();
-        if (!(context instanceof Activity)) return;
+        headHex = String.format(Locale.US, "#%06X", headColor & 0xFFFFFF);
+        bodyHex = String.format(Locale.US, "#%06X", bodyColor & 0xFFFFFF);
+        editingColor = -1;
+        state = State.SETTINGS;
+    }
 
-        Activity activity = (Activity) context;
-        LinearLayout fields = new LinearLayout(activity);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int) (24 * getResources().getDisplayMetrics().density);
-        fields.setPadding(padding, 0, padding, 0);
+    private void drawSettings(Canvas canvas) {
+        drawCenteredText(canvas, "SETTINGS", screenW / 2f, screenH * 0.14f, 64, Color.GREEN, true);
+        drawCenteredText(canvas, "CUSTOMIZE COLORS", screenW / 2f, screenH * 0.23f, 30, Color.WHITE, false);
+        drawColorField(canvas, headInputBtn, "HEAD:  " + headHex, headColor);
+        drawColorField(canvas, bodyInputBtn, "BODY:  " + bodyHex, bodyColor);
+        drawButton(canvas, settingsApplyBtn, "APPLY");
+        drawButton(canvas, settingsBackBtn, "BACK");
+    }
 
-        EditText headInput = makeColorInput(activity, "Head color (#RRGGBB)", headColor);
-        EditText bodyInput = makeColorInput(activity, "Body color (#RRGGBB)", bodyColor);
-        fields.addView(headInput);
-        fields.addView(bodyInput);
+    private void drawColorField(Canvas canvas, RectF rect, String label, int color) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3);
+        paint.setColor(Color.GREEN);
+        canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(color);
+        canvas.drawRect(rect.left + 12, rect.top + 12, rect.left + cellSize, rect.bottom - 14, paint);
+        drawCenteredText(canvas, label, rect.centerX() + cellSize * 0.25f, rect.centerY(), 30, Color.WHITE, true);
+    }
 
-        AlertDialog dialog = new AlertDialog.Builder(activity)
-                .setTitle("SNAKE COLORS")
-                .setView(fields)
-                .setNegativeButton("CANCEL", null)
-                .setPositiveButton("APPLY", null)
-                .create();
-
-        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            Integer newHeadColor = parseHexColor(headInput.getText().toString());
-            Integer newBodyColor = parseHexColor(bodyInput.getText().toString());
-            if (newHeadColor == null || newBodyColor == null) {
-                if (newHeadColor == null) headInput.setError("Use a hex color such as #00FF00");
-                if (newBodyColor == null) bodyInput.setError("Use a hex color such as #00FF00");
-                return;
+    public void setKeyboardInput(EditText input) {
+        keyboardInput = input;
+        keyboardInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (editingColor == 0) headHex = s.toString();
+                if (editingColor == 1) bodyHex = s.toString();
+                invalidate();
             }
-            headColor = newHeadColor;
-            bodyColor = newBodyColor;
-            saveColors();
-            dialog.dismiss();
-        }));
-        dialog.show();
+            @Override public void afterTextChanged(Editable s) { }
+        });
+    }
+
+    private void editColor(int colorIndex) {
+        if (keyboardInput == null) return;
+        editingColor = colorIndex;
+        keyboardInput.setText(colorIndex == 0 ? headHex : bodyHex);
+        keyboardInput.setSelection(keyboardInput.length());
+        keyboardInput.requestFocus();
+        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.showSoftInput(keyboardInput, InputMethodManager.SHOW_IMPLICIT);
+    }
+
+    private void hideKeyboard() {
+        if (keyboardInput == null) return;
+        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(keyboardInput.getWindowToken(), 0);
+        keyboardInput.clearFocus();
+        editingColor = -1;
+    }
+
+    private boolean applySettings() {
+        Integer newHeadColor = parseHexColor(headHex);
+        Integer newBodyColor = parseHexColor(bodyHex);
+        if (newHeadColor == null || newBodyColor == null) return false;
+        headColor = newHeadColor;
+        bodyColor = newBodyColor;
+        saveColors();
+        hideKeyboard();
+        state = State.MENU;
+        return true;
     }
 
     private EditText makeColorInput(Activity activity, String hint, int color) {
@@ -579,6 +625,19 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 if (contains(lbSortBtn, upX, upY)) {
                     sortMode = (sortMode == SortMode.HIGH_SCORE) ? SortMode.RECENT : SortMode.HIGH_SCORE;
                 } else if (contains(lbBackBtn, upX, upY)) {
+                    state = State.MENU;
+                }
+                break;
+
+            case SETTINGS:
+                if (contains(headInputBtn, upX, upY)) {
+                    editColor(0);
+                } else if (contains(bodyInputBtn, upX, upY)) {
+                    editColor(1);
+                } else if (contains(settingsApplyBtn, upX, upY)) {
+                    applySettings();
+                } else if (contains(settingsBackBtn, upX, upY)) {
+                    hideKeyboard();
                     state = State.MENU;
                 }
                 break;

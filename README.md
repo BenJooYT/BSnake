@@ -20,6 +20,17 @@ Features
   - 2-item input queue for responsive controls
   - Prevents instant 180-degree self-collisions when multiple rapid turns occur before a game tick
 
+Changelog
+---------
+
+### 1.1.0
+- Added a fully in-game settings screen for snake color customization.
+- Added head and body hex color inputs with live color previews.
+- Added persistent color preferences.
+- Replaced the native color dialog with the game-styled drawn UI.
+- Fixed Android keyboard integration for color input.
+- Preserved leaderboard difficulty display and backward compatibility with older scores.
+
 AIDE instructions
 1. In AIDE, choose "Import Project" -> "Open existing project" and point to this repository folder.
 2. If AIDE asks to convert to a Gradle project, you can keep it as a standard Android project for quick editing and compiling.
