@@ -11,6 +11,8 @@ Features
   - LEADERBOARD button on the main menu
   - Persistent score tracking via SharedPreferences
   - Leaderboard overlay with sorting by High Score or Recent Date (toggle) and back navigation
+  - Leaderboard entries include the difficulty used for each game
+  - Settings menu for customizing head and body colors with hex codes
 - Score-based food scaling and multi-food support:
   - Food scaling thresholds: 50score * Math.pow(2, foodCount - 1)
   - Up to 6 active food items on the grid

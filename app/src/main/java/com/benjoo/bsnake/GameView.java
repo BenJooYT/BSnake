@@ -1,6 +1,7 @@
 package com.benjoo.bsnake;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
@@ -9,10 +10,13 @@ import android.graphics.Paint;
 import android.graphics.Point;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.text.InputType;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -33,10 +37,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     private static class ScoreEntry {
         int score;
         long timestamp;
+        String difficulty;
 
-        ScoreEntry(int score, long timestamp) {
+        ScoreEntry(int score, long timestamp, String difficulty) {
             this.score = score;
             this.timestamp = timestamp;
+            this.difficulty = difficulty;
         }
     }
 
@@ -63,7 +69,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     int screenW, screenH;
 
     // menu buttons
-    RectF startBtn, speedBtn, leaderboardBtn, exitBtn;
+    RectF startBtn, speedBtn, settingsBtn, leaderboardBtn, exitBtn;
     // pause overlay buttons
     RectF resumeBtn, pauseMenuBtn;
     // game over overlay buttons
@@ -74,9 +80,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     RectF pauseIcon;
 
     float downX, downY;
+    int headColor = Color.GREEN;
+    int bodyColor = Color.GREEN;
 
-    public GameView(Context context) { super(context); init(); }
-    public GameView(Context context, AttributeSet attrs) { super(context, attrs); init(); }
+    public GameView(Context context) { super(context); init(); loadColors(); }
+    public GameView(Context context, AttributeSet attrs) { super(context, attrs); init(); loadColors(); }
 
     private void init() {
         holder = getHolder();
@@ -109,8 +117,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
         startBtn = makeBtn(cx, startY, bw, bh);
         speedBtn = makeBtn(cx, startY + bh + gap, bw, bh);
-        leaderboardBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
-        exitBtn = makeBtn(cx, startY + (bh + gap) * 3, bw, bh);
+        settingsBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
+        leaderboardBtn = makeBtn(cx, startY + (bh + gap) * 3, bw, bh);
+        exitBtn = makeBtn(cx, startY + (bh + gap) * 4, bw, bh);
 
         resumeBtn = makeBtn(cx, screenH * 0.5f, bw, bh);
         pauseMenuBtn = makeBtn(cx, screenH * 0.5f + bh + gap, bw, bh);
@@ -288,9 +297,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     private void drawGameField(Canvas canvas, float t) {
-        paint.setColor(Color.GREEN);
         int n = Math.min(snake.size(), prevSnake.size());
         for (int i = 0; i < n; i++) {
+            paint.setColor(i == 0 ? headColor : bodyColor);
             Point cur = snake.get(i);
             Point prev = prevSnake.get(i);
 
@@ -330,8 +339,78 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         drawTitle(canvas, screenH * 0.24f);
         drawButton(canvas, startBtn, "START");
         drawButton(canvas, speedBtn, "SPEED: " + speedLabels[speedIndex]);
+        drawButton(canvas, settingsBtn, "SETTINGS");
         drawButton(canvas, leaderboardBtn, "LEADERBOARD");
         drawButton(canvas, exitBtn, "EXIT");
+    }
+
+    private void openSettings() {
+        Context context = getContext();
+        if (!(context instanceof Activity)) return;
+
+        Activity activity = (Activity) context;
+        LinearLayout fields = new LinearLayout(activity);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int) (24 * getResources().getDisplayMetrics().density);
+        fields.setPadding(padding, 0, padding, 0);
+
+        EditText headInput = makeColorInput(activity, "Head color (#RRGGBB)", headColor);
+        EditText bodyInput = makeColorInput(activity, "Body color (#RRGGBB)", bodyColor);
+        fields.addView(headInput);
+        fields.addView(bodyInput);
+
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+                .setTitle("SNAKE COLORS")
+                .setView(fields)
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("APPLY", null)
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            Integer newHeadColor = parseHexColor(headInput.getText().toString());
+            Integer newBodyColor = parseHexColor(bodyInput.getText().toString());
+            if (newHeadColor == null || newBodyColor == null) {
+                if (newHeadColor == null) headInput.setError("Use a hex color such as #00FF00");
+                if (newBodyColor == null) bodyInput.setError("Use a hex color such as #00FF00");
+                return;
+            }
+            headColor = newHeadColor;
+            bodyColor = newBodyColor;
+            saveColors();
+            dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
+    private EditText makeColorInput(Activity activity, String hint, int color) {
+        EditText input = new EditText(activity);
+        input.setSingleLine(true);
+        input.setHint(hint);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        input.setText(String.format(Locale.US, "#%06X", color & 0xFFFFFF));
+        return input;
+    }
+
+    private Integer parseHexColor(String value) {
+        String hex = value == null ? "" : value.trim();
+        if (!hex.matches("#?[0-9A-Fa-f]{6}")) return null;
+        if (!hex.startsWith("#")) hex = "#" + hex;
+        try {
+            return Color.parseColor(hex);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private void loadColors() {
+        SharedPreferences prefs = getContext().getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        headColor = prefs.getInt("headColor", Color.GREEN);
+        bodyColor = prefs.getInt("bodyColor", Color.GREEN);
+    }
+
+    private void saveColors() {
+        SharedPreferences prefs = getContext().getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        prefs.edit().putInt("headColor", headColor).putInt("bodyColor", bodyColor).apply();
     }
 
     private void drawLeaderboard(Canvas canvas) {
@@ -357,7 +436,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             for (int i = 0; i < maxShow; i++) {
                 ScoreEntry entry = list.get(i);
                 String dateStr = sdf.format(new Date(entry.timestamp));
-                String text = (i + 1) + ".  Score: " + entry.score + "   " + dateStr;
+                String text = (i + 1) + ".  Score: " + entry.score + "   "
+                        + entry.difficulty + "   " + dateStr;
                 drawCenteredText(canvas, text, screenW / 2f, startY + i * rowH, 32, Color.WHITE, false);
             }
         }
@@ -374,12 +454,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         if (!data.isEmpty()) {
             String[] parts = data.split(",");
             for (String part : parts) {
-                String[] kv = part.split(":");
-                if (kv.length == 2) {
+                String[] kv = part.split(":", -1);
+                if (kv.length == 2 || kv.length == 3) {
                     try {
                         int score = Integer.parseInt(kv[0]);
                         long time = Long.parseLong(kv[1]);
-                        list.add(new ScoreEntry(score, time));
+                        // Older entries did not store difficulty.
+                        String difficulty = kv.length == 3 && !kv[2].isEmpty()
+                                ? kv[2] : "UNKNOWN";
+                        list.add(new ScoreEntry(score, time, difficulty));
                     } catch (NumberFormatException e) {
                         // ignore malformed
                     }
@@ -391,7 +474,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     private void saveScore(int score) {
         ArrayList<ScoreEntry> list = loadScores();
-        list.add(new ScoreEntry(score, System.currentTimeMillis()));
+        list.add(new ScoreEntry(score, System.currentTimeMillis(), speedLabels[speedIndex]));
         Collections.sort(list, (a, b) -> Integer.compare(b.score, a.score));
         if (list.size() > 20) {
             list = new ArrayList<>(list.subList(0, 20));
@@ -399,7 +482,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < list.size(); i++) {
             if (i > 0) sb.append(",");
-            sb.append(list.get(i).score).append(":").append(list.get(i).timestamp);
+            sb.append(list.get(i).score).append(":").append(list.get(i).timestamp)
+                    .append(":").append(list.get(i).difficulty);
         }
         Context ctx = getContext();
         if (ctx != null) {
@@ -482,6 +566,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 } else if (contains(speedBtn, upX, upY)) {
                     speedIndex = (speedIndex + 1) % speedLabels.length;
                     tickDelay = speedDelays[speedIndex];
+                } else if (contains(settingsBtn, upX, upY)) {
+                    openSettings();
                 } else if (contains(leaderboardBtn, upX, upY)) {
                     state = State.LEADERBOARD;
                 } else if (contains(exitBtn, upX, upY)) {
