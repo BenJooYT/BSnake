@@ -7,14 +7,13 @@ Features
 - Portrait orientation
 - Simple swipe controls (improved: 2-item input queue to avoid dropped inputs and jerky turns)
 - Snake and food drawn with shapes (no external assets)
-- Leaderboard system:
+- Local Leaderboard system:
   - LEADERBOARD button on the main menu
   - Persistent score tracking via SharedPreferences
   - Leaderboard overlay with sorting by High Score or Recent Date (toggle) and back navigation
 - Score-based food scaling and multi-food support:
-  - Replaced single-food handling with multiple active food items
-  - Food scaling thresholds: 50 * Math.pow(2, foodCount - 1)
-  - Up to 6 active food items on the grid; new food spawns immediately when thresholds are crossed
+  - Food scaling thresholds: 50score * Math.pow(2, foodCount - 1)
+  - Up to 6 active food items on the grid
 - Improved input & collision handling:
   - 2-item input queue for responsive controls
   - Prevents instant 180-degree self-collisions when multiple rapid turns occur before a game tick
