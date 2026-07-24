@@ -5,6 +5,9 @@ Simple Snake game for Android, AIDE-compatible.
 Features
 - Java Android project (minSdk 16)
 - Portrait orientation
+- Fixed 32x32 gameplay grid with a red boundary and dark gray grid lines
+- Zoomed camera showing approximately 10 cells horizontally, centered on the snake, with off-screen food direction arrows
+- Added a red boundary around the 32x32 play area; crossing it teleports the snake to the opposite side
 - Simple swipe controls (improved: 2-item input queue to avoid dropped inputs and jerky turns)
 - Snake and food drawn with shapes (no external assets)
 - Local Leaderboard system:
@@ -22,6 +25,15 @@ Features
 
 Changelog
 ---------
+
+### 1.2.0
+- Added a fixed 32x32 gameplay world.
+- Added dark gray grid lines with a red boundary around the play space.
+- Added a zoomed camera showing approximately 10 cells horizontally.
+- Added smooth camera following centered on the snake.
+- Added red directional arrows for food outside the visible area.
+- Added world-edge teleportation from one side of the play space to the other.
+- Clipped the grid and game objects so nothing renders outside the red boundary.
 
 ### 1.1.0
 - Added a fully in-game settings screen for snake color customization.

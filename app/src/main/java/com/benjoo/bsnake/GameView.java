@@ -57,7 +57,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     int dirX = 1, dirY = 0;
     ArrayList<Point> inputQueue = new ArrayList<>();
     int cellSize = 40;
-    int cols = 10, rows = 10;
+    int uiCellSize = 40;
+    int cols = 32, rows = 32;
+    float viewportWidthCells, viewportHeightCells;
+    float boardLeft, boardTop;
+    float cameraX, cameraY;
+    boolean cameraInitialized;
     Random rand = new Random();
 
     // speed options (index into arrays below)
@@ -102,9 +107,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void surfaceCreated(SurfaceHolder holder) {
         screenW = getWidth();
         screenH = getHeight();
-        cellSize = Math.max(16, screenW / 20);
-        cols = Math.max(10, screenW / cellSize);
-        rows = Math.max(10, screenH / cellSize);
+        configureBoard();
         layoutButtons();
         state = State.MENU;
         running = true;
@@ -116,8 +119,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     private void layoutButtons() {
         float bw = Math.min(screenW * 0.7f, 420);
-        float bh = cellSize * 1.5f;
-        float gap = cellSize * 0.4f;
+        float bh = uiCellSize * 1.5f;
+        float gap = uiCellSize * 0.4f;
         float cx = screenW / 2f;
         float startY = screenH * 0.40f;
 
@@ -141,8 +144,20 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         lbSortBtn = makeBtn(cx, screenH * 0.20f, bw, bh * 0.8f);
         lbBackBtn = makeBtn(cx, screenH * 0.88f, bw, bh);
 
-        float iconSize = cellSize * 1.1f;
+        float iconSize = uiCellSize * 1.1f;
         pauseIcon = new RectF(screenW - iconSize - 16, 16, screenW - 16, 16 + iconSize);
+    }
+
+    private void configureBoard() {
+        cols = 32;
+        rows = 32;
+        uiCellSize = Math.max(16, screenW / 20);
+        // Zoom so approximately ten world cells span the screen width.
+        cellSize = Math.max(8, screenW / 10);
+        viewportWidthCells = screenW / (float) cellSize;
+        viewportHeightCells = screenH / (float) cellSize;
+        boardLeft = 0;
+        boardTop = 0;
     }
 
     private RectF makeBtn(float cx, float cy, float w, float h) {
@@ -158,6 +173,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         for (int i = 0; i < 3; i++) {
             snake.add(new Point(startX - i, startY));
         }
+        cameraX = startX;
+        cameraY = startY;
+        cameraInitialized = true;
         dirX = 1; dirY = 0;
         inputQueue.clear();
         placeFood();
@@ -235,10 +253,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         Point head = snake.get(0);
         int nx = head.x + dirX;
         int ny = head.y + dirY;
+        boolean teleported = nx < 0 || nx >= cols || ny < 0 || ny >= rows;
         if (nx < 0) nx = cols - 1;
         if (nx >= cols) nx = 0;
         if (ny < 0) ny = rows - 1;
         if (ny >= rows) ny = 0;
+        if (teleported) {
+            cameraX = nx;
+            cameraY = ny;
+        }
         for (Point p : snake) {
             if (p.x == nx && p.y == ny) {
                 lastScore = snake.size() - 3;
@@ -311,6 +334,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     private void drawGameField(Canvas canvas, float t) {
+        updateCamera();
+        drawBoard(canvas);
+        float viewCameraX = snake.isEmpty() ? cols / 2f : cameraX;
+        float viewCameraY = snake.isEmpty() ? rows / 2f : cameraY;
+        canvas.save();
+        clipToWorld(canvas, viewCameraX, viewCameraY);
         int n = Math.min(snake.size(), prevSnake.size());
         for (int i = 0; i < n; i++) {
             paint.setColor(i == 0 ? headColor : bodyColor);
@@ -321,20 +350,31 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             float dy = cur.y - prev.y;
             boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
 
-            float px, py;
+            float worldX, worldY;
             if (wrapped) {
-                px = cur.x * cellSize;
-                py = cur.y * cellSize;
+                worldX = cur.x;
+                worldY = cur.y;
             } else {
-                px = (prev.x + dx * t) * cellSize;
-                py = (prev.y + dy * t) * cellSize;
+                worldX = prev.x + dx * t;
+                worldY = prev.y + dy * t;
             }
+            float px = boardLeft + cellSize * (viewportWidthCells / 2f - 0.5f
+                    + wrappedDelta(worldX - viewCameraX, cols));
+            float py = boardTop + cellSize * (viewportHeightCells / 2f - 0.5f
+                    + wrappedDelta(worldY - viewCameraY, rows));
             canvas.drawRect(px, py, px + cellSize - 1, py + cellSize - 1, paint);
         }
         paint.setColor(Color.RED);
         for (Point f : foods) {
-            float cx = f.x * cellSize + cellSize / 2f;
-            float cy = f.y * cellSize + cellSize / 2f;
+            float foodDx = f.x - viewCameraX;
+            float foodDy = f.y - viewCameraY;
+            if (Math.abs(foodDx) >= viewportWidthCells / 2f
+                    || Math.abs(foodDy) >= viewportHeightCells / 2f) {
+                drawFoodArrow(canvas, foodDx, foodDy);
+                continue;
+            }
+            float cx = boardLeft + cellSize * (viewportWidthCells / 2f + foodDx);
+            float cy = boardTop + cellSize * (viewportHeightCells / 2f + foodDy);
             float r = cellSize / 2f - 4;
             canvas.drawCircle(cx, cy, Math.max(4, r), paint);
         }
@@ -342,6 +382,97 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         paint.setTextSize(40);
         paint.setTypeface(Typeface.DEFAULT);
         canvas.drawText("Score: " + (snake.size() - 3), 10, 40, paint);
+        canvas.restore();
+    }
+
+    private void drawBoard(Canvas canvas) {
+        float boardWidth = screenW;
+        float boardHeight = screenH;
+        float centerX = boardLeft + boardWidth / 2f;
+        float centerY = boardTop + boardHeight / 2f;
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1);
+        paint.setColor(Color.rgb(70, 70, 70));
+        canvas.save();
+        clipToWorld(canvas, cameraX, cameraY);
+        for (int worldX = 0; worldX < cols - 1; worldX++) {
+            float x = centerX + (worldX + 0.5f - cameraX) * cellSize;
+            canvas.drawLine(x, boardTop, x, boardTop + boardHeight, paint);
+        }
+        for (int worldY = 0; worldY < rows - 1; worldY++) {
+            float y = centerY + (worldY + 0.5f - cameraY) * cellSize;
+            canvas.drawLine(boardLeft, y, boardLeft + boardWidth, y, paint);
+        }
+        canvas.restore();
+
+        paint.setStrokeWidth(6);
+        paint.setColor(Color.RED);
+        float leftEdge = centerX + (-0.5f - cameraX) * cellSize;
+        float rightEdge = centerX + (cols - 0.5f - cameraX) * cellSize;
+        float topEdge = centerY + (-0.5f - cameraY) * cellSize;
+        float bottomEdge = centerY + (rows - 0.5f - cameraY) * cellSize;
+        canvas.drawLine(leftEdge, boardTop, leftEdge, boardTop + boardHeight, paint);
+        canvas.drawLine(rightEdge, boardTop, rightEdge, boardTop + boardHeight, paint);
+        canvas.drawLine(boardLeft, topEdge, boardLeft + boardWidth, topEdge, paint);
+        canvas.drawLine(boardLeft, bottomEdge, boardLeft + boardWidth, bottomEdge, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    private void clipToWorld(Canvas canvas, float viewCameraX, float viewCameraY) {
+        float centerX = boardLeft + screenW / 2f;
+        float centerY = boardTop + screenH / 2f;
+        float left = centerX + (-0.5f - viewCameraX) * cellSize;
+        float right = centerX + (cols - 0.5f - viewCameraX) * cellSize;
+        float top = centerY + (-0.5f - viewCameraY) * cellSize;
+        float bottom = centerY + (rows - 0.5f - viewCameraY) * cellSize;
+        canvas.clipRect(Math.max(0, left), Math.max(0, top),
+                Math.min(screenW, right), Math.min(screenH, bottom));
+    }
+
+    private void updateCamera() {
+        if (snake.isEmpty()) return;
+        float targetX = snake.get(0).x;
+        float targetY = snake.get(0).y;
+        if (!cameraInitialized) {
+            cameraX = targetX;
+            cameraY = targetY;
+            cameraInitialized = true;
+            return;
+        }
+        cameraX += (targetX - cameraX) * 0.14f;
+        cameraY += (targetY - cameraY) * 0.14f;
+    }
+
+    private float wrappedDelta(float delta, int size) {
+        while (delta > size / 2f) delta -= size;
+        while (delta < -size / 2f) delta += size;
+        return delta;
+    }
+
+    private void drawFoodArrow(Canvas canvas, float dx, float dy) {
+        float length = Math.min(screenW, screenH) / 2f - cellSize;
+        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+        if (distance == 0) return;
+        float dirX = dx / distance;
+        float dirY = dy / distance;
+        float centerX = boardLeft + screenW / 2f;
+        float centerY = boardTop + screenH / 2f;
+        float tipX = centerX + dirX * length;
+        float tipY = centerY + dirY * length;
+        float sideX = -dirY * cellSize * 0.35f;
+        float sideY = dirX * cellSize * 0.35f;
+        float backX = tipX - dirX * cellSize * 0.75f;
+        float backY = tipY - dirY * cellSize * 0.75f;
+
+        android.graphics.Path arrow = new android.graphics.Path();
+        arrow.moveTo(tipX, tipY);
+        arrow.lineTo(backX + sideX, backY + sideY);
+        arrow.lineTo(backX - sideX, backY - sideY);
+        arrow.close();
+        paint.setColor(Color.RED);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawPath(arrow, paint);
     }
 
     private void drawDim(Canvas canvas) {
@@ -704,6 +835,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         screenW = width;
         screenH = height;
+        configureBoard();
         layoutButtons();
     }
 
