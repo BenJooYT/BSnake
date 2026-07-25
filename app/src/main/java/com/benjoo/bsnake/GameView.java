@@ -206,9 +206,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     // Cycle between camera modes and reconfigure the board layout.
     @Override
     public void toggleCameraMode() {
-        state.cameraMode = state.cameraMode == GameState.CameraMode.CLASSIC_ZOOM
-                ? GameState.CameraMode.FULL_PLAY_AREA
-                : GameState.CameraMode.CLASSIC_ZOOM;
+        GameState.CameraMode[] modes = GameState.CameraMode.values();
+        state.cameraMode = modes[(state.cameraMode.ordinal() + 1) % modes.length];
         state.configureBoard();
         state.layoutButtons();
     }

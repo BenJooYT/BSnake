@@ -19,7 +19,7 @@ public class GameState {
     SortMode sortMode = SortMode.HIGH_SCORE;
 
     // Camera modes — how the viewport frames the game board
-    enum CameraMode { CLASSIC_ZOOM, FULL_PLAY_AREA }
+    enum CameraMode { CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL }
     CameraMode cameraMode = CameraMode.CLASSIC_ZOOM;
 
     // A single leaderboard entry persisted in SharedPreferences
@@ -63,7 +63,7 @@ public class GameState {
     int screenW, screenH;
 
     // Cell sizes for each camera mode (computed in configureBoard)
-    int classicCellSize, fullAreaCellSize;
+    int classicCellSize, fullAreaCellSize, fitVerticalCellSize;
 
     // Hit-box rectangles for every interactive button across all screens
     RectF startBtn, speedBtn, settingsBtn, leaderboardBtn, exitBtn;
@@ -131,11 +131,12 @@ public class GameState {
     }
 
     // Scale cell sizes to fit the current screen width.
-    // The renderer overrides cellSize in FULL_PLAY_AREA mode during gameplay.
+    // The renderer overrides cellSize during gameplay for non-CLASSIC_ZOOM modes.
     void configureBoard() {
         uiCellSize = Math.max(16, screenW / 20);
         classicCellSize = Math.max(8, screenW / 10);
         fullAreaCellSize = Math.max(4, Math.min(screenW / cols, screenH / rows));
+        fitVerticalCellSize = Math.max(4, screenH / rows);
         cellSize = classicCellSize;
         viewportWidthCells = screenW / (float) cellSize;
         viewportHeightCells = screenH / (float) cellSize;

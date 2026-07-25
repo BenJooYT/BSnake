@@ -69,10 +69,14 @@ class GameRenderer {
         int savedCellSize = state.cellSize;
         float savedViewportW = state.viewportWidthCells;
         float savedViewportH = state.viewportHeightCells;
-        if (state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
-            state.cellSize = state.fullAreaCellSize;
-            state.viewportWidthCells = state.screenW / (float) state.fullAreaCellSize;
-            state.viewportHeightCells = state.screenH / (float) state.fullAreaCellSize;
+        if (state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM) {
+            if (state.cameraMode == GameState.CameraMode.FIT_VERTICAL) {
+                state.cellSize = state.fitVerticalCellSize;
+            } else {
+                state.cellSize = state.fullAreaCellSize;
+            }
+            state.viewportWidthCells = state.screenW / (float) state.cellSize;
+            state.viewportHeightCells = state.screenH / (float) state.cellSize;
         }
         updateCamera(t);
         drawBoard(canvas);
@@ -227,11 +231,12 @@ class GameRenderer {
 
     // Set the camera position each frame.  In CLASSIC_ZOOM mode the viewport
     // follows the tweened head position (snapping on wrap).  In FULL_PLAY_AREA
-    // mode it stays fixed at the board center so the entire grid is visible.
+    // mode it stays fixed at the board center.  In FIT_VERTICAL mode Y is fixed
+    // at the board center while X follows the snake head horizontally.
     private void updateCamera(float t) {
         if (state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
-            state.cameraX = state.cols / 2f;
-            state.cameraY = state.rows / 2f;
+            state.cameraX = state.cols / 2f - 0.5f;
+            state.cameraY = state.rows / 2f - 0.5f;
             return;
         }
         if (state.snake.isEmpty() || state.prevSnake.isEmpty()) return;
@@ -239,7 +244,13 @@ class GameRenderer {
         Point cur = state.snake.get(0);
         float dx = cur.x - prev.x;
         float dy = cur.y - prev.y;
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
+        if (state.cameraMode == GameState.CameraMode.FIT_VERTICAL) {
+            state.cameraX = wrapped ? cur.x : prev.x + dx * t;
+            state.cameraY = state.rows / 2f - 0.5f;
+            return;
+        }
+        if (wrapped) {
             state.cameraX = cur.x;
             state.cameraY = cur.y;
         } else {
@@ -312,7 +323,12 @@ class GameRenderer {
         drawColorField(canvas, state.headInputBtn, "HEAD:  " + state.headHex, state.headColor);
         drawColorField(canvas, state.bodyInputBtn, "BODY:  " + state.bodyHex, state.bodyColor);
         drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.screenH * 0.50f, 26, Color.WHITE, false);
-        String camLabel = state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA ? "FULL AREA" : "CLASSIC ZOOM";
+        String camLabel;
+        switch (state.cameraMode) {
+            case FULL_PLAY_AREA: camLabel = "FULL AREA"; break;
+            case FIT_VERTICAL:   camLabel = "FIT VERTICAL"; break;
+            default:             camLabel = "CLASSIC ZOOM"; break;
+        }
         drawButton(canvas, state.cameraModeBtn, camLabel);
         drawButton(canvas, state.settingsApplyBtn, "APPLY");
         drawButton(canvas, state.settingsBackBtn, "BACK");
