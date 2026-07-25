@@ -199,10 +199,10 @@ public class SnakeEngine {
         }
     }
 
-    // Teleport the boss to a new random valid position; if none available the boss
-    // stays put.
+    // Teleport the boss to a new random position that is not on the snake;
+    // if none available the boss stays put.
     private void teleportBoss() {
-        Point pos = findBossPosition();
+        Point pos = findTeleportPosition();
         if (pos != null) {
             state.boss.x = pos.x;
             state.boss.y = pos.y;
@@ -250,7 +250,7 @@ public class SnakeEngine {
         }
     }
 
-    // Find any valid 2x2 position for the boss (bounds + no overlap with anything).
+    // Find any valid 2x2 position for the boss (bounds + no overlap with snake/food/trail).
     // Tries random positions; gives up after MAX_ATTEMPTS and returns null.
     private Point findBossPosition() {
         int maxX = state.cols - 2;
@@ -263,6 +263,29 @@ public class SnakeEngine {
             if (isBossPositionValid(px, py)) {
                 return new Point(px, py);
             }
+            attempts++;
+        }
+        return null;
+    }
+
+    // Find a random 2x2 position that stays in bounds and does not overlap the
+    // snake (may overlap food/trail). Used for teleport-on-hit.
+    private Point findTeleportPosition() {
+        int maxX = state.cols - 2;
+        int maxY = state.rows - 2;
+        if (maxX < 0 || maxY < 0) return null;
+        int attempts = 0;
+        while (attempts < 100) {
+            int px = rand.nextInt(maxX + 1);
+            int py = rand.nextInt(maxY + 1);
+            if (px == state.boss.x && py == state.boss.y) continue;
+            boolean onSnake = false;
+            for (int dy = 0; dy < 2 && !onSnake; dy++) {
+                for (int dx = 0; dx < 2 && !onSnake; dx++) {
+                    if (overlapsSnake(px + dx, py + dy)) onSnake = true;
+                }
+            }
+            if (!onSnake) return new Point(px, py);
             attempts++;
         }
         return null;

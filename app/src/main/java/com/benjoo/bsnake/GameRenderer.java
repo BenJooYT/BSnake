@@ -117,8 +117,8 @@ class GameRenderer {
                 float bDy = tile.y - viewCameraY;
                 if (Math.abs(bDx) >= state.viewportWidthCells / 2f
                         || Math.abs(bDy) >= state.viewportHeightCells / 2f) continue;
-                float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + bDx);
-                float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f + bDy);
+                float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
+                float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
                 paint.setColor(Color.rgb(180, 50, 200));
                 canvas.drawRect(bx, by, bx + state.cellSize - 1, by + state.cellSize - 1, paint);
             }
@@ -127,8 +127,8 @@ class GameRenderer {
             float bDy = state.boss.y - viewCameraY;
             if (Math.abs(bDx) < state.viewportWidthCells / 2f
                     && Math.abs(bDy) < state.viewportHeightCells / 2f) {
-                float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + bDx);
-                float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f + bDy);
+                float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
+                float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
                 paint.setColor(Color.WHITE);
                 paint.setTextSize(state.cellSize * 0.5f);
                 paint.setTypeface(Typeface.DEFAULT_BOLD);
@@ -142,8 +142,8 @@ class GameRenderer {
             float tDy = tc.y - viewCameraY;
             if (Math.abs(tDx) >= state.viewportWidthCells / 2f
                     || Math.abs(tDy) >= state.viewportHeightCells / 2f) continue;
-            float tx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + tDx);
-            float ty = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f + tDy);
+            float tx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + tDx);
+            float ty = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + tDy);
             float age = (state.tickCount - tc.createdAtTick) / (float) 40;
             int alpha = (int) (255 * (1f - age * 0.5f));
             alpha = Math.max(120, Math.min(255, alpha));
