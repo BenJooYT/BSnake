@@ -4,8 +4,13 @@ import android.graphics.Point;
 import android.graphics.RectF;
 import android.view.MotionEvent;
 
+// Processes touch events and drives state-machine transitions.
+// Simple state/data changes are applied directly; complex operations
+// (settings, keyboard, app exit) are delegated through GameActions.
 class InputHandler {
 
+    // Callback interface that GameView implements for actions requiring
+    // Android framework access (keyboard, Activity, etc.).
     interface GameActions {
         void startNewGame();
         void cycleSpeed();
@@ -14,11 +19,17 @@ class InputHandler {
         void editColorField(int index);
         void dismissKeyboard();
         void exitApp();
+        void toggleDevMode();
+        void showDevScoreInput();
     }
 
     private final GameState state;
     private final SnakeEngine engine;
     private final GameActions actions;
+
+    // Triple-tap detection for dev mode (stores last 3 tap timestamps)
+    private final long[] titleTapTimes = new long[3];
+    private int titleTapIndex = 0;
 
     InputHandler(GameState state, SnakeEngine engine, GameActions actions) {
         this.state = state;
@@ -26,6 +37,8 @@ class InputHandler {
         this.actions = actions;
     }
 
+    // Record touch-down coordinates for swipe detection; dispatch
+    // touch-up to the state-machine handler.
     boolean onTouchEvent(MotionEvent event) {
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
@@ -39,6 +52,7 @@ class InputHandler {
         return true;
     }
 
+    // Route the touch-up event based on the current screen state.
     private void handleTouchUp(float upX, float upY) {
         switch (state.currentState) {
             case MENU:
@@ -52,6 +66,19 @@ class InputHandler {
                     state.currentState = GameState.State.LEADERBOARD;
                 } else if (contains(state.exitBtn, upX, upY)) {
                     actions.exitApp();
+                } else if (state.devMode && contains(state.devScoreBtn, upX, upY)) {
+                    actions.showDevScoreInput();
+                } else if (isTapOnTitle(upX, upY)) {
+                    // Triple-tap toggles dev mode
+                    titleTapTimes[titleTapIndex % 3] = System.currentTimeMillis();
+                    titleTapIndex++;
+                    if (titleTapIndex >= 3) {
+                        long now = System.currentTimeMillis();
+                        if (now - titleTapTimes[0] <= 500) {
+                            actions.toggleDevMode();
+                            titleTapIndex = 0;
+                        }
+                    }
                 }
                 break;
 
@@ -93,6 +120,9 @@ class InputHandler {
                 }
                 break;
 
+            // During gameplay: a small tap on the pause icon pauses;
+            // a swipe determines the next direction and enqueues it
+            // (max depth 2, 180-degree reversals rejected).
             case PLAYING:
                 float dx = upX - state.downX;
                 float dy = upY - state.downY;
@@ -125,6 +155,15 @@ class InputHandler {
         }
     }
 
+    // Check if the tap landed in the "SNAKE" title area (top-center)
+    private boolean isTapOnTitle(float x, float y) {
+        float titleY = state.screenH * 0.24f;
+        float halfW = 200;
+        return x > state.screenW / 2f - halfW && x < state.screenW / 2f + halfW
+                && y > titleY - 60 && y < titleY + 60;
+    }
+
+    // Hit-test: true if the point (x, y) falls inside rect r.
     private boolean contains(RectF r, float x, float y) {
         return r != null && r.contains(x, y);
     }
