@@ -26,6 +26,23 @@ Features
 Changelog
 ---------
 
+### 1.3.3
+Changes since v1.3.1:
+- Score/size decoupling: score and snake length are now independent.
+  Normal food: +1 score +1 growth. Trail fruit: +1 score, no growth.
+  Boss hit: +5 score, shrink by 3 (min 3). Boss defeat: +25 score +5 growth.
+- Boss can be trapped: movement avoids snake tiles; teleport avoids
+  snake only (may land on food/trail).
+- Live color preview: swatch in settings updates immediately as the
+  player types a hex value; invalid input keeps the previous valid color.
+- Three camera modes: CLASSIC_ZOOM (original head-following),
+  FULL_PLAY_AREA (fits entire board on screen, fixed centered camera),
+  FIT_VERTICAL (fits full board height, camera pans horizontally with
+  the snake). Camera modes toggled from the settings screen.
+- Camera centering fix: full-area modes now subtract 0.5 from the
+  camera position to compensate for the half-cell offset in the drawing
+  formula, placing the board exactly at the screen center.
+  
 ### 1.2.0
 - Added a fixed 32x32 gameplay world.
 - Added dark gray grid lines with a red boundary around the play space.
