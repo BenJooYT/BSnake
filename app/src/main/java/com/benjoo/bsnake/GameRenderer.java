@@ -64,7 +64,16 @@ class GameRenderer {
     // draws each snake segment (interpolated between prevSnake and snake using
     // fraction t, with wrap detection to avoid tweening across the map), red
     // food circles (or off-screen arrows), and the score label at top-left.
+    // The effective cell size changes based on the active camera mode.
     private void drawGameField(Canvas canvas, float t) {
+        int savedCellSize = state.cellSize;
+        float savedViewportW = state.viewportWidthCells;
+        float savedViewportH = state.viewportHeightCells;
+        if (state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
+            state.cellSize = state.fullAreaCellSize;
+            state.viewportWidthCells = state.screenW / (float) state.fullAreaCellSize;
+            state.viewportHeightCells = state.screenH / (float) state.fullAreaCellSize;
+        }
         updateCamera(t);
         drawBoard(canvas);
         float viewCameraX = state.snake.isEmpty() ? state.cols / 2f : state.cameraX;
@@ -158,9 +167,13 @@ class GameRenderer {
         paint.setColor(Color.WHITE);
         paint.setTextSize(40);
         paint.setTypeface(Typeface.DEFAULT);
-        String scoreLabel = "Score: " + (state.snake.size() - 3);
+        String scoreLabel = "Score: " + state.score;
         if (state.devMode) scoreLabel += " [DEV]";
         canvas.drawText(scoreLabel, 10, 40, paint);
+
+        state.cellSize = savedCellSize;
+        state.viewportWidthCells = savedViewportW;
+        state.viewportHeightCells = savedViewportH;
     }
 
     // Draw the grey grid lines (clipped to the visible world area) and the
@@ -212,10 +225,15 @@ class GameRenderer {
                 Math.min(state.screenW, right), Math.min(state.screenH, bottom));
     }
 
-    // Set the camera position to the tweened head position each frame so the
-    // viewport follows exactly what is drawn. On wrap/teleport the camera snaps
-    // directly to cur to avoid interpolating across the whole map.
+    // Set the camera position each frame.  In CLASSIC_ZOOM mode the viewport
+    // follows the tweened head position (snapping on wrap).  In FULL_PLAY_AREA
+    // mode it stays fixed at the board center so the entire grid is visible.
     private void updateCamera(float t) {
+        if (state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
+            state.cameraX = state.cols / 2f;
+            state.cameraY = state.rows / 2f;
+            return;
+        }
         if (state.snake.isEmpty() || state.prevSnake.isEmpty()) return;
         Point prev = state.prevSnake.get(0);
         Point cur = state.snake.get(0);
@@ -287,12 +305,15 @@ class GameRenderer {
     }
 
     // Settings screen: color swatches for head and body, current hex values,
-    // APPLY (validates and persists) and BACK buttons.
+    // camera mode toggle, APPLY (validates and persists) and BACK buttons.
     private void drawSettings(Canvas canvas) {
-        drawCenteredText(canvas, "SETTINGS", state.screenW / 2f, state.screenH * 0.14f, 64, Color.GREEN, true);
-        drawCenteredText(canvas, "CUSTOMIZE COLORS", state.screenW / 2f, state.screenH * 0.23f, 30, Color.WHITE, false);
+        drawCenteredText(canvas, "SETTINGS", state.screenW / 2f, state.screenH * 0.10f, 64, Color.GREEN, true);
+        drawCenteredText(canvas, "CUSTOMIZE COLORS", state.screenW / 2f, state.screenH * 0.19f, 26, Color.WHITE, false);
         drawColorField(canvas, state.headInputBtn, "HEAD:  " + state.headHex, state.headColor);
         drawColorField(canvas, state.bodyInputBtn, "BODY:  " + state.bodyHex, state.bodyColor);
+        drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.screenH * 0.50f, 26, Color.WHITE, false);
+        String camLabel = state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA ? "FULL AREA" : "CLASSIC ZOOM";
+        drawButton(canvas, state.cameraModeBtn, camLabel);
         drawButton(canvas, state.settingsApplyBtn, "APPLY");
         drawButton(canvas, state.settingsBackBtn, "BACK");
     }

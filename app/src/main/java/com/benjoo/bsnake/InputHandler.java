@@ -21,6 +21,7 @@ class InputHandler {
         void exitApp();
         void toggleDevMode();
         void showDevScoreInput();
+        void toggleCameraMode();
     }
 
     private final GameState state;
@@ -96,6 +97,8 @@ class InputHandler {
                     actions.editColorField(0);
                 } else if (contains(state.bodyInputBtn, upX, upY)) {
                     actions.editColorField(1);
+                } else if (contains(state.cameraModeBtn, upX, upY)) {
+                    actions.toggleCameraMode();
                 } else if (contains(state.settingsApplyBtn, upX, upY)) {
                     actions.applyColors();
                 } else if (contains(state.settingsBackBtn, upX, upY)) {

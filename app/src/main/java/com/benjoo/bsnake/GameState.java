@@ -18,6 +18,10 @@ public class GameState {
     enum SortMode { HIGH_SCORE, RECENT }
     SortMode sortMode = SortMode.HIGH_SCORE;
 
+    // Camera modes — how the viewport frames the game board
+    enum CameraMode { CLASSIC_ZOOM, FULL_PLAY_AREA }
+    CameraMode cameraMode = CameraMode.CLASSIC_ZOOM;
+
     // A single leaderboard entry persisted in SharedPreferences
     static class ScoreEntry {
         int score;
@@ -52,13 +56,18 @@ public class GameState {
     int speedIndex = 1;
     long tickDelay;
 
+    // Independent score (separate from snake size) — used for leaderboards, spawn thresholds, rewards
+    int score = 0;
     // Last score achieved (for game-over display) and screen dimensions in pixels
     int lastScore = 0;
     int screenW, screenH;
 
+    // Cell sizes for each camera mode (computed in configureBoard)
+    int classicCellSize, fullAreaCellSize;
+
     // Hit-box rectangles for every interactive button across all screens
     RectF startBtn, speedBtn, settingsBtn, leaderboardBtn, exitBtn;
-    RectF headInputBtn, bodyInputBtn, settingsApplyBtn, settingsBackBtn;
+    RectF headInputBtn, bodyInputBtn, settingsApplyBtn, settingsBackBtn, cameraModeBtn;
     RectF resumeBtn, pauseMenuBtn;
     RectF restartBtn, overMenuBtn;
     RectF lbSortBtn, lbBackBtn;
@@ -121,10 +130,13 @@ public class GameState {
         tickDelay = speedDelays[speedIndex];
     }
 
-    // Scale cell sizes to fit the current screen width
+    // Scale cell sizes to fit the current screen width.
+    // The renderer overrides cellSize in FULL_PLAY_AREA mode during gameplay.
     void configureBoard() {
         uiCellSize = Math.max(16, screenW / 20);
-        cellSize = Math.max(8, screenW / 10);
+        classicCellSize = Math.max(8, screenW / 10);
+        fullAreaCellSize = Math.max(4, Math.min(screenW / cols, screenH / rows));
+        cellSize = classicCellSize;
         viewportWidthCells = screenW / (float) cellSize;
         viewportHeightCells = screenH / (float) cellSize;
         boardLeft = 0;
@@ -145,8 +157,9 @@ public class GameState {
         leaderboardBtn = makeBtn(cx, startY + (bh + gap) * 3, bw, bh);
         exitBtn = makeBtn(cx, startY + (bh + gap) * 4, bw, bh);
 
-        headInputBtn = makeBtn(cx, screenH * 0.36f, bw, bh);
-        bodyInputBtn = makeBtn(cx, screenH * 0.48f, bw, bh);
+        headInputBtn = makeBtn(cx, screenH * 0.30f, bw, bh);
+        bodyInputBtn = makeBtn(cx, screenH * 0.40f, bw, bh);
+        cameraModeBtn = makeBtn(cx, screenH * 0.54f, bw, bh);
         settingsApplyBtn = makeBtn(cx, screenH * 0.67f, bw, bh);
         settingsBackBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
 

@@ -15,7 +15,10 @@ public class SnakeEngine {
     private static final int BOSS_MOVE_INTERVAL = 6;   // ticks between boss auto-moves
     private static final int TRAIL_MAX_AGE = 40;         // ticks before a trail cell vanishes
     private static final int BOSS_SPAWN_INTERVAL = 125;  // score threshold between bosses
-    private static final int BOSS_DEFEAT_REWARD = 30;    // growth ticks (25 score + 5 bonus)
+    private static final int BOSS_DEFEAT_SCORE = 25;     // score awarded on boss defeat
+    private static final int BOSS_DEFEAT_GROWTH = 5;     // growth ticks awarded on boss defeat
+    private static final int BOSS_HIT_SCORE = 5;         // score per boss hit
+    private static final int BOSS_HIT_SHRINK = 3;        // cells removed per boss hit
     private static final int TRAIL_CELLS_PER_HIT = 3;    // trail cells dropped on boss hit
 
     public SnakeEngine(GameState state, PersistenceManager persistence) {
@@ -24,13 +27,13 @@ public class SnakeEngine {
     }
 
     // Reset everything for a new game, including boss state.
-    // In dev mode the snake starts with extra segments matching the entered score.
+    // Score and snake size are independent; dev mode sets the starting score.
     void resetGame() {
         state.snake.clear();
+        state.score = state.devMode ? state.devStartScore : 0;
         int startX = state.cols / 2;
         int startY = state.rows / 2;
-        int baseLen = 3 + (state.devMode ? state.devStartScore : 0);
-        for (int i = 0; i < baseLen; i++) {
+        for (int i = 0; i < 3; i++) {
             state.snake.add(new Point(startX - Math.min(i, 2), startY));
         }
         state.cameraX = startX;
@@ -83,9 +86,9 @@ public class SnakeEngine {
         // Self-collision (skip score save in dev mode)
         for (Point p : state.snake) {
             if (p.x == nx && p.y == ny) {
-                state.lastScore = state.snake.size() - 3;
-                if (state.lastScore >= 0 && !state.devMode) {
-                    persistence.saveScore(state.lastScore, state.speedLabels[state.speedIndex]);
+                state.lastScore = state.score;
+                if (!state.devMode) {
+                    persistence.saveScore(state.score, state.speedLabels[state.speedIndex]);
                 }
                 state.currentState = GameState.State.GAME_OVER;
                 return;
@@ -95,7 +98,7 @@ public class SnakeEngine {
         // Prepend new head
         state.snake.add(0, new Point(nx, ny));
 
-        // ----- food eating -----
+        // ----- food eating (score + growth) -----
         boolean ateFood = false;
         Point eatenFood = null;
         for (Point f : state.foods) {
@@ -107,11 +110,12 @@ public class SnakeEngine {
         if (eatenFood != null) {
             state.foods.remove(eatenFood);
             ateFood = true;
+            state.score++;
         }
 
         // ----- boss collision (head on any of the 4 boss tiles) -----
+        boolean hitBoss = false;
         if (state.boss.alive) {
-            boolean hitBoss = false;
             for (Point tile : state.boss.getTiles()) {
                 if (nx == tile.x && ny == tile.y) {
                     hitBoss = true;
@@ -119,27 +123,34 @@ public class SnakeEngine {
                 }
             }
             if (hitBoss) {
+                state.score += BOSS_HIT_SCORE;
                 damageBoss();
             }
         }
 
-        // ----- trail eating -----
+        // ----- trail eating (score only, no growth) -----
         boolean ateTrail = false;
         for (int i = state.bossTrail.size() - 1; i >= 0; i--) {
             GameState.BossTrailCell tc = state.bossTrail.get(i);
             if (nx == tc.x && ny == tc.y) {
                 state.bossTrail.remove(i);
                 ateTrail = true;
+                state.score++;
                 break;
             }
         }
 
-        // ----- growth / tail detachment -----
-        // bossGrowthPending ticks take priority; otherwise food/trail grants 1 tick of growth
-        if (state.bossGrowthPending > 0) {
+        // ----- growth / tail detachment / boss-hit shrink -----
+        if (hitBoss) {
+            int shrink = BOSS_HIT_SHRINK;
+            while (shrink > 0 && state.snake.size() > 3) {
+                state.snake.remove(state.snake.size() - 1);
+                shrink--;
+            }
+        } else if (state.bossGrowthPending > 0) {
             state.bossGrowthPending--;
             state.prevSnake.add(new Point(state.prevSnake.get(state.prevSnake.size() - 1)));
-        } else if (ateFood || ateTrail) {
+        } else if (ateFood) {
             state.prevSnake.add(new Point(state.prevSnake.get(state.prevSnake.size() - 1)));
         } else {
             state.snake.remove(state.snake.size() - 1);
@@ -159,13 +170,12 @@ public class SnakeEngine {
         }
 
         // ----- boss spawn check -----
-        int currentScore = state.snake.size() - 3;
-        if (!state.boss.alive && currentScore >= state.nextBossSpawnScore) {
+        if (!state.boss.alive && state.score >= state.nextBossSpawnScore) {
             spawnBoss();
         }
 
         // ----- refill food to target count -----
-        int targetFoodCount = getTargetFoodCount(currentScore);
+        int targetFoodCount = getTargetFoodCount(state.score);
         while (state.foods.size() < targetFoodCount) {
             spawnFood();
         }
@@ -185,13 +195,14 @@ public class SnakeEngine {
         state.boss.lastMoveTick = state.tickCount;
     }
 
-    // Reduce boss HP by 1.  On zero → defeat (grant growth reward, clear boss).
+    // Reduce boss HP by 1.  On zero → defeat (add score + growth reward, clear boss).
     // Otherwise → teleport away and leave a trail.
     private void damageBoss() {
         state.boss.hp--;
         if (state.boss.hp <= 0) {
             state.boss.alive = false;
-            state.bossGrowthPending += BOSS_DEFEAT_REWARD;
+            state.score += BOSS_DEFEAT_SCORE;
+            state.bossGrowthPending += BOSS_DEFEAT_GROWTH;
             state.nextBossSpawnScore += BOSS_SPAWN_INTERVAL;
         } else {
             spawnBossTrail();
@@ -347,7 +358,7 @@ public class SnakeEngine {
 
     private void placeFood() {
         state.foods.clear();
-        int target = getTargetFoodCount(state.snake.size() - 3);
+        int target = getTargetFoodCount(state.score);
         while (state.foods.size() < target) {
             spawnFood();
         }

@@ -203,6 +203,16 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         }
     }
 
+    // Cycle between camera modes and reconfigure the board layout.
+    @Override
+    public void toggleCameraMode() {
+        state.cameraMode = state.cameraMode == GameState.CameraMode.CLASSIC_ZOOM
+                ? GameState.CameraMode.FULL_PLAY_AREA
+                : GameState.CameraMode.CLASSIC_ZOOM;
+        state.configureBoard();
+        state.layoutButtons();
+    }
+
     // Toggle developer mode on/off.  When activated, show the keyboard for
     // entering a starting score; when deactivated, dismiss the keyboard.
     @Override
@@ -253,8 +263,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     state.devScoreText = s.toString();
                 } else if (state.editingColor == 0) {
                     state.headHex = s.toString();
+                    Integer c = persistence.parseHexColor(state.headHex);
+                    if (c != null) state.headColor = c;
                 } else if (state.editingColor == 1) {
                     state.bodyHex = s.toString();
+                    Integer c = persistence.parseHexColor(state.bodyHex);
+                    if (c != null) state.bodyColor = c;
                 }
                 invalidate();
             }
