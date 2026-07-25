@@ -22,6 +22,29 @@ Features
 - Improved input & collision handling:
   - 2-item input queue for responsive controls
   - Prevents instant 180-degree self-collisions when multiple rapid turns occur before a game tick
+- **Boss Fruit System (v1.3.0+)**:
+  - 2x2 purple boss spawns every 125 score with 5 HP
+  - Boss moves randomly and attacks with collisions
+  - Defeating the boss grants +25 score and +5 snake growth
+  - Boss drops golden trail cells upon collision that expire after 40 ticks
+- **Multiple Camera Modes (v1.3.2+)**:
+  - CLASSIC_ZOOM: Original head-following camera
+  - FULL_PLAY_AREA: Fits entire board on screen with fixed centered camera
+  - FIT_VERTICAL: Fits full board height while camera pans horizontally with the snake
+  - Camera modes toggled from the settings screen
+- **Live Color Preview (v1.3.2+)**: Color swatch in settings updates immediately as you type hex values
+- **Developer Mode (v1.3.0+)**:
+  - Triple-tap the SNAKE title to toggle (on/off within 500ms)
+  - Allows setting a starting score via number input
+  - Scores in dev mode are NOT saved to the leaderboard
+- **Score/Size Decoupling (v1.3.3+)**:
+  - Normal food: +1 score +1 growth
+  - Trail fruit: +1 score, no growth
+  - Boss hit: +5 score, shrink by 3 (minimum 3)
+  - Boss defeat: +25 score +5 growth
+- **Boss AI Improvement (v1.3.1+)**:
+  - Boss movement avoids snake tiles (can be trapped)
+  - Teleport avoids snake only (may land on food/trail)
 
 Changelog
 ---------
@@ -42,7 +65,22 @@ Changes since v1.3.1:
 - Camera centering fix: full-area modes now subtract 0.5 from the
   camera position to compensate for the half-cell offset in the drawing
   formula, placing the board exactly at the screen center.
-  
+
+### 1.3.2
+- Live color preview: swatch in settings updates immediately as you type hex values
+- Multiple camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
+- Camera mode toggle added to the settings screen
+
+### 1.3.1
+- Boss AI improvement: movement avoids snake tiles (can be trapped)
+- Teleport behavior: avoids snake only (may land on food/trail)
+
+### 1.3.0
+- Boss Fruit System: 2x2 purple boss spawns every 125 score with 5 HP
+- Boss collision deals damage and causes teleport with golden trail cells
+- Developer Mode: triple-tap SNAKE title to enable/disable with custom starting score
+- Score text always drawn on top, never hidden by camera viewport
+
 ### 1.2.0
 - Added a fixed 32x32 gameplay world.
 - Added dark gray grid lines with a red boundary around the play space.
