@@ -31,6 +31,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     SnakeEngine engine;
     GameRenderer renderer;
     InputHandler input;
+    MenuMusic menuMusic;
+    SoundEffects soundEffects;
 
     // Invisible EditText used to capture hex-color keyboard input on the settings screen
     EditText keyboardInput;
@@ -54,7 +56,14 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         engine = new SnakeEngine(state, persistence);
         renderer = new GameRenderer(state, persistence);
         input = new InputHandler(state, engine, this);
+        menuMusic = new MenuMusic();
+        soundEffects = new SoundEffects();
+        engine.setSoundEffects(soundEffects);
+        persistence.loadVolumes(state);
+        soundEffects.setVolume(state.sfxVolume);
+        menuMusic.setVolume(state.musicVolume);
         persistence.loadColors(state);
+        persistence.loadCameraMode(state);
     }
 
     // Register the surface callback
@@ -93,6 +102,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             } else if (state.currentState != GameState.State.PLAYING) {
                 lastTick = now;
             }
+            // Start/stop menu music based on current screen state
+            if (state.currentState == GameState.State.MENU) {
+                if (!menuMusic.isPlaying()) menuMusic.start();
+            } else {
+                if (menuMusic.isPlaying()) menuMusic.stop();
+            }
+
             float t = Math.min(1f, (now - lastTick) / (float) state.tickDelay);
             Canvas canvas = null;
             if (holder.getSurface().isValid()) {
@@ -115,11 +131,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.layoutButtons();
     }
 
-    // Stop the game loop and wait for the thread to finish
+    // Stop the game loop, release audio, and wait for the thread to finish
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         running = false;
         try { if (thread != null) thread.join(); } catch (InterruptedException e) { }
+        menuMusic.release();
+        soundEffects.release();
     }
 
     // Delegate all touch events to InputHandler
@@ -208,6 +226,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void toggleCameraMode() {
         GameState.CameraMode[] modes = GameState.CameraMode.values();
         state.cameraMode = modes[(state.cameraMode.ordinal() + 1) % modes.length];
+        persistence.saveCameraMode(state.cameraMode);
         state.configureBoard();
         state.layoutButtons();
     }
@@ -247,6 +266,25 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         keyboardInput.clearFocus();
         state.editingColor = -1;
         state.editingDevScore = false;
+    }
+
+    @Override
+    public void playClick() {
+        soundEffects.playClick();
+    }
+
+    @Override
+    public void setMusicVolume(float vol) {
+        state.musicVolume = vol;
+        menuMusic.setVolume(vol);
+        persistence.saveVolumes(state.musicVolume, state.sfxVolume);
+    }
+
+    @Override
+    public void setSfxVolume(float vol) {
+        state.sfxVolume = vol;
+        soundEffects.setVolume(vol);
+        persistence.saveVolumes(state.musicVolume, state.sfxVolume);
     }
 
     // ----- Keyboard setup -----

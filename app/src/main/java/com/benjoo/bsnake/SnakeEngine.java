@@ -12,6 +12,7 @@ public class SnakeEngine {
     private final GameState state;
     private final PersistenceManager persistence;
     private final Random rand = new Random();
+    private SoundEffects sound;
     private static final int BOSS_MOVE_INTERVAL = 6;   // ticks between boss auto-moves
     private static final int TRAIL_MAX_AGE = 40;         // ticks before a trail cell vanishes
     private static final int BOSS_SPAWN_INTERVAL = 125;  // score threshold between bosses
@@ -24,6 +25,10 @@ public class SnakeEngine {
     public SnakeEngine(GameState state, PersistenceManager persistence) {
         this.state = state;
         this.persistence = persistence;
+    }
+
+    void setSoundEffects(SoundEffects sound) {
+        this.sound = sound;
     }
 
     // Reset everything for a new game, including boss state.
@@ -111,6 +116,7 @@ public class SnakeEngine {
             state.foods.remove(eatenFood);
             ateFood = true;
             state.score++;
+            if (sound != null) sound.playCrunch();
         }
 
         // ----- boss collision (head on any of the 4 boss tiles) -----
@@ -124,7 +130,12 @@ public class SnakeEngine {
             }
             if (hitBoss) {
                 state.score += BOSS_HIT_SCORE;
+                boolean killingBlow = state.boss.hp <= 1;
                 damageBoss();
+                if (sound != null) {
+                    if (killingBlow) sound.playBossDefeat();
+                    else sound.playDamage();
+                }
             }
         }
 

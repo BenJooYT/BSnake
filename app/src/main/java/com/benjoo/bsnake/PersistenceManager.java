@@ -71,6 +71,33 @@ public class PersistenceManager {
         prefs.edit().putInt("headColor", headColor).putInt("bodyColor", bodyColor).apply();
     }
 
+    // Restore previously saved camera mode (defaults to CLASSIC_ZOOM).
+    void loadCameraMode(GameState state) {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        int ord = prefs.getInt("cameraMode", 0);
+        GameState.CameraMode[] modes = GameState.CameraMode.values();
+        if (ord >= 0 && ord < modes.length) state.cameraMode = modes[ord];
+    }
+
+    // Persist the current camera mode ordinal.
+    void saveCameraMode(GameState.CameraMode mode) {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        prefs.edit().putInt("cameraMode", mode.ordinal()).apply();
+    }
+
+    // Restore previously saved volume levels (defaults to 1.0 = full).
+    void loadVolumes(GameState state) {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        state.musicVolume = prefs.getFloat("musicVolume", 0.25f);
+        state.sfxVolume = prefs.getFloat("sfxVolume", 0.5f);
+    }
+
+    // Persist current volume levels.
+    void saveVolumes(float musicVolume, float sfxVolume) {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        prefs.edit().putFloat("musicVolume", musicVolume).putFloat("sfxVolume", sfxVolume).apply();
+    }
+
     // Parse a #RRGGBB (or RRGGBB) hex string to an integer color; returns null on invalid input.
     Integer parseHexColor(String value) {
         String hex = value == null ? "" : value.trim();

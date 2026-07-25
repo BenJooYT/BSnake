@@ -322,7 +322,7 @@ class GameRenderer {
         drawCenteredText(canvas, "CUSTOMIZE COLORS", state.screenW / 2f, state.screenH * 0.19f, 26, Color.WHITE, false);
         drawColorField(canvas, state.headInputBtn, "HEAD:  " + state.headHex, state.headColor);
         drawColorField(canvas, state.bodyInputBtn, "BODY:  " + state.bodyHex, state.bodyColor);
-        drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.screenH * 0.50f, 26, Color.WHITE, false);
+        drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.screenH * 0.51f, 26, Color.WHITE, false);
         String camLabel;
         switch (state.cameraMode) {
             case FULL_PLAY_AREA: camLabel = "FULL AREA"; break;
@@ -330,8 +330,36 @@ class GameRenderer {
             default:             camLabel = "CLASSIC ZOOM"; break;
         }
         drawButton(canvas, state.cameraModeBtn, camLabel);
+        drawVolumeSlider(canvas, "MUSIC", state.musicSliderTrack, state.musicVolume);
+        drawVolumeSlider(canvas, "SFX", state.sfxSliderTrack, state.sfxVolume);
         drawButton(canvas, state.settingsApplyBtn, "APPLY");
         drawButton(canvas, state.settingsBackBtn, "BACK");
+    }
+
+    // Draw a labeled volume slider with a filled track bar and a circular thumb.
+    private void drawVolumeSlider(Canvas canvas, String label, RectF track, float volume) {
+        if (track == null) return;
+        float cy = track.centerY();
+
+        // Label above the slider
+        drawCenteredText(canvas, label, state.screenW / 2f, track.top - 6, 20, Color.WHITE, true);
+
+        float barTop = cy - 4;
+        float barBot = cy + 4;
+        float left = track.left + 8;
+        float right = track.right - 8;
+        float fillX = left + (right - left) * volume;
+        float radius = 14;
+
+        paint.setColor(Color.DKGRAY);
+        canvas.drawRect(left, barTop, right, barBot, paint);
+
+        paint.setColor(Color.GREEN);
+        canvas.drawRect(left, barTop, fillX, barBot, paint);
+
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(fillX, cy, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     // A labeled color swatch: a green-outlined rect with the selected color

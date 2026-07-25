@@ -126,6 +126,11 @@ public class GameState {
     boolean editingDevScore = false;       // true while keyboard is active for dev score
     RectF devScoreBtn;                     // tap target for the start-score display
 
+    // Volume settings (0.0 – 1.0)
+    float musicVolume = 0.25f;
+    float sfxVolume = 0.5f;
+    RectF musicSliderTrack, sfxSliderTrack;
+
     GameState() {
         tickDelay = speedDelays[speedIndex];
     }
@@ -160,9 +165,17 @@ public class GameState {
 
         headInputBtn = makeBtn(cx, screenH * 0.30f, bw, bh);
         bodyInputBtn = makeBtn(cx, screenH * 0.40f, bw, bh);
-        cameraModeBtn = makeBtn(cx, screenH * 0.54f, bw, bh);
-        settingsApplyBtn = makeBtn(cx, screenH * 0.67f, bw, bh);
-        settingsBackBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
+        cameraModeBtn = makeBtn(cx, screenH * 0.55f, bw, bh);
+
+        float sliderW = bw * 0.85f;
+        float sliderH = 40;
+        musicSliderTrack = new RectF(cx - sliderW / 2f, screenH * 0.64f - sliderH / 2f,
+                                     cx + sliderW / 2f, screenH * 0.64f + sliderH / 2f);
+        sfxSliderTrack = new RectF(cx - sliderW / 2f, screenH * 0.73f - sliderH / 2f,
+                                   cx + sliderW / 2f, screenH * 0.73f + sliderH / 2f);
+
+        settingsApplyBtn = makeBtn(cx, screenH * 0.82f, bw, bh);
+        settingsBackBtn = makeBtn(cx, screenH * 0.92f, bw, bh);
 
         resumeBtn = makeBtn(cx, screenH * 0.5f, bw, bh);
         pauseMenuBtn = makeBtn(cx, screenH * 0.5f + bh + gap, bw, bh);

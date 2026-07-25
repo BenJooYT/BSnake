@@ -2,103 +2,65 @@
 
 Simple Snake game for Android, AIDE-compatible.
 
-Features
-- Java Android project (minSdk 16)
-- Portrait orientation
-- Fixed 32x32 gameplay grid with a red boundary and dark gray grid lines
-- Zoomed camera showing approximately 10 cells horizontally, centered on the snake, with off-screen food direction arrows
-- Added a red boundary around the 32x32 play area; crossing it teleports the snake to the opposite side
-- Simple swipe controls (improved: 2-item input queue to avoid dropped inputs and jerky turns)
-- Snake and food drawn with shapes (no external assets)
-- Local Leaderboard system:
-  - LEADERBOARD button on the main menu
-  - Persistent score tracking via SharedPreferences
-  - Leaderboard overlay with sorting by High Score or Recent Date (toggle) and back navigation
-  - Leaderboard entries include the difficulty used for each game
-  - Settings menu for customizing head and body colors with hex codes
-- Score-based food scaling and multi-food support:
-  - Food scaling thresholds: 50score * Math.pow(2, foodCount - 1)
-  - Up to 6 active food items on the grid
-- Improved input & collision handling:
-  - 2-item input queue for responsive controls
-  - Prevents instant 180-degree self-collisions when multiple rapid turns occur before a game tick
-- **Boss Fruit System (v1.3.0+)**:
-  - 2x2 purple boss spawns every 125 score with 5 HP
-  - Boss moves randomly and attacks with collisions
-  - Defeating the boss grants +25 score and +5 snake growth
-  - Boss drops golden trail cells upon collision that expire after 40 ticks
-- **Multiple Camera Modes (v1.3.2+)**:
-  - CLASSIC_ZOOM: Original head-following camera
-  - FULL_PLAY_AREA: Fits entire board on screen with fixed centered camera
-  - FIT_VERTICAL: Fits full board height while camera pans horizontally with the snake
-  - Camera modes toggled from the settings screen
-- **Live Color Preview (v1.3.2+)**: Color swatch in settings updates immediately as you type hex values
-- **Developer Mode (v1.3.0+)**:
-  - Triple-tap the SNAKE title to toggle (on/off within 500ms)
-  - Allows setting a starting score via number input
-  - Scores in dev mode are NOT saved to the leaderboard
-- **Score/Size Decoupling (v1.3.3+)**:
-  - Normal food: +1 score +1 growth
-  - Trail fruit: +1 score, no growth
-  - Boss hit: +5 score, shrink by 3 (minimum 3)
-  - Boss defeat: +25 score +5 growth
-- **Boss AI Improvement (v1.3.1+)**:
-  - Boss movement avoids snake tiles (can be trapped)
-  - Teleport avoids snake only (may land on food/trail)
+## Features
 
-Changelog
----------
+- Java Android project (minSdk 16, portrait orientation)
+- Fixed 32×32 toroidal grid with red boundary and grid lines
+- Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
+- Swipe controls with 2-item input queue (no dropped inputs or 180° reversals)
+- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
+- **Boss Fruit System** — 2×2 purple boss with 5 HP spawns every 125 score; drops golden trail cells on hit; grants +25 score and +5 growth on defeat
+- **Multi-food scaling** — up to 6 food items active simultaneously
+- **Score/size decoupling** — normal food (+1/+1 growth), trail fruit (+1/+0), boss hit (+5/−3 shrink), boss defeat (+25/+5)
+- **Leaderboard** — top 20 entries with score, timestamp, and difficulty; sortable by score or date
+- **Live color preview** — hex head/body color input updates swatch in real time
+- **Developer mode** — triple-tap the SNAKE title to set a custom starting score (scores not saved)
+- **In-app update checker** — fetches version.json from GitHub, prompts to download new APK
+- No external assets or libraries — everything drawn with Canvas shapes and synthesized audio
+
+## Changelog
+
+### 1.3.7
+- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX (click, crunch, damage, boss defeat)
+- Music and SFX volume sliders in settings with drag-to-adjust and persistent volume preferences
+- Sound effects on button presses, food eating, boss damage, and boss defeat
+- Persistent camera mode selection across sessions
+- Default music volume 25%, SFX volume 50% on first-ever startup
+- Fix: pre-allocate AudioTrack objects to eliminate stutter when sounds play during gameplay
+- Consolidated README feature list and cleaned up changelog
+
+### 1.3.5
+- Added in-app update prompt that checks GitHub for new versions
+
+### 1.3.4
+- Bump to v1.3.4; add in-app update prompt with GitHub version check
 
 ### 1.3.3
-Changes since v1.3.1:
-- Score/size decoupling: score and snake length are now independent.
-  Normal food: +1 score +1 growth. Trail fruit: +1 score, no growth.
-  Boss hit: +5 score, shrink by 3 (min 3). Boss defeat: +25 score +5 growth.
-- Boss can be trapped: movement avoids snake tiles; teleport avoids
-  snake only (may land on food/trail).
-- Live color preview: swatch in settings updates immediately as the
-  player types a hex value; invalid input keeps the previous valid color.
-- Three camera modes: CLASSIC_ZOOM (original head-following),
-  FULL_PLAY_AREA (fits entire board on screen, fixed centered camera),
-  FIT_VERTICAL (fits full board height, camera pans horizontally with
-  the snake). Camera modes toggled from the settings screen.
-- Camera centering fix: full-area modes now subtract 0.5 from the
-  camera position to compensate for the half-cell offset in the drawing
-  formula, placing the board exactly at the screen center.
+- Score/size decoupling: score and snake length are now independent
+- Boss AI: movement avoids snake tiles; teleport avoids snake only
+- Live color preview: swatch updates immediately as player types hex
+- Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
 
 ### 1.3.2
-- Live color preview: swatch in settings updates immediately as you type hex values
-- Multiple camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
-- Camera mode toggle added to the settings screen
+- Live color preview and multiple camera modes
 
 ### 1.3.1
-- Boss AI improvement: movement avoids snake tiles (can be trapped)
-- Teleport behavior: avoids snake only (may land on food/trail)
+- Boss AI improvement: movement avoids snake tiles
 
 ### 1.3.0
-- Boss Fruit System: 2x2 purple boss spawns every 125 score with 5 HP
-- Boss collision deals damage and causes teleport with golden trail cells
-- Developer Mode: triple-tap SNAKE title to enable/disable with custom starting score
-- Score text always drawn on top, never hidden by camera viewport
+- Boss Fruit System (2×2 purple boss, 5 HP, trail cells)
+- Developer Mode (triple-tap title, custom starting score)
 
 ### 1.2.0
-- Added a fixed 32x32 gameplay world.
-- Added dark gray grid lines with a red boundary around the play space.
-- Added a zoomed camera showing approximately 10 cells horizontally.
-- Added smooth camera following centered on the snake.
-- Added red directional arrows for food outside the visible area.
-- Added world-edge teleportation from one side of the play space to the other.
-- Clipped the grid and game objects so nothing renders outside the red boundary.
+- Fixed 32×32 world, grid lines, zoomed camera with smooth following
+- Off-screen food direction arrows, toroidal teleportation
 
 ### 1.1.0
-- Added a fully in-game settings screen for snake color customization.
-- Added head and body hex color inputs with live color previews.
-- Added persistent color preferences.
-- Replaced the native color dialog with the game-styled drawn UI.
-- Fixed Android keyboard integration for color input.
-- Preserved leaderboard difficulty display and backward compatibility with older scores.
+- Settings screen for snake color customization with live hex preview
+- Persistent color preferences via SharedPreferences
 
-AIDE instructions
-1. In AIDE, choose "Import Project" -> "Open existing project" and point to this repository folder.
-2. If AIDE asks to convert to a Gradle project, you can keep it as a standard Android project for quick editing and compiling.
-3. Open MainActivity.java or run the project to build and install on your device.
+## AIDE Instructions
+
+1. Open AIDE, choose **Import Project** → **Open existing project** and point to this repository.
+2. Keep it as a standard Android project (Gradle conversion is optional).
+3. Open `MainActivity.java` or run the project to build and install.
