@@ -53,9 +53,13 @@ public class SoundEffects {
 
     private void initTracks() {
         clickTrack = createTrack(clickBuffer.length * 2);
+        clickTrack.write(clickBuffer, 0, clickBuffer.length);
         crunchTrack = createTrack(crunchBuffer.length * 2);
+        crunchTrack.write(crunchBuffer, 0, crunchBuffer.length);
         damageTrack = createTrack(damageBuffer.length * 2);
+        damageTrack.write(damageBuffer, 0, damageBuffer.length);
         bossDefeatTrack = createTrack(bossDefeatBuffer.length * 2);
+        bossDefeatTrack.write(bossDefeatBuffer, 0, bossDefeatBuffer.length);
     }
 
     // ----- sound generation -----
@@ -194,12 +198,11 @@ public class SoundEffects {
 
     // ----- shared play helper (reuses pre-allocated track) -----
 
-    private void playTrack(short[] buf, AudioTrack track) {
-        if (buf == null || track == null) return;
+    private void playTrack(AudioTrack track) {
+        if (track == null) return;
         try {
             track.stop();
             track.reloadStaticData();
-            track.write(buf, 0, buf.length);
             track.setVolume(volume);
             track.play();
         } catch (Exception e) {
@@ -209,10 +212,10 @@ public class SoundEffects {
 
     // ----- public API -----
 
-    public void playClick()      { playTrack(clickBuffer, clickTrack); }
-    public void playCrunch()     { playTrack(crunchBuffer, crunchTrack); }
-    public void playDamage()     { playTrack(damageBuffer, damageTrack); }
-    public void playBossDefeat() { playTrack(bossDefeatBuffer, bossDefeatTrack); }
+    public void playClick()      { playTrack(clickTrack); }
+    public void playCrunch()     { playTrack(crunchTrack); }
+    public void playDamage()     { playTrack(damageTrack); }
+    public void playBossDefeat() { playTrack(bossDefeatTrack); }
 
     public void setVolume(float vol) {
         volume = Math.max(0, Math.min(1, vol));
