@@ -1,8 +1,9 @@
 package com.benjoo.bsnake;
 
+import android.app.DownloadManager;
 import android.content.Context;
-import android.content.Intent;
 import android.net.Uri;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -70,7 +71,15 @@ public class UpdateChecker {
     }
 
     public static void openDownloadUrl(Context context, String url) {
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-        context.startActivity(intent);
+        DownloadManager dm = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+        if (dm == null) return;
+
+        String fileName = "BSnake-v1.3.7.apk";
+        dm.enqueue(new DownloadManager.Request(Uri.parse(url))
+                .setTitle("BSnake Update")
+                .setDescription("Downloading BSnake v1.3.7")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                .setMimeType("application/vnd.android.package-archive"));
     }
 }

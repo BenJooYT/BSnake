@@ -27,7 +27,7 @@ Simple Snake game for Android, AIDE-compatible.
 - Persistent camera mode selection across sessions
 - Default music volume 25%, SFX volume 50% on first-ever startup
 - Fix: pre-allocate AudioTrack objects to eliminate stutter when sounds play during gameplay
-- Fix: update download URL to point to actual v1.3.4 release (prevents download failure at 100%)
+- Fix: use DownloadManager instead of browser ACTION_VIEW for APK downloads (prevents failure at 100%)
 - Consolidated README feature list and cleaned up changelog
 
 ### 1.3.5
