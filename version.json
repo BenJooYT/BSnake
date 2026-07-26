@@ -1,7 +1,7 @@
 {
-  "versionCode": 8,
-  "versionName": "1.4.2",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.2/BSnake-v1.4.2.apk",
-  "changelog": "- MP host screen shows live connection status (advertising, connected, errors)\n- MP join screen lists discovered hosts as tappable buttons; tap to connect\n- Host device name shown in service advertisement: \"BSnake - [device model]\"\n- GameClient collects resolved hosts via NSD; manual host selection replaces auto-connect\n- Both sides transition to lobby immediately on successful connection\n- Discovered hosts list and multiplayer state fields cleared on disconnect/cancel\n- Fix: P2 score no longer leaks into singleplayer when canceling multiplayer",
+  "versionCode": 9,
+  "versionName": "1.4.3",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.3/BSnake-v1.4.3.apk",
+  "changelog": "- In-game sound effects (eating, damage, boss defeat) now play correctly\n- Music no longer resets volume when switching apps\n- Audio no longer cuts out after switching apps\n- Host screen now shows live connection status\n- Join screen lists available games to pick from\n- Each host is identified by their device name\n- Automatically transition to the lobby after connecting\n- Clean disconnect clears all connection data\n- Devices can now discover each other in multiplayer\n- Both players see the game start at the same time\n- Players see correct snake direction on their screen\n- Game over notification only appears once per game\n- Fixed various connectivity and timing issues",
   "needsReinstall": false
 }
