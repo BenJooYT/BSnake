@@ -1,0 +1,7 @@
+{
+  "versionCode": 8,
+  "versionName": "1.4.2",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.2/BSnake-v1.4.2.apk",
+  "changelog": "- MP host screen shows live connection status (advertising, connected, errors)\n- MP join screen lists discovered hosts as tappable buttons; tap to connect\n- Host device name shown in service advertisement: \"BSnake - [device model]\"\n- GameClient collects resolved hosts via NSD; manual host selection replaces auto-connect\n- Both sides transition to lobby immediately on successful connection\n- Discovered hosts list and multiplayer state fields cleared on disconnect/cancel\n- Fix: P2 score no longer leaks into singleplayer when canceling multiplayer",
+  "needsReinstall": false
+}

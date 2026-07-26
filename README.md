@@ -2,13 +2,103 @@
 
 Simple Snake game for Android, AIDE-compatible.
 
-Features
-- Java Android project (minSdk 16)
-- Portrait orientation
-- Simple swipe controls
-- Snake and food drawn with shapes (no external assets)
+## Features
 
-AIDE instructions
-1. In AIDE, choose "Import Project" -> "Open existing project" and point to this repository folder.
-2. If AIDE asks to convert to a Gradle project, you can keep it as a standard Android project for quick editing and compiling.
-3. Open MainActivity.java or run the project to build and install on your device.
+- Java Android project (minSdk 16, portrait orientation)
+- Fixed 32×32 toroidal grid with red boundary and grid lines
+- Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
+- Swipe controls with 2-item input queue (no dropped inputs or 180° reversals)
+- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
+- **Boss Fruit System** — 2×2 purple boss with 5 HP spawns every 125 score; drops golden trail cells on hit; grants +25 score and +5 growth on defeat
+- **Multi-food scaling** — up to 6 food items active simultaneously
+- **Score/size decoupling** — normal food (+1/+1 growth), trail fruit (+1/+0), boss hit (+5/−3 shrink), boss defeat (+25/+5)
+- **Leaderboard** — top 20 entries with score, timestamp, and difficulty; sortable by score or date
+- **Live color preview** — hex head/body color input updates swatch in real time
+- **Developer mode** — triple-tap the SNAKE title to set a custom starting score (scores not saved)
+- **In-app update checker** — fetches version.json from GitHub, prompts to download new APK
+- No external assets or libraries — everything drawn with Canvas shapes and synthesized audio
+
+## Changelog
+
+### 1.4.2
+- MP host screen shows live connection status (advertising, connected, errors)
+- MP join screen lists discovered hosts as tappable buttons; tap to connect
+- Host device name shown in service advertisement: "BSnake - [device model]"
+- GameClient collects resolved hosts via NSD; manual host selection replaces auto-connect
+- Both sides transition to lobby immediately on successful connection
+- Discovered hosts list and multiplayer state fields cleared on disconnect/cancel
+- Fix: P2 score no longer leaks into singleplayer when canceling multiplayer
+
+### 1.4.1
+- NSD multiplayer discovery fix: TCP connect on background thread, fixes NetworkOnMainThreadException
+- MulticastLock acquired on both host and client so mDNS packets reach the WiFi driver
+- Fix: host sends "start" message to client when both players ready up
+- Fix: client parses snake direction data from host state messages
+- Fix: game over message sent once instead of spammed every tick
+- Fix: volatile qualifiers on multiplayer state fields for correct cross-thread visibility
+
+### 1.4.0
+- LAN Local Multiplayer over WiFi (host/client via TCP + NSD discovery)
+- Host game simulation is authoritative — client renders received STATE snapshots
+- Lobby system with ready/un-ready and force-start for host
+- Multi-snake support: 2 snakes on the same board with head-on/body collision rules
+- "YOU" label on local player's snake, tweens smoothly with the head
+- Color sharing: both players see each other's chosen snake colors
+- Rematch button reuses existing socket connection
+- Pause functionality disabled during multiplayer matches
+- Fix: host sends gameOver message to client at match end
+- Fix: client reads snake alive flags from state messages
+- Fix: client resets game state on rematch (no leftover data)
+- Fix: asymmetric snake-vs-snake body collision (dead bodies still block)
+- Fix: GameClient.running flag not set after connection
+- Fix: client interpolation t cycles 0–1 every tick for smooth rendering
+- Fix: drawColorField uses uiCellSize instead of cellSize
+- Fix: AudioTrack lifecycle safety (regeneration after surface destroy)
+- Fix: menu music rest-index crash and Markov chain corruption from rests
+- Fix: menu music beatPos initialized correctly for accurate chord/bar detection
+- Boss defeat sound: 7 echo repeats at 400ms with exponential decay
+- Code size reduction via dead-code elimination and expression simplification
+
+### 1.3.7
+- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
+- Music and SFX volume sliders in settings with drag-to-adjust
+- Persistent camera mode and volume preferences
+- Default music volume 25%, SFX volume 50% on first-ever startup
+- Fix: pre-allocate AudioTrack objects to eliminate stutter during gameplay
+- Fix: use DownloadManager instead of browser ACTION_VIEW for APK downloads
+
+### 1.3.5
+- Added in-app update prompt that checks GitHub for new versions
+
+### 1.3.4
+- Bump to v1.3.4; add in-app update prompt with GitHub version check
+
+### 1.3.3
+- Score/size decoupling: score and snake length are now independent
+- Boss AI: movement avoids snake tiles; teleport avoids snake only
+- Live color preview: swatch updates immediately as player types hex
+- Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
+
+### 1.3.2
+- Live color preview and multiple camera modes
+
+### 1.3.1
+- Boss AI improvement: movement avoids snake tiles
+
+### 1.3.0
+- Boss Fruit System (2×2 purple boss, 5 HP, trail cells)
+- Developer Mode (triple-tap title, custom starting score)
+
+### 1.2.0
+- Fixed 32×32 world, grid lines, zoomed camera with smooth following
+- Off-screen food direction arrows, toroidal teleportation
+
+### 1.1.0
+- Settings screen for snake color customization with live hex preview
+- Persistent color preferences via SharedPreferences
+
+## AIDE Instructions
+
+1. Open AIDE, choose **Import Project** → **Open existing project** and point to this repository.
+2. Keep it as a standard Android project (Gradle conversion is optional).
+3. Open `MainActivity.java` or run the project to build and install.
