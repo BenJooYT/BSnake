@@ -8,15 +8,9 @@ import android.util.Log;
 import java.util.ArrayList;
 import java.util.Random;
 
-// Generates and plays short button-click sounds (click, crunch, damage).
-// A continuous looping keepalive track (50 Hz sub-bass at low amplitude)
-// prevents the audio HAL from entering standby, which would otherwise
-// mute the first ~200ms of the next track.
-// Tracks are MODE_STATIC and accumulate during the session.
 public class SoundEffects {
 
     private static final int SAMPLE_RATE = 22050;
-    private static final int KEEPALIVE_MS = 300;
     private static final int CLICK_MS = 60;
     private static final int CRUNCH_MS = 80;
     private static final int DAMAGE_MS = 120;
@@ -27,7 +21,6 @@ public class SoundEffects {
     private short[] damageBuffer;
     private short[] bossDefeatBuffer;
     private AudioTrack clickTrack, crunchTrack, damageTrack, bossDefeatTrack;
-    private AudioTrack keepalive;
     private float volume = 1.0f;
 
     public SoundEffects() {
@@ -36,7 +29,6 @@ public class SoundEffects {
         generateDamage();
         generateBossDefeat();
         initTracks();
-        startKeepalive();
     }
 
     @SuppressWarnings("deprecation")
@@ -74,7 +66,6 @@ public class SoundEffects {
         }
     }
 
-    // Crunchy bite: mix of high harmonics + noise with fast decay.
     private void generateCrunch() {
         int n = SAMPLE_RATE * CRUNCH_MS / 1000;
         crunchBuffer = new short[n];
@@ -91,7 +82,6 @@ public class SoundEffects {
         }
     }
 
-    // Crunchy damage: low thud mixed with high crunch harmonics and noise.
     private void generateDamage() {
         int n = SAMPLE_RATE * DAMAGE_MS / 1000;
         damageBuffer = new short[n];
@@ -108,19 +98,11 @@ public class SoundEffects {
         }
     }
 
-    // Dramatic boss defeat: the same hit sound with a cinematic echo tail.
-    // The initial impact is sharp and punchy; echoes fade in volume, lower
-    // in pitch, and become progressively muffled (low-pass filtered) to
-    // sound distant and heavy — "POW! Pow... pow... pow..."
     private void generateBossDefeat() {
         int n = SAMPLE_RATE * BOSS_DEFEAT_MS / 1000;
         double[] mix = new double[n];
         Random rng = new Random(3);
-
-        // Main hit
         addDamageHit(mix, 0, 1.00, 1.00, 1.0, rng);
-
-        // 7 echo repeats at 400ms intervals
         for (int e = 0; e < 7; e++) {
             int delay = (e + 1) * 400;
             double vol = 0.55 * Math.pow(0.55, e);
@@ -128,26 +110,20 @@ public class SoundEffects {
             double alpha = 0.30 * Math.pow(0.45, e);
             addDamageHit(mix, delay, vol, pitch, alpha, rng);
         }
-
-        // Normalise to prevent clipping, then convert to short[]
         double max = 0;
         for (double v : mix) if (Math.abs(v) > max) max = Math.abs(v);
         double scale = 0.95 / Math.max(max, 0.001);
-
         bossDefeatBuffer = new short[n];
         for (int i = 0; i < n; i++) {
             bossDefeatBuffer[i] = (short) (mix[i] * scale * Short.MAX_VALUE);
         }
     }
 
-    // Render a single damage hit into the mix buffer at the given delay,
-    // scaled by volume, shifted in pitch, and low-pass filtered with alpha.
     private void addDamageHit(double[] mix, int delayMs, double vol, double pitch,
                               double lpAlpha, Random rng) {
         int delaySamples = SAMPLE_RATE * delayMs / 1000;
         int numSamples = SAMPLE_RATE * DAMAGE_MS / 1000;
         double prev = 0;
-
         for (int i = 0; i < numSamples && delaySamples + i < mix.length; i++) {
             double t = (double) i / SAMPLE_RATE;
             double envelope = Math.exp(-t * 30.0);
@@ -156,52 +132,22 @@ public class SoundEffects {
                           + Math.sin(2 * Math.PI * 3500.0 * pitch * t) * 0.2;
             double noise = (rng.nextDouble() - 0.5) * 0.35;
             double s = (thud + crunch + noise) * envelope * vol * 0.5;
-
             if (lpAlpha < 1.0) {
                 prev = prev + lpAlpha * (s - prev);
                 s = prev;
             }
-
             mix[delaySamples + i] += s;
         }
     }
 
-    // ----- keepalive -----
-
-    @SuppressWarnings("deprecation")
-    private void startKeepalive() {
-        try {
-            int n = SAMPLE_RATE * KEEPALIVE_MS / 1000;
-            short[] buf = new short[n];
-            for (int i = 0; i < n; i++) {
-                double t = (double) i / SAMPLE_RATE;
-                buf[i] = (short) (Math.sin(2 * Math.PI * 50.0 * t) * 0.05 * Short.MAX_VALUE);
-            }
-            int bs = n * 2;
-            keepalive = new AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    SAMPLE_RATE,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    bs,
-                    AudioTrack.MODE_STATIC
-            );
-            keepalive.write(buf, 0, buf.length);
-            keepalive.setLoopPoints(0, n, -1);
-            keepalive.play();
-        } catch (Exception e) {
-            Log.e("SoundEffects", "Failed to start keepalive", e);
-        }
-    }
-
-    // ----- shared play helper (reuses pre-allocated track) -----
+    // ----- shared play helper -----
 
     private void playTrack(AudioTrack track) {
         if (track == null) return;
         try {
-            track.stop();
-        } catch (Exception e) { }
-        try {
+            if (track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+                track.stop();
+            }
             track.reloadStaticData();
             track.setVolume(volume);
             track.play();
@@ -222,15 +168,13 @@ public class SoundEffects {
     }
 
     public void release() {
-        if (keepalive != null) {
-            try { keepalive.stop(); keepalive.release(); } catch (Exception e) { }
-            keepalive = null;
-        }
         AudioTrack[] tracks = { clickTrack, crunchTrack, damageTrack, bossDefeatTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); t.release(); } catch (Exception e) { }
             }
         }
+        clickTrack = null; crunchTrack = null;
+        damageTrack = null; bossDefeatTrack = null;
     }
 }
