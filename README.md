@@ -20,18 +20,17 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
-### 1.3.7
+### 1.4.0
 - LAN Local Multiplayer over WiFi (host/client via TCP + NSD discovery)
-- Host game simulation is authoritative — client renders received STATE snapshots
+- Host-authoritative simulation; client renders received STATE snapshots
 - Lobby system with ready/un-ready and force-start for host
-- Multi-snake support: 2 snakes on the same board with head-on/body collision rules
+- Multi-snake support with head-on/body collision rules
 - "YOU" label on local player's snake for multiplayer matches
 - Rematch button reuses existing socket connection
-- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
-- Music and SFX volume sliders in settings with drag-to-adjust
+- Procedural menu music and synthesized SFX with volume sliders
 - Persistent camera mode and volume preferences
-- Default music volume 25%, SFX volume 50% on first-ever startup
-- Fix: pre-allocate AudioTrack objects to eliminate stutter during gameplay
+- Default music volume 25%, SFX volume 50%
+- Fix: pre-allocate AudioTracks to eliminate stutter during gameplay
 - Fix: use DownloadManager instead of browser ACTION_VIEW for APK downloads
 
 ### 1.3.5
