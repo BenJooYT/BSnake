@@ -2,6 +2,6 @@
   "versionCode": 5,
   "versionName": "1.3.7",
   "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.3.7/BSnake-v1.3.7.apk",
-  "changelog": "- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX (click, crunch, damage, boss defeat)\n- Music and SFX volume sliders in settings with drag-to-adjust and persistent volume preferences\n- Sound effects on button presses, food eating, boss damage, and boss defeat\n- Persistent camera mode selection across ses\n- Default m volume 25%, SFX volume 50% on first-ever startup\n- Fix: pre-allocate AudioTrack objects to eliminate stutter when sounds play during gameplay\n- Fix: use DownloadManager instead of browser ACTION_VIEW for APK downloads\n- Consolidated README feature list and cleaned up changelog",
+  "changelog": "- LAN Local Multiplayer over WiFi (host/client via TCP + NSD discovery)\n- Host game simulation is authoritative; client renders received STATE snapshots\n- Lobby system with ready/un-ready and force-start for host\n- Multi-snake support with head-on/body collision rules\n- \"YOU\" label on local player's snake for multiplayer matches\n- Rematch button reuses existing socket connection\n- Procedural menu music and synthesized SFX\n- Music and SFX volume sliders with drag-to-adjust\n- Persistent camera mode and volume preferences\n- Default music volume 25%, SFX volume 50%\n- Fix: pre-allocate AudioTracks to eliminate stutter during gameplay\n- Fix: use DownloadManager instead of browser ACTION_VIEW for APK downloads",
   "needsReinstall": true
 }

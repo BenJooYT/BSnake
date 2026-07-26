@@ -6,28 +6,22 @@ import android.graphics.RectF;
 
 import java.util.ArrayList;
 
-// Central data store for all game state — model, layout, and UI state.
-// Owned by GameView and read/written by all subsystems.
 public class GameState {
 
-    // Finite-state machine for which screen is active
-    enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS }
+    enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS,
+                 MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER }
     State currentState = State.MENU;
 
-    // Leaderboard sort order toggle
     enum SortMode { HIGH_SCORE, RECENT }
     SortMode sortMode = SortMode.HIGH_SCORE;
 
-    // Camera modes — how the viewport frames the game board
     enum CameraMode { CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL }
     CameraMode cameraMode = CameraMode.CLASSIC_ZOOM;
 
-    // A single leaderboard entry persisted in SharedPreferences
     static class ScoreEntry {
         int score;
         long timestamp;
         String difficulty;
-
         ScoreEntry(int score, long timestamp, String difficulty) {
             this.score = score;
             this.timestamp = timestamp;
@@ -35,13 +29,23 @@ public class GameState {
         }
     }
 
-    // Snake body segments (head at index 0), previous-tick snapshot, active food, and queued swipe directions
-    ArrayList<Point> snake = new ArrayList<>();
-    ArrayList<Point> prevSnake = new ArrayList<>();
+    // A single snake's mutable state
+    static class SnakeData {
+        ArrayList<Point> body = new ArrayList<>();
+        ArrayList<Point> prevBody = new ArrayList<>();
+        int dirX = 1, dirY = 0;
+        ArrayList<Point> inputQueue = new ArrayList<>();
+        int score = 0;
+        int headColor = Color.GREEN;
+        int bodyColor = Color.GREEN;
+        boolean alive = true;
+    }
+
+    // Two snakes: index 0 = host/local, index 1 = client/remote
+    SnakeData[] snakes = new SnakeData[]{ new SnakeData(), new SnakeData() };
+    int playerIndex = 0; // 0 or 1
+
     ArrayList<Point> foods = new ArrayList<>();
-    int dirX = 1, dirY = 0;
-    ArrayList<Point> inputQueue = new ArrayList<>();
-    // Render cell size for the game field, UI cell size for buttons, grid dimensions, camera state
     int cellSize = 40;
     int uiCellSize = 40;
     int cols = 32, rows = 32;
@@ -50,22 +54,17 @@ public class GameState {
     float cameraX, cameraY;
     boolean cameraInitialized;
 
-    // Tick delays (ms) and labels for each difficulty tier; current active index
     final long[] speedDelays = {220, 150, 90};
     final String[] speedLabels = {"EASY", "NORMAL", "HARD"};
     int speedIndex = 1;
     long tickDelay;
 
-    // Independent score (separate from snake size) — used for leaderboards, spawn thresholds, rewards
     int score = 0;
-    // Last score achieved (for game-over display) and screen dimensions in pixels
     int lastScore = 0;
     int screenW, screenH;
 
-    // Cell sizes for each camera mode (computed in configureBoard)
     int classicCellSize, fullAreaCellSize, fitVerticalCellSize;
 
-    // Hit-box rectangles for every interactive button across all screens
     RectF startBtn, speedBtn, settingsBtn, leaderboardBtn, exitBtn;
     RectF headInputBtn, bodyInputBtn, settingsApplyBtn, settingsBackBtn, cameraModeBtn;
     RectF resumeBtn, pauseMenuBtn;
@@ -73,7 +72,12 @@ public class GameState {
     RectF lbSortBtn, lbBackBtn;
     RectF pauseIcon;
 
-    // Touch-down coordinates (for swipe detection), snake head/body colors and hex strings, active editing field index
+    // Multiplayer menu buttons
+    RectF mpBtn, backBtn;
+    RectF hostBtn, joinBtn;
+    RectF cancelBtn, readyBtn, forceStartBtn;
+    RectF mpRestartBtn, mpMenuBtn;
+
     float downX, downY;
     int headColor = Color.GREEN;
     int bodyColor = Color.GREEN;
@@ -81,17 +85,20 @@ public class GameState {
     String bodyHex = "#00FF00";
     int editingColor = -1;
 
-    // ----- boss fruit system -----
+    // Multiplayer state
+    boolean isHost;
+    int clientColor = Color.GREEN;
+    boolean opponentReady;
+    boolean localReady;
+    boolean opponentConnected;
+    int mpWinner = -1;
+    int mpLastScore0, mpLastScore1;
 
-    // A 2x2 boss fruit that spawns every 125 score, has 5 HP, moves randomly,
-    // teleports on hit leaving a temporary trail, and rewards +25 score on defeat.
     static class BossFruit {
-        int x = -1, y = -1;          // top-left corner of the 2x2 area
+        int x = -1, y = -1;
         int hp = 5;
         boolean alive = false;
-        int lastMoveTick = 0;          // game tick when the boss last moved
-
-        // Return the 4 tile coordinates this boss occupies
+        int lastMoveTick = 0;
         ArrayList<Point> getTiles() {
             ArrayList<Point> tiles = new ArrayList<>();
             tiles.add(new Point(x, y));
@@ -102,31 +109,24 @@ public class GameState {
         }
     }
 
-    // A single cell of the boss's trail, dropped when the boss teleports
     static class BossTrailCell {
         int x, y;
         int createdAtTick;
-        BossTrailCell(int x, int y, int tick) {
-            this.x = x;
-            this.y = y;
-            this.createdAtTick = tick;
-        }
+        BossTrailCell(int x, int y, int tick) { this.x = x; this.y = y; this.createdAtTick = tick; }
     }
 
     BossFruit boss = new BossFruit();
-    int bossGrowthPending = 0;          // extra growth ticks (consumed 1/tick after boss defeat)
+    int bossGrowthPending = 0;
     ArrayList<BossTrailCell> bossTrail = new ArrayList<>();
-    int nextBossSpawnScore = 125;       // score threshold for next boss spawn
-    int tickCount = 0;                  // total game ticks elapsed
+    int nextBossSpawnScore = 125;
+    int tickCount = 0;
 
-    // ----- developer mode -----
-    boolean devMode = false;               // toggled by triple-tapping the title
-    int devStartScore = 0;                 // parsed from devScoreText when starting
-    String devScoreText = "0";             // raw text from keyboard input
-    boolean editingDevScore = false;       // true while keyboard is active for dev score
-    RectF devScoreBtn;                     // tap target for the start-score display
+    boolean devMode = false;
+    int devStartScore = 0;
+    String devScoreText = "0";
+    boolean editingDevScore = false;
+    RectF devScoreBtn;
 
-    // Volume settings (0.0 – 1.0)
     float musicVolume = 0.25f;
     float sfxVolume = 0.5f;
     RectF musicSliderTrack, sfxSliderTrack;
@@ -135,8 +135,6 @@ public class GameState {
         tickDelay = speedDelays[speedIndex];
     }
 
-    // Scale cell sizes to fit the current screen width.
-    // The renderer overrides cellSize during gameplay for non-CLASSIC_ZOOM modes.
     void configureBoard() {
         uiCellSize = Math.max(16, screenW / 20);
         classicCellSize = Math.max(8, screenW / 10);
@@ -149,7 +147,6 @@ public class GameState {
         boardTop = 0;
     }
 
-    // Position every button rect based on current screen dimensions
     void layoutButtons() {
         float bw = Math.min(screenW * 0.7f, 420);
         float bh = uiCellSize * 1.5f;
@@ -162,6 +159,18 @@ public class GameState {
         settingsBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
         leaderboardBtn = makeBtn(cx, startY + (bh + gap) * 3, bw, bh);
         exitBtn = makeBtn(cx, startY + (bh + gap) * 4, bw, bh);
+        mpBtn = makeBtn(cx, startY - bh - gap, bw, bh);
+
+        backBtn = makeBtn(cx, screenH * 0.90f, bw, bh);
+        hostBtn = makeBtn(cx, startY, bw, bh);
+        joinBtn = makeBtn(cx, startY + bh + gap, bw, bh);
+
+        cancelBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
+        readyBtn = makeBtn(cx, screenH * 0.60f, bw, bh);
+        forceStartBtn = makeBtn(cx, screenH * 0.72f, bw, bh);
+
+        mpRestartBtn = makeBtn(cx, screenH * 0.56f, bw, bh);
+        mpMenuBtn = makeBtn(cx, screenH * 0.56f + bh + gap, bw, bh);
 
         headInputBtn = makeBtn(cx, screenH * 0.30f, bw, bh);
         bodyInputBtn = makeBtn(cx, screenH * 0.40f, bw, bh);
@@ -192,7 +201,6 @@ public class GameState {
         pauseIcon = new RectF(screenW - iconSize - 16, 16, screenW - 16, 16 + iconSize);
     }
 
-    // Build a centered RectF given center (cx, cy) and dimensions (w, h)
     static RectF makeBtn(float cx, float cy, float w, float h) {
         return new RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
     }

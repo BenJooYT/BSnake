@@ -13,7 +13,6 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.Locale;
 
-// All Canvas drawing — game field, UI screens, overlays, and text helpers.
 class GameRenderer {
 
     private final GameState state;
@@ -26,46 +25,40 @@ class GameRenderer {
         paint.setAntiAlias(true);
     }
 
-    // Dispatch to the appropriate screen renderer based on the current state.
-    // PAUSED and GAME_OVER draw the frozen game field underneath a dim overlay.
     void draw(Canvas canvas, float t) {
         if (canvas == null) return;
         canvas.drawColor(Color.BLACK);
-
         switch (state.currentState) {
-            case MENU:
-                drawMenu(canvas);
-                break;
-            case LEADERBOARD:
-                drawLeaderboard(canvas);
-                break;
-            case SETTINGS:
-                drawSettings(canvas);
-                break;
-            case PLAYING:
-                drawGameField(canvas, t);
+            case MENU: drawMenu(canvas); break;
+            case LEADERBOARD: drawLeaderboard(canvas); break;
+            case SETTINGS: drawSettings(canvas); break;
+            case MP_MENU: drawMpMenu(canvas); break;
+            case MP_HOST: drawHostScreen(canvas); break;
+            case MP_JOIN: drawJoinScreen(canvas); break;
+            case MP_LOBBY: drawLobby(canvas); break;
+            case PLAYING: case MP_PLAYING:
+                drawGameField(canvas, t, false);
                 drawPauseIcon(canvas);
                 break;
             case PAUSED:
-                drawGameField(canvas, 1f);
+                drawGameField(canvas, 1f, false);
                 drawDim(canvas);
                 drawPausedOverlay(canvas);
                 break;
             case GAME_OVER:
-                drawGameField(canvas, 1f);
+                drawGameField(canvas, 1f, false);
                 drawDim(canvas);
                 drawGameOverOverlay(canvas);
+                break;
+            case MP_GAME_OVER:
+                drawGameField(canvas, 1f, true);
+                drawDim(canvas);
+                drawMpGameOverOverlay(canvas);
                 break;
         }
     }
 
-    // The main playing-field renderer.
-    // Updates the camera to the tweened head position, draws the grid, then
-    // draws each snake segment (interpolated between prevSnake and snake using
-    // fraction t, with wrap detection to avoid tweening across the map), red
-    // food circles (or off-screen arrows), and the score label at top-left.
-    // The effective cell size changes based on the active camera mode.
-    private void drawGameField(Canvas canvas, float t) {
+    private void drawGameField(Canvas canvas, float t, boolean mpGameOver) {
         int savedCellSize = state.cellSize;
         float savedViewportW = state.viewportWidthCells;
         float savedViewportH = state.viewportHeightCells;
@@ -80,34 +73,48 @@ class GameRenderer {
         }
         updateCamera(t);
         drawBoard(canvas);
-        float viewCameraX = state.snake.isEmpty() ? state.cols / 2f : state.cameraX;
-        float viewCameraY = state.snake.isEmpty() ? state.rows / 2f : state.cameraY;
+        float viewCameraX = state.snakes[state.playerIndex].body.isEmpty() ? state.cols / 2f : state.cameraX;
+        float viewCameraY = state.snakes[state.playerIndex].body.isEmpty() ? state.rows / 2f : state.cameraY;
         canvas.save();
         clipToWorld(canvas, viewCameraX, viewCameraY);
-        int n = Math.min(state.snake.size(), state.prevSnake.size());
-        for (int i = 0; i < n; i++) {
-            paint.setColor(i == 0 ? state.headColor : state.bodyColor);
-            Point cur = state.snake.get(i);
-            Point prev = state.prevSnake.get(i);
 
-            float dx = cur.x - prev.x;
-            float dy = cur.y - prev.y;
-            boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
-
-            float worldX, worldY;
-            if (wrapped) {
-                worldX = cur.x;
-                worldY = cur.y;
-            } else {
-                worldX = prev.x + dx * t;
-                worldY = prev.y + dy * t;
+        // Draw both snakes
+        for (int si = 0; si < 2; si++) {
+            GameState.SnakeData sd = state.snakes[si];
+            if (!sd.alive && !mpGameOver) continue;
+            if (sd.body.isEmpty()) continue;
+            int n = Math.min(sd.body.size(), sd.prevBody.size());
+            for (int i = 0; i < n; i++) {
+                paint.setColor(i == 0 ? sd.headColor : sd.bodyColor);
+                Point cur = sd.body.get(i);
+                Point prev = sd.prevBody.size() > i ? sd.prevBody.get(i) : cur;
+                float dx = cur.x - prev.x;
+                float dy = cur.y - prev.y;
+                boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
+                float worldX, worldY;
+                if (wrapped) { worldX = cur.x; worldY = cur.y; }
+                else { worldX = prev.x + dx * t; worldY = prev.y + dy * t; }
+                float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
+                        + wrappedDelta(worldX - viewCameraX, state.cols));
+                float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
+                        + wrappedDelta(worldY - viewCameraY, state.rows));
+                canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
             }
-            float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
-                    + wrappedDelta(worldX - viewCameraX, state.cols));
-            float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
-                    + wrappedDelta(worldY - viewCameraY, state.rows));
-            canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
+            // "YOU" label on local player's head
+            if (si == state.playerIndex && !sd.body.isEmpty()) {
+                Point cur = sd.body.get(0);
+                float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
+                        + wrappedDelta(cur.x - viewCameraX, state.cols));
+                float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
+                        + wrappedDelta(cur.y - viewCameraY, state.rows));
+                paint.setColor(Color.WHITE);
+                paint.setTextSize(state.cellSize * 0.35f);
+                paint.setTypeface(Typeface.DEFAULT_BOLD);
+                canvas.drawText("YOU", px, py - 6, paint);
+            }
         }
+
+        // Food
         paint.setColor(Color.RED);
         for (Point f : state.foods) {
             float foodDx = f.x - viewCameraX;
@@ -119,11 +126,10 @@ class GameRenderer {
             }
             float cx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + foodDx);
             float cy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f + foodDy);
-            float r = state.cellSize / 2f - 4;
-            canvas.drawCircle(cx, cy, Math.max(4, r), paint);
+            canvas.drawCircle(cx, cy, Math.max(4, state.cellSize / 2f - 4), paint);
         }
 
-        // ----- boss fruit (2x2 purple block with HP indicator) -----
+        // Boss
         if (state.boss.alive) {
             for (Point tile : state.boss.getTiles()) {
                 float bDx = tile.x - viewCameraX;
@@ -135,7 +141,6 @@ class GameRenderer {
                 paint.setColor(Color.rgb(180, 50, 200));
                 canvas.drawRect(bx, by, bx + state.cellSize - 1, by + state.cellSize - 1, paint);
             }
-            // Draw HP and boss icon above the top-left tile
             float bDx = state.boss.x - viewCameraX;
             float bDy = state.boss.y - viewCameraY;
             if (Math.abs(bDx) < state.viewportWidthCells / 2f
@@ -149,7 +154,7 @@ class GameRenderer {
             }
         }
 
-        // ----- boss trail cells (golden, eatable) -----
+        // Trail
         for (GameState.BossTrailCell tc : state.bossTrail) {
             float tDx = tc.x - viewCameraX;
             float tDy = tc.y - viewCameraY;
@@ -157,7 +162,7 @@ class GameRenderer {
                     || Math.abs(tDy) >= state.viewportHeightCells / 2f) continue;
             float tx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + tDx);
             float ty = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + tDy);
-            float age = (state.tickCount - tc.createdAtTick) / (float) 40;
+            float age = (state.tickCount - tc.createdAtTick) / 40f;
             int alpha = (int) (255 * (1f - age * 0.5f));
             alpha = Math.max(120, Math.min(255, alpha));
             paint.setColor(Color.argb(alpha, 255, 200, 50));
@@ -168,11 +173,17 @@ class GameRenderer {
 
         canvas.restore();
 
+        // Score label
         paint.setColor(Color.WHITE);
         paint.setTextSize(40);
         paint.setTypeface(Typeface.DEFAULT);
-        String scoreLabel = "Score: " + state.score;
-        if (state.devMode) scoreLabel += " [DEV]";
+        String scoreLabel;
+        if (state.currentState == GameState.State.MP_PLAYING || state.currentState == GameState.State.MP_GAME_OVER) {
+            scoreLabel = "P1: " + state.snakes[0].score + "  P2: " + state.snakes[1].score;
+        } else {
+            scoreLabel = "Score: " + state.snakes[0].score;
+            if (state.devMode) scoreLabel += " [DEV]";
+        }
         canvas.drawText(scoreLabel, 10, 40, paint);
 
         state.cellSize = savedCellSize;
@@ -180,14 +191,11 @@ class GameRenderer {
         state.viewportHeightCells = savedViewportH;
     }
 
-    // Draw the grey grid lines (clipped to the visible world area) and the
-    // red toroidal boundary border.
     private void drawBoard(Canvas canvas) {
         float boardWidth = state.screenW;
         float boardHeight = state.screenH;
         float centerX = state.boardLeft + boardWidth / 2f;
         float centerY = state.boardTop + boardHeight / 2f;
-
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(1);
         paint.setColor(Color.rgb(70, 70, 70));
@@ -202,7 +210,6 @@ class GameRenderer {
             canvas.drawLine(state.boardLeft, y, state.boardLeft + boardWidth, y, paint);
         }
         canvas.restore();
-
         paint.setStrokeWidth(6);
         paint.setColor(Color.RED);
         float leftEdge = centerX + (-0.5f - state.cameraX) * state.cellSize;
@@ -216,8 +223,6 @@ class GameRenderer {
         paint.setStyle(Paint.Style.FILL);
     }
 
-    // Clamp drawing to the visible world rectangle so grid cells outside the
-    // viewport are not rendered.
     private void clipToWorld(Canvas canvas, float viewCameraX, float viewCameraY) {
         float centerX = state.boardLeft + state.screenW / 2f;
         float centerY = state.boardTop + state.screenH / 2f;
@@ -229,19 +234,16 @@ class GameRenderer {
                 Math.min(state.screenW, right), Math.min(state.screenH, bottom));
     }
 
-    // Set the camera position each frame.  In CLASSIC_ZOOM mode the viewport
-    // follows the tweened head position (snapping on wrap).  In FULL_PLAY_AREA
-    // mode it stays fixed at the board center.  In FIT_VERTICAL mode Y is fixed
-    // at the board center while X follows the snake head horizontally.
     private void updateCamera(float t) {
         if (state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
             state.cameraX = state.cols / 2f - 0.5f;
             state.cameraY = state.rows / 2f - 0.5f;
             return;
         }
-        if (state.snake.isEmpty() || state.prevSnake.isEmpty()) return;
-        Point prev = state.prevSnake.get(0);
-        Point cur = state.snake.get(0);
+        GameState.SnakeData sd = state.snakes[state.playerIndex];
+        if (sd.body.isEmpty() || sd.prevBody.isEmpty()) return;
+        Point prev = sd.prevBody.get(0);
+        Point cur = sd.body.get(0);
         float dx = cur.x - prev.x;
         float dy = cur.y - prev.y;
         boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
@@ -250,25 +252,16 @@ class GameRenderer {
             state.cameraY = state.rows / 2f - 0.5f;
             return;
         }
-        if (wrapped) {
-            state.cameraX = cur.x;
-            state.cameraY = cur.y;
-        } else {
-            state.cameraX = prev.x + dx * t;
-            state.cameraY = prev.y + dy * t;
-        }
+        if (wrapped) { state.cameraX = cur.x; state.cameraY = cur.y; }
+        else { state.cameraX = prev.x + dx * t; state.cameraY = prev.y + dy * t; }
     }
 
-    // Return the shortest signed distance between delta and the nearest
-    // equivalent position on a torus of the given size.
     private float wrappedDelta(float delta, int size) {
         while (delta > size / 2f) delta -= size;
         while (delta < -size / 2f) delta += size;
         return delta;
     }
 
-    // Draw a red directional arrow pointing toward an off-screen food item,
-    // positioned at the edge of the viewport in the food's direction.
     private void drawFoodArrow(Canvas canvas, float dx, float dy) {
         float length = Math.min(state.screenW, state.screenH) / 2f - state.cellSize;
         float distance = (float) Math.sqrt(dx * dx + dy * dy);
@@ -283,7 +276,6 @@ class GameRenderer {
         float sideY = dirX * state.cellSize * 0.35f;
         float backX = tipX - dirX * state.cellSize * 0.75f;
         float backY = tipY - dirY * state.cellSize * 0.75f;
-
         android.graphics.Path arrow = new android.graphics.Path();
         arrow.moveTo(tipX, tipY);
         arrow.lineTo(backX + sideX, backY + sideY);
@@ -294,16 +286,14 @@ class GameRenderer {
         canvas.drawPath(arrow, paint);
     }
 
-    // Semi-transparent black overlay used for pause and game-over screens.
     private void drawDim(Canvas canvas) {
         paint.setColor(Color.argb(190, 0, 0, 0));
         canvas.drawRect(0, 0, state.screenW, state.screenH, paint);
     }
 
-    // Main menu: title + START / SPEED / SETTINGS / LEADERBOARD / EXIT buttons.
-    // When dev mode is active, also shows a DEV MODE badge and a tappable start-score field.
     private void drawMenu(Canvas canvas) {
-        drawTitle(canvas, state.screenH * 0.24f);
+        drawTitle(canvas, state.screenH * 0.20f);
+        drawButton(canvas, state.mpBtn, "LOCAL MULTIPLAYER");
         drawButton(canvas, state.startBtn, "START");
         drawButton(canvas, state.speedBtn, "SPEED: " + state.speedLabels[state.speedIndex]);
         drawButton(canvas, state.settingsBtn, "SETTINGS");
@@ -315,8 +305,101 @@ class GameRenderer {
         }
     }
 
-    // Settings screen: color swatches for head and body, current hex values,
-    // camera mode toggle, APPLY (validates and persists) and BACK buttons.
+    private void drawMpMenu(Canvas canvas) {
+        drawCenteredText(canvas, "LOCAL MULTIPLAYER", state.screenW / 2f, state.screenH * 0.20f, 40, Color.GREEN, true);
+        drawButton(canvas, state.hostBtn, "HOST GAME");
+        drawButton(canvas, state.joinBtn, "JOIN GAME");
+        drawButton(canvas, state.backBtn, "BACK");
+    }
+
+    private void drawHostScreen(Canvas canvas) {
+        drawCenteredText(canvas, "HOST GAME", state.screenW / 2f, state.screenH * 0.25f, 48, Color.GREEN, true);
+        drawCenteredText(canvas, "Waiting for player to join...", state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+        drawButton(canvas, state.cancelBtn, "CANCEL");
+    }
+
+    private void drawJoinScreen(Canvas canvas) {
+        drawCenteredText(canvas, "JOIN GAME", state.screenW / 2f, state.screenH * 0.25f, 48, Color.GREEN, true);
+        if (state.opponentConnected) {
+            drawCenteredText(canvas, "Connecting...", state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+        } else {
+            drawCenteredText(canvas, "Searching for hosts...", state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+        }
+        drawButton(canvas, state.cancelBtn, "CANCEL");
+    }
+
+    private void drawLobby(Canvas canvas) {
+        drawCenteredText(canvas, "LOBBY", state.screenW / 2f, state.screenH * 0.20f, 48, Color.GREEN, true);
+        String status = "Player 1 " + (state.localReady ? "READY" : "NOT READY");
+        drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.35f, 28, Color.WHITE, false);
+        String oppStatus = "Player 2 " + (state.opponentReady ? "READY" : "NOT READY");
+        drawCenteredText(canvas, oppStatus, state.screenW / 2f, state.screenH * 0.42f, 28, Color.WHITE, false);
+        drawButton(canvas, state.readyBtn, state.localReady ? "UN-READY" : "READY");
+        if (state.isHost) {
+            drawButton(canvas, state.forceStartBtn, "FORCE START");
+        }
+        drawButton(canvas, state.cancelBtn, "DISCONNECT");
+    }
+
+    private void drawMpGameOverOverlay(Canvas canvas) {
+        drawCenteredText(canvas, "GAME OVER", state.screenW / 2f, state.screenH * 0.30f, 60, Color.RED, true);
+        String result;
+        if (state.mpWinner == -1) result = "DRAW!";
+        else if (state.mpWinner == state.playerIndex) result = "YOU WIN!";
+        else result = "YOU LOSE";
+        drawCenteredText(canvas, result, state.screenW / 2f, state.screenH * 0.30f + 60, 44, Color.GREEN, true);
+        drawCenteredText(canvas, "P1: " + state.mpLastScore0 + "  P2: " + state.mpLastScore1,
+                state.screenW / 2f, state.screenH * 0.30f + 110, 36, Color.WHITE, false);
+        if (state.isHost) {
+            drawButton(canvas, state.mpRestartBtn, "REMATCH");
+        }
+        drawButton(canvas, state.mpMenuBtn, "MENU");
+    }
+
+    private void drawPausedOverlay(Canvas canvas) {
+        drawCenteredText(canvas, "PAUSED", state.screenW / 2f, state.screenH * 0.36f, 64, Color.GREEN, true);
+        drawButton(canvas, state.resumeBtn, "RESUME");
+        drawButton(canvas, state.pauseMenuBtn, "MENU");
+    }
+
+    private void drawGameOverOverlay(Canvas canvas) {
+        drawCenteredText(canvas, "GAME OVER", state.screenW / 2f, state.screenH * 0.36f, 60, Color.RED, true);
+        drawCenteredText(canvas, "SCORE: " + state.lastScore, state.screenW / 2f, state.screenH * 0.36f + 56, 40, Color.WHITE, false);
+        drawButton(canvas, state.restartBtn, "RESTART");
+        drawButton(canvas, state.overMenuBtn, "MENU");
+    }
+
+    private void drawPauseIcon(Canvas canvas) {
+        paint.setColor(Color.GREEN);
+        float w = state.pauseIcon.width();
+        float h = state.pauseIcon.height();
+        float barW = w * 0.28f;
+        canvas.drawRect(state.pauseIcon.left, state.pauseIcon.top, state.pauseIcon.left + barW, state.pauseIcon.top + h, paint);
+        canvas.drawRect(state.pauseIcon.right - barW, state.pauseIcon.top, state.pauseIcon.right, state.pauseIcon.top + h, paint);
+    }
+
+    private void drawTitle(Canvas canvas, float y) {
+        drawCenteredText(canvas, "SNAKE", state.screenW / 2f, y, 96, Color.GREEN, true);
+    }
+
+    private void drawButton(Canvas canvas, RectF r, String label) {
+        if (r == null) return;
+        paint.setColor(Color.GREEN);
+        canvas.drawRect(r.left, r.top, r.right - 2, r.bottom - 2, paint);
+        drawCenteredText(canvas, label, r.centerX(), r.centerY(), 36, Color.BLACK, true);
+    }
+
+    private void drawCenteredText(Canvas canvas, String text, float cx, float cy, float size, int color, boolean bold) {
+        paint.setColor(color);
+        paint.setTextSize(size);
+        paint.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        paint.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = cy - (fm.ascent + fm.descent) / 2f;
+        canvas.drawText(text, cx, textY, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
     private void drawSettings(Canvas canvas) {
         drawCenteredText(canvas, "SETTINGS", state.screenW / 2f, state.screenH * 0.10f, 64, Color.GREEN, true);
         drawCenteredText(canvas, "CUSTOMIZE COLORS", state.screenW / 2f, state.screenH * 0.19f, 26, Color.WHITE, false);
@@ -336,34 +419,25 @@ class GameRenderer {
         drawButton(canvas, state.settingsBackBtn, "BACK");
     }
 
-    // Draw a labeled volume slider with a filled track bar and a circular thumb.
     private void drawVolumeSlider(Canvas canvas, String label, RectF track, float volume) {
         if (track == null) return;
         float cy = track.centerY();
-
-        // Label above the slider
         drawCenteredText(canvas, label, state.screenW / 2f, track.top - 6, 20, Color.WHITE, true);
-
         float barTop = cy - 4;
         float barBot = cy + 4;
         float left = track.left + 8;
         float right = track.right - 8;
         float fillX = left + (right - left) * volume;
         float radius = 14;
-
         paint.setColor(Color.DKGRAY);
         canvas.drawRect(left, barTop, right, barBot, paint);
-
         paint.setColor(Color.GREEN);
         canvas.drawRect(left, barTop, fillX, barBot, paint);
-
         paint.setStyle(Paint.Style.FILL);
         canvas.drawCircle(fillX, cy, radius, paint);
         paint.setStyle(Paint.Style.FILL);
     }
 
-    // A labeled color swatch: a green-outlined rect with the selected color
-    // filled on the left and the hex label text beside it.
     private void drawColorField(Canvas canvas, RectF rect, String label, int color) {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(3);
@@ -375,12 +449,9 @@ class GameRenderer {
         drawCenteredText(canvas, label, rect.centerX() + state.cellSize * 0.25f, rect.centerY(), 30, Color.WHITE, true);
     }
 
-    // Leaderboard screen: sort-toggle button, up to 8 ranked entries with
-    // score, difficulty, and date, plus a BACK button.
     private void drawLeaderboard(Canvas canvas) {
         drawCenteredText(canvas, "LEADERBOARD", state.screenW / 2f, state.screenH * 0.10f, 60, Color.GREEN, true);
         drawButton(canvas, state.lbSortBtn, "SORT: " + (state.sortMode == GameState.SortMode.HIGH_SCORE ? "HIGH SCORE" : "RECENT"));
-
         ArrayList<GameState.ScoreEntry> list = persistence.loadScores();
         Collections.sort(list, (a, b) -> {
             if (state.sortMode == GameState.SortMode.HIGH_SCORE) {
@@ -389,7 +460,6 @@ class GameRenderer {
                 return Long.compare(b.timestamp, a.timestamp);
             }
         });
-
         if (list.isEmpty()) {
             drawCenteredText(canvas, "No scores yet!", state.screenW / 2f, state.screenH * 0.5f, 40, Color.WHITE, false);
         } else {
@@ -405,57 +475,6 @@ class GameRenderer {
                 drawCenteredText(canvas, text, state.screenW / 2f, startY + i * rowH, 32, Color.WHITE, false);
             }
         }
-
         drawButton(canvas, state.lbBackBtn, "BACK");
-    }
-
-    // Pause overlay with RESUME and MENU buttons.
-    private void drawPausedOverlay(Canvas canvas) {
-        drawCenteredText(canvas, "PAUSED", state.screenW / 2f, state.screenH * 0.36f, 64, Color.GREEN, true);
-        drawButton(canvas, state.resumeBtn, "RESUME");
-        drawButton(canvas, state.pauseMenuBtn, "MENU");
-    }
-
-    // Game-over overlay showing the final score with RESTART and MENU buttons.
-    private void drawGameOverOverlay(Canvas canvas) {
-        drawCenteredText(canvas, "GAME OVER", state.screenW / 2f, state.screenH * 0.36f, 60, Color.RED, true);
-        drawCenteredText(canvas, "SCORE: " + state.lastScore, state.screenW / 2f, state.screenH * 0.36f + 56, 40, Color.WHITE, false);
-        drawButton(canvas, state.restartBtn, "RESTART");
-        drawButton(canvas, state.overMenuBtn, "MENU");
-    }
-
-    // Two vertical green bars (like the snake body) in the top-right corner.
-    private void drawPauseIcon(Canvas canvas) {
-        paint.setColor(Color.GREEN);
-        float w = state.pauseIcon.width();
-        float h = state.pauseIcon.height();
-        float barW = w * 0.28f;
-        canvas.drawRect(state.pauseIcon.left, state.pauseIcon.top, state.pauseIcon.left + barW, state.pauseIcon.top + h, paint);
-        canvas.drawRect(state.pauseIcon.right - barW, state.pauseIcon.top, state.pauseIcon.right, state.pauseIcon.top + h, paint);
-    }
-
-    // "SNAKE" title drawn at the given Y position.
-    private void drawTitle(Canvas canvas, float y) {
-        drawCenteredText(canvas, "SNAKE", state.screenW / 2f, y, 96, Color.GREEN, true);
-    }
-
-    // Blocky green button with a black label centered inside.
-    private void drawButton(Canvas canvas, RectF r, String label) {
-        paint.setColor(Color.GREEN);
-        canvas.drawRect(r.left, r.top, r.right - 2, r.bottom - 2, paint);
-        drawCenteredText(canvas, label, r.centerX(), r.centerY(), 36, Color.BLACK, true);
-    }
-
-    // Generic helper: draw a single line of text centered at (cx, cy) with
-    // the given size, color, and boldness.
-    private void drawCenteredText(Canvas canvas, String text, float cx, float cy, float size, int color, boolean bold) {
-        paint.setColor(color);
-        paint.setTextSize(size);
-        paint.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        paint.setTextAlign(Paint.Align.CENTER);
-        Paint.FontMetrics fm = paint.getFontMetrics();
-        float textY = cy - (fm.ascent + fm.descent) / 2f;
-        canvas.drawText(text, cx, textY, paint);
-        paint.setTextAlign(Paint.Align.LEFT);
     }
 }

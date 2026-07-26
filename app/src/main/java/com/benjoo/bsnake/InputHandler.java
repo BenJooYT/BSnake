@@ -4,13 +4,8 @@ import android.graphics.Point;
 import android.graphics.RectF;
 import android.view.MotionEvent;
 
-// Processes touch events and drives state-machine transitions.
-// Simple state/data changes are applied directly; complex operations
-// (settings, keyboard, app exit) are delegated through GameActions.
 class InputHandler {
 
-    // Callback interface that GameView implements for actions requiring
-    // Android framework access (keyboard, Activity, etc.).
     interface GameActions {
         void startNewGame();
         void cycleSpeed();
@@ -25,17 +20,22 @@ class InputHandler {
         void playClick();
         void setMusicVolume(float volume);
         void setSfxVolume(float volume);
+        void openMpMenu();
+        void startHost();
+        void startJoin();
+        void cancelMp();
+        void toggleReady();
+        void forceStart();
+        void rematch();
+        void sendSwipe(int dx, int dy);
     }
 
     private final GameState state;
     private final SnakeEngine engine;
     private final GameActions actions;
 
-    // Triple-tap detection for dev mode (stores last 3 tap timestamps)
     private final long[] titleTapTimes = new long[3];
     private int titleTapIndex = 0;
-
-    // Slider dragging state: 0 = none, 1 = music, 2 = sfx
     private int draggingSlider = 0;
 
     InputHandler(GameState state, SnakeEngine engine, GameActions actions) {
@@ -44,7 +44,6 @@ class InputHandler {
         this.actions = actions;
     }
 
-    // Record touch-down coordinates; start slider drag if on a volume slider.
     boolean onTouchEvent(MotionEvent event) {
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
@@ -55,9 +54,7 @@ class InputHandler {
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
-                if (draggingSlider != 0) {
-                    handleSliderDrag(event.getX());
-                }
+                if (draggingSlider != 0) handleSliderDrag(event.getX());
                 break;
             case MotionEvent.ACTION_UP:
                 draggingSlider = 0;
@@ -67,7 +64,6 @@ class InputHandler {
         return true;
     }
 
-    // Start dragging a slider if the touch falls inside its track rect.
     private void checkSliderDown(float x, float y) {
         if (state.musicSliderTrack != null && state.musicSliderTrack.contains(x, y)) {
             draggingSlider = 1;
@@ -80,7 +76,6 @@ class InputHandler {
         }
     }
 
-    // Update volume while the finger is dragged across a slider.
     private void handleSliderDrag(float x) {
         RectF track = (draggingSlider == 1) ? state.musicSliderTrack : state.sfxSliderTrack;
         float vol = (x - track.left) / track.width();
@@ -89,11 +84,13 @@ class InputHandler {
         else actions.setSfxVolume(vol);
     }
 
-    // Route the touch-up event based on the current screen state.
     private void handleTouchUp(float upX, float upY) {
         switch (state.currentState) {
             case MENU:
-                if (contains(state.startBtn, upX, upY)) {
+                if (contains(state.mpBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.openMpMenu();
+                } else if (contains(state.startBtn, upX, upY)) {
                     actions.playClick();
                     actions.startNewGame();
                 } else if (contains(state.speedBtn, upX, upY)) {
@@ -122,6 +119,50 @@ class InputHandler {
                             titleTapIndex = 0;
                         }
                     }
+                }
+                break;
+
+            case MP_MENU:
+                if (contains(state.hostBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.startHost();
+                } else if (contains(state.joinBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.startJoin();
+                } else if (contains(state.backBtn, upX, upY)) {
+                    actions.playClick();
+                    state.currentState = GameState.State.MENU;
+                }
+                break;
+
+            case MP_HOST:
+            case MP_JOIN:
+                if (contains(state.cancelBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.cancelMp();
+                }
+                break;
+
+            case MP_LOBBY:
+                if (contains(state.readyBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.toggleReady();
+                } else if (state.isHost && contains(state.forceStartBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.forceStart();
+                } else if (contains(state.cancelBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.cancelMp();
+                }
+                break;
+
+            case MP_GAME_OVER:
+                if (state.isHost && contains(state.mpRestartBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.rematch();
+                } else if (contains(state.mpMenuBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.cancelMp();
                 }
                 break;
 
@@ -176,10 +217,8 @@ class InputHandler {
                 }
                 break;
 
-            // During gameplay: a small tap on the pause icon pauses;
-            // a swipe determines the next direction and enqueues it
-            // (max depth 2, 180-degree reversals rejected).
             case PLAYING:
+            case MP_PLAYING:
                 float dx = upX - state.downX;
                 float dy = upY - state.downY;
                 boolean smallMove = Math.abs(dx) < 20 && Math.abs(dy) < 20;
@@ -191,20 +230,28 @@ class InputHandler {
 
                 int ndx = 0, ndy = 0;
                 if (Math.abs(dx) > Math.abs(dy)) {
-                    if (dx > 0) { ndx = 1; ndy = 0; }
-                    else if (dx < 0) { ndx = -1; ndy = 0; }
+                    if (dx > 0) ndx = 1;
+                    else if (dx < 0) ndx = -1;
                 } else {
-                    if (dy > 0) { ndx = 0; ndy = 1; }
-                    else if (dy < 0) { ndx = 0; ndy = -1; }
+                    if (dy > 0) ndy = 1;
+                    else if (dy < 0) ndy = -1;
                 }
+                if (ndx == 0 && ndy == 0) return;
 
-                if (ndx != 0 || ndy != 0) {
-                    Point lastDir = state.inputQueue.isEmpty()
-                            ? new Point(state.dirX, state.dirY)
-                            : state.inputQueue.get(state.inputQueue.size() - 1);
-                    if (!(ndx == -lastDir.x && ndy == -lastDir.y) && state.inputQueue.size() < 2) {
+                if (state.currentState == GameState.State.MP_PLAYING && !state.isHost) {
+                    // Client: send input to host
+                    actions.sendSwipe(ndx, ndy);
+                } else {
+                    // Single-player or host: enqueue locally
+                    int si = state.isHost ? state.playerIndex : 0;
+                    GameState.SnakeData sd = state.snakes[si];
+                    if (!sd.alive) return;
+                    Point lastDir = sd.inputQueue.isEmpty()
+                            ? new Point(sd.dirX, sd.dirY)
+                            : sd.inputQueue.get(sd.inputQueue.size() - 1);
+                    if (!(ndx == -lastDir.x && ndy == -lastDir.y) && sd.inputQueue.size() < 2) {
                         if (!(ndx == lastDir.x && ndy == lastDir.y)) {
-                            state.inputQueue.add(new Point(ndx, ndy));
+                            sd.inputQueue.add(new Point(ndx, ndy));
                         }
                     }
                 }
@@ -212,15 +259,13 @@ class InputHandler {
         }
     }
 
-    // Check if the tap landed in the "SNAKE" title area (top-center)
     private boolean isTapOnTitle(float x, float y) {
-        float titleY = state.screenH * 0.24f;
+        float titleY = state.screenH * 0.20f;
         float halfW = 200;
         return x > state.screenW / 2f - halfW && x < state.screenW / 2f + halfW
                 && y > titleY - 60 && y < titleY + 60;
     }
 
-    // Hit-test: true if the point (x, y) falls inside rect r.
     private boolean contains(RectF r, float x, float y) {
         return r != null && r.contains(x, y);
     }

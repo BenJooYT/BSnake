@@ -3,6 +3,7 @@ package com.benjoo.bsnake;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Point;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -13,19 +14,18 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.EditText;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
 import java.util.Locale;
 
-// Thin coordinator that owns all subsystems and wires them together.
-// Responsibilities: SurfaceView lifecycle, the game loop thread, keyboard
-// input bridge, and implementation of InputHandler.GameActions.
 public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Callback, InputHandler.GameActions {
 
-    // Game-loop infrastructure
     Thread thread;
     SurfaceHolder holder;
     volatile boolean running = false;
 
-    // Subsystem references
     GameState state;
     PersistenceManager persistence;
     SnakeEngine engine;
@@ -33,8 +33,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     InputHandler input;
     MenuMusic menuMusic;
     SoundEffects soundEffects;
+    GameServer server;
+    GameClient client;
 
-    // Invisible EditText used to capture hex-color keyboard input on the settings screen
     EditText keyboardInput;
 
     public GameView(Context context) {
@@ -49,7 +50,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         init();
     }
 
-    // Create all subsystems in dependency order: State -> Persistence -> Engine -> Renderer -> Input
     private void initComponents(Context context) {
         state = new GameState();
         persistence = new PersistenceManager(context);
@@ -66,13 +66,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         persistence.loadCameraMode(state);
     }
 
-    // Register the surface callback
     private void init() {
         holder = getHolder();
         holder.addCallback(this);
     }
 
-    // Measure screen, configure board layout, show the menu, and start the game-loop thread
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
         state.screenW = getWidth();
@@ -85,25 +83,33 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         thread.start();
     }
 
-    // Fixed-tick game loop with interpolated rendering between ticks.
-    // While PLAYING, engine.update() runs every tickDelay ms; other states
-    // reset the tick timer each frame. Rendering runs every iteration at
-    // up to ~120 FPS (8 ms sleep), using interpolation fraction t to
-    // smoothly draw between the previous and current logical tick.
     @Override
     public void run() {
         long lastTick = System.currentTimeMillis();
         while (running) {
             long now = System.currentTimeMillis();
-            if (state.currentState == GameState.State.PLAYING && now - lastTick >= state.tickDelay) {
+
+            // Network message processing
+            processNetworkMessages();
+
+            // Game tick
+            boolean isPlaying = state.currentState == GameState.State.PLAYING;
+            boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
+            if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
+                if (state.isHost && state.currentState == GameState.State.MP_PLAYING) {
+                    sendHostState();
+                }
                 lastTick = now;
                 now = System.currentTimeMillis();
-            } else if (state.currentState != GameState.State.PLAYING) {
+            } else if (!isPlaying && state.currentState != GameState.State.MP_PLAYING) {
                 lastTick = now;
             }
-            // Start/stop menu music based on current screen state
-            if (state.currentState == GameState.State.MENU) {
+
+            // Music
+            if (state.currentState == GameState.State.MENU || state.currentState == GameState.State.MP_MENU
+                    || state.currentState == GameState.State.MP_HOST || state.currentState == GameState.State.MP_JOIN
+                    || state.currentState == GameState.State.MP_LOBBY) {
                 if (!menuMusic.isPlaying()) menuMusic.start();
             } else {
                 if (menuMusic.isPlaying()) menuMusic.stop();
@@ -122,7 +128,141 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         }
     }
 
-    // Recalculate layout when the surface changes size (e.g. orientation)
+    private void processNetworkMessages() {
+        if (state.isHost && server != null) {
+            String msg;
+            while ((msg = server.pollMessage()) != null) {
+                handleHostMessage(msg);
+            }
+        } else if (!state.isHost && client != null) {
+            String msg;
+            while ((msg = client.pollMessage()) != null) {
+                handleClientMessage(msg);
+            }
+        }
+    }
+
+    private void handleHostMessage(String json) {
+        try {
+            JSONObject obj = new JSONObject(json);
+            String type = obj.optString("type", "");
+            switch (type) {
+                case "hello":
+                    state.clientColor = obj.optInt("color", state.headColor);
+                    state.opponentConnected = true;
+                    break;
+                case "ready":
+                    state.opponentReady = obj.optBoolean("ready", false);
+                    break;
+                case "input":
+                    int dx = obj.getInt("dx");
+                    int dy = obj.getInt("dy");
+                    if (state.currentState == GameState.State.MP_PLAYING) {
+                        GameState.SnakeData sd = state.snakes[1];
+                        if (sd.alive) {
+                            Point lastDir = sd.inputQueue.isEmpty()
+                                    ? new Point(sd.dirX, sd.dirY)
+                                    : sd.inputQueue.get(sd.inputQueue.size() - 1);
+                            if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
+                                if (!(dx == lastDir.x && dy == lastDir.y)) {
+                                    sd.inputQueue.add(new Point(dx, dy));
+                                }
+                            }
+                        }
+                    }
+                    break;
+            }
+        } catch (Exception e) { }
+    }
+
+    private void handleClientMessage(String json) {
+        try {
+            JSONObject obj = new JSONObject(json);
+            String type = obj.optString("type", "");
+            switch (type) {
+                case "state":
+                    applyState(obj);
+                    break;
+                case "gameOver":
+                    state.mpWinner = obj.optInt("winner", -1);
+                    JSONArray scArr = obj.getJSONArray("scores");
+                    state.mpLastScore0 = scArr.getInt(0);
+                    state.mpLastScore1 = scArr.getInt(1);
+                    state.currentState = GameState.State.MP_GAME_OVER;
+                    break;
+                case "ready":
+                    state.opponentReady = obj.optBoolean("ready", false);
+                    break;
+                case "start":
+                    state.opponentReady = true;
+                    state.localReady = true;
+                    state.currentState = GameState.State.MP_PLAYING;
+                    break;
+            }
+        } catch (Exception e) { }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void applyState(JSONObject obj) {
+        try {
+            if (state.currentState != GameState.State.MP_PLAYING
+                    && state.currentState != GameState.State.MP_GAME_OVER) {
+                state.currentState = GameState.State.MP_PLAYING;
+            }
+            JSONArray snArr = obj.getJSONArray("snakes");
+            for (int i = 0; i < snArr.length() && i < 2; i++) {
+                JSONArray bodyArr = snArr.getJSONArray(i);
+                GameState.SnakeData sd = state.snakes[i];
+                sd.prevBody.clear();
+                sd.prevBody.addAll(sd.body);
+                sd.body.clear();
+                for (int j = 0; j < bodyArr.length(); j++) {
+                    JSONArray pt = bodyArr.getJSONArray(j);
+                    sd.body.add(new Point(pt.getInt(0), pt.getInt(1)));
+                }
+            }
+            JSONArray scArr = obj.getJSONArray("scores");
+            state.snakes[0].score = scArr.getInt(0);
+            state.snakes[1].score = scArr.getInt(1);
+            JSONArray fdArr = obj.getJSONArray("foods");
+            state.foods.clear();
+            for (int i = 0; i < fdArr.length(); i++) {
+                JSONArray pt = fdArr.getJSONArray(i);
+                state.foods.add(new Point(pt.getInt(0), pt.getInt(1)));
+            }
+            if (obj.has("boss")) {
+                JSONObject bj = obj.getJSONObject("boss");
+                state.boss.x = bj.getInt("x");
+                state.boss.y = bj.getInt("y");
+                state.boss.hp = bj.getInt("hp");
+                state.boss.lastMoveTick = bj.getInt("lastMoveTick");
+                state.boss.alive = true;
+            } else {
+                state.boss.alive = false;
+            }
+            JSONArray trArr = obj.getJSONArray("trail");
+            state.bossTrail.clear();
+            for (int i = 0; i < trArr.length(); i++) {
+                JSONArray tc = trArr.getJSONArray(i);
+                state.bossTrail.add(new GameState.BossTrailCell(tc.getInt(0), tc.getInt(1), tc.getInt(2)));
+            }
+            state.tickCount = obj.getInt("tick");
+            state.snakes[0].alive = true;
+            state.snakes[1].alive = true;
+        } catch (Exception e) { }
+    }
+
+    private void sendHostState() {
+        if (server == null) return;
+        String msg = NetworkMessage.state(
+                state.snakes[0].body, state.snakes[1].body,
+                state.snakes[0].score, state.snakes[1].score,
+                state.snakes[0].dirX, state.snakes[0].dirY,
+                state.snakes[1].dirX, state.snakes[1].dirY,
+                state.foods, state.boss, state.bossTrail, state.tickCount);
+        if (msg != null) server.send(msg);
+    }
+
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         state.screenW = width;
@@ -131,25 +271,23 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.layoutButtons();
     }
 
-    // Stop the game loop, release audio, and wait for the thread to finish
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         running = false;
         try { if (thread != null) thread.join(); } catch (InterruptedException e) { }
+        if (server != null) { server.stop(); server = null; }
+        if (client != null) { client.stop(); client = null; }
         menuMusic.release();
         soundEffects.release();
     }
 
-    // Delegate all touch events to InputHandler
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         return input.onTouchEvent(event);
     }
 
-    // ----- InputHandler.GameActions implementation -----
+    // ----- GameActions implementation -----
 
-    // Reset the game engine and transition to the PLAYING state.
-    // When dev mode is active, parse the entered start score first and dismiss the keyboard.
     @Override
     public void startNewGame() {
         if (state.devMode) {
@@ -161,18 +299,18 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
             hideKeyboardInternal();
         }
-        engine.resetGame();
+        engine.resetSinglePlayer();
+        if (server != null) { server.stop(); server = null; }
+        if (client != null) { client.stop(); client = null; }
         state.currentState = GameState.State.PLAYING;
     }
 
-    // Rotate through EASY / NORMAL / HARD speed tiers
     @Override
     public void cycleSpeed() {
         state.speedIndex = (state.speedIndex + 1) % state.speedLabels.length;
         state.tickDelay = state.speedDelays[state.speedIndex];
     }
 
-    // Format current colors as hex strings and open the settings screen
     @Override
     public void openSettingsScreen() {
         state.headHex = String.format(Locale.US, "#%06X", state.headColor & 0xFFFFFF);
@@ -181,8 +319,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.currentState = GameState.State.SETTINGS;
     }
 
-    // Validate hex colors, persist them, dismiss keyboard, and return to menu.
-    // If either color is invalid, nothing happens (the user keeps editing).
     @Override
     public void applyColors() {
         Integer newHeadColor = persistence.parseHexColor(state.headHex);
@@ -195,7 +331,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.currentState = GameState.State.MENU;
     }
 
-    // Show the soft keyboard for editing the head (index=0) or body (index=1) hex color
     @Override
     public void editColorField(int index) {
         if (keyboardInput == null) return;
@@ -208,20 +343,14 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     @Override
-    public void dismissKeyboard() {
-        hideKeyboardInternal();
-    }
+    public void dismissKeyboard() { hideKeyboardInternal(); }
 
-    // Finish the hosting Activity (exits the app)
     @Override
     public void exitApp() {
         Context ctx = getContext();
-        if (ctx instanceof Activity) {
-            ((Activity) ctx).finish();
-        }
+        if (ctx instanceof Activity) ((Activity) ctx).finish();
     }
 
-    // Cycle between camera modes and reconfigure the board layout.
     @Override
     public void toggleCameraMode() {
         GameState.CameraMode[] modes = GameState.CameraMode.values();
@@ -231,20 +360,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.layoutButtons();
     }
 
-    // Toggle developer mode on/off.  When activated, show the keyboard for
-    // entering a starting score; when deactivated, dismiss the keyboard.
     @Override
     public void toggleDevMode() {
         state.devMode = !state.devMode;
-        if (state.devMode) {
-            state.devScoreText = "0";
-            showDevScoreInput();
-        } else {
-            hideKeyboardInternal();
-        }
+        if (state.devMode) { state.devScoreText = "0"; showDevScoreInput(); }
+        else hideKeyboardInternal();
     }
 
-    // Show the soft keyboard for editing the dev-mode starting score (numbers only)
     @Override
     public void showDevScoreInput() {
         if (keyboardInput == null) return;
@@ -258,7 +380,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         if (imm != null) imm.showSoftInput(keyboardInput, InputMethodManager.SHOW_IMPLICIT);
     }
 
-    // Common keyboard-dismissal logic used by applyColors, BACK, and dev-mode toggle
     private void hideKeyboardInternal() {
         if (keyboardInput == null) return;
         InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -269,9 +390,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     @Override
-    public void playClick() {
-        soundEffects.playClick();
-    }
+    public void playClick() { soundEffects.playClick(); }
 
     @Override
     public void setMusicVolume(float vol) {
@@ -287,10 +406,133 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         persistence.saveVolumes(state.musicVolume, state.sfxVolume);
     }
 
+    // ----- Multiplayer actions -----
+
+    @Override
+    public void openMpMenu() {
+        state.currentState = GameState.State.MP_MENU;
+    }
+
+    @Override
+    public void startHost() {
+        stopNetworking();
+        state.isHost = true;
+        state.playerIndex = 0;
+        state.opponentConnected = false;
+        state.opponentReady = false;
+        state.localReady = false;
+        server = new GameServer(getContext(), new GameServer.ServerCallback() {
+            @Override
+            public void onClientConnected() {
+                server.send(NetworkMessage.hello(state.headColor));
+            }
+            @Override
+            public void onMessage(String msg) { }
+            @Override
+            public void onClientDisconnected() {
+                state.opponentConnected = false;
+                if (state.currentState == GameState.State.MP_PLAYING) {
+                    state.currentState = GameState.State.MENU;
+                } else {
+                    state.currentState = GameState.State.MENU;
+                }
+            }
+        });
+        if (server.start()) {
+            state.currentState = GameState.State.MP_HOST;
+        }
+    }
+
+    @Override
+    public void startJoin() {
+        stopNetworking();
+        state.isHost = false;
+        state.playerIndex = 1;
+        state.opponentConnected = false;
+        state.opponentReady = false;
+        state.localReady = false;
+        client = new GameClient(getContext(), new GameClient.ClientCallback() {
+            @Override
+            public void onHostFound(String host) { }
+            @Override
+            public void onConnected() {
+                state.opponentConnected = true;
+                client.send(NetworkMessage.hello(state.headColor));
+            }
+            @Override
+            public void onMessage(String msg) { }
+            @Override
+            public void onDisconnected() {
+                if (state.currentState == GameState.State.MP_PLAYING) {
+                    state.currentState = GameState.State.MENU;
+                }
+            }
+        });
+        client.startDiscovery();
+        state.currentState = GameState.State.MP_JOIN;
+    }
+
+    @Override
+    public void cancelMp() {
+        stopNetworking();
+        state.currentState = GameState.State.MENU;
+    }
+
+    @Override
+    public void toggleReady() {
+        state.localReady = !state.localReady;
+        String msg = NetworkMessage.ready(state.localReady);
+        if (state.isHost && server != null) server.send(msg);
+        else if (client != null) client.send(msg);
+        if (state.localReady && state.opponentReady) {
+            startMpGame();
+        }
+    }
+
+    @Override
+    public void forceStart() {
+        if (state.isHost) {
+            String msg = NetworkMessage.startGame();
+            if (server != null) server.send(msg);
+            startMpGame();
+        }
+    }
+
+    private void startMpGame() {
+        engine.resetGame();
+        state.currentState = GameState.State.MP_PLAYING;
+        if (state.isHost) {
+            sendHostState();
+        }
+    }
+
+    @Override
+    public void rematch() {
+        if (state.isHost) {
+            engine.resetGame();
+            state.currentState = GameState.State.MP_PLAYING;
+            sendHostState();
+        }
+    }
+
+    @Override
+    public void sendSwipe(int dx, int dy) {
+        if (client != null) {
+            String msg = NetworkMessage.input(dx, dy, state.tickCount);
+            if (msg != null) client.send(msg);
+        }
+    }
+
+    private void stopNetworking() {
+        if (server != null) { server.stop(); server = null; }
+        if (client != null) { client.stop(); client = null; }
+        state.opponentConnected = false;
+        state.opponentReady = false;
+        state.localReady = false;
+    }
+
     // ----- Keyboard setup -----
 
-    // Attach the invisible EditText created by MainActivity and wire a TextWatcher
-    // that syncs typed hex strings back to state.headHex / state.bodyHex in real time.
     public void setKeyboardInput(EditText input) {
         keyboardInput = input;
         keyboardInput.addTextChangedListener(new TextWatcher() {
@@ -313,7 +555,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         });
     }
 
-    // Factory helper to create a transparent single-line EditText for hex input
     EditText makeColorInput(Activity activity, String hint, int color) {
         EditText input = new EditText(activity);
         input.setSingleLine(true);
