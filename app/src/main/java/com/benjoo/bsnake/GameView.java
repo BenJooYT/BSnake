@@ -205,8 +205,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @SuppressWarnings("deprecation")
     private void applyState(JSONObject obj) {
         try {
-            if (state.currentState != GameState.State.MP_PLAYING
-                    && state.currentState != GameState.State.MP_GAME_OVER) {
+            if (state.currentState != GameState.State.MP_PLAYING) {
                 state.currentState = GameState.State.MP_PLAYING;
             }
             JSONArray snArr = obj.getJSONArray("snakes");
@@ -299,9 +298,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
             hideKeyboardInternal();
         }
+        state.playerIndex = 0;
+        stopNetworking();
         engine.resetSinglePlayer();
-        if (server != null) { server.stop(); server = null; }
-        if (client != null) { client.stop(); client = null; }
         state.currentState = GameState.State.PLAYING;
     }
 
@@ -510,6 +509,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void rematch() {
         if (state.isHost) {
             engine.resetGame();
+            String startMsg = NetworkMessage.startGame();
+            if (server != null) server.send(startMsg);
             state.currentState = GameState.State.MP_PLAYING;
             sendHostState();
         }
