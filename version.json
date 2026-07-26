@@ -1,7 +1,7 @@
 {
-  "versionCode": 6,
-  "versionName": "1.4.0",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.0/BSnake-v1.4.0.apk",
-  "changelog": "- LAN Local Multiplayer over WiFi (host/client via TCP + NSD discovery)\n- Host game simulation is authoritative; client renders received STATE snapshots\n- Lobby system with ready/un-ready and force-start for host\n- Multi-snake support: 2 snakes on the same board with head-on/body collision rules\n- \"YOU\" label on local player's snake, tweens smoothly with the head\n- Color sharing: both players see each other's chosen snake colors\n- Rematch button reuses existing socket connection\n- Pause functionality disabled during multiplayer matches\n- Procedural menu music and synthesized SFX\n- Music and SFX volume sliders with drag-to-adjust\n- Persistent camera mode and volume preferences\n- Fix: host sends gameOver message to client at match end\n- Fix: client reads snake alive flags from state messages\n- Fix: client resets game state on rematch (no leftover data)\n- Fix: asymmetric snake-vs-snake body collision (dead bodies still block)\n- Fix: client interpolation t cycles 0-1 every tick for smooth rendering\n- Fix: AudioTrack lifecycle safety (regeneration after release)\n- Fix: menu music rest-index crash and Markov chain corruption\n- Boss defeat sound: 7 echo repeats at 400ms with exponential decay\n- Code size reduction via dead-code elimination and expression simplification",
+  "versionCode": 7,
+  "versionName": "1.4.1",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.1/BSnake-v1.4.1.apk",
+  "changelog": "- NSD multiplayer discovery fix: TCP connect runs on background thread, fixes NetworkOnMainThreadException\n- MulticastLock acquired on both host and client so mDNS packets reach the WiFi driver\n- Fix: host sends \"start\" message to client when both players ready up (client calls engine.resetGame)\n- Fix: client parses snake direction data from host state messages (correct head rendering)\n- Fix: game over message sent once instead of spammed every tick\n- Fix: volatile qualifiers on multiplayer state fields for correct cross-thread visibility",
   "needsReinstall": false
 }

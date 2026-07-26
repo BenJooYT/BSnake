@@ -3,6 +3,7 @@ package com.benjoo.bsnake;
 import android.content.Context;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
+import android.net.wifi.WifiManager;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -28,6 +29,7 @@ class GameServer {
     private Thread readThread;
     private volatile boolean running;
     private int port;
+    private WifiManager.MulticastLock multicastLock;
     private final ConcurrentLinkedQueue<String> incoming = new ConcurrentLinkedQueue<>();
 
     interface ServerCallback {
@@ -47,6 +49,11 @@ class GameServer {
         try {
             serverSocket = new ServerSocket(0);
             port = serverSocket.getLocalPort();
+            WifiManager wifi = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifi != null) {
+                multicastLock = wifi.createMulticastLock("BSnakeMulticastServer");
+                multicastLock.acquire();
+            }
             running = true;
             startAdvertising();
             acceptThread = new Thread(this::acceptLoop);
@@ -117,6 +124,10 @@ class GameServer {
 
     void stop() {
         running = false;
+        if (multicastLock != null) {
+            try { multicastLock.release(); } catch (Exception e) { }
+            multicastLock = null;
+        }
         if (nsdManager != null && regListener != null) {
             try { nsdManager.unregisterService(regListener); } catch (Exception e) { }
         }

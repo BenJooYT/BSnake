@@ -101,10 +101,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 if (state.isHost) {
                     if (state.currentState == GameState.State.MP_PLAYING) {
                         sendHostState();
-                    } else if (state.currentState == GameState.State.MP_GAME_OVER) {
+                    } else if (state.currentState == GameState.State.MP_GAME_OVER && !state.mpGameOverSent) {
                         int[] scores = new int[]{state.mpLastScore0, state.mpLastScore1};
                         String msg = NetworkMessage.gameOver(state.mpWinner, scores);
                         if (msg != null && server != null) server.send(msg);
+                        state.mpGameOverSent = true;
                     }
                 }
                 lastTick = now;
@@ -207,6 +208,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 case "start":
                     state.opponentReady = true;
                     state.localReady = true;
+                    state.mpGameOverSent = false;
                     engine.resetGame();
                     state.currentState = GameState.State.MP_PLAYING;
                     break;
@@ -235,6 +237,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             JSONArray scArr = obj.getJSONArray("scores");
             state.snakes[0].score = scArr.getInt(0);
             state.snakes[1].score = scArr.getInt(1);
+            JSONArray drArr = obj.getJSONArray("dirs");
+            for (int i = 0; i < drArr.length() && i < 2; i++) {
+                JSONArray d = drArr.getJSONArray(i);
+                state.snakes[i].dirX = d.getInt(0);
+                state.snakes[i].dirY = d.getInt(1);
+            }
             JSONArray fdArr = obj.getJSONArray("foods");
             state.foods.clear();
             for (int i = 0; i < fdArr.length(); i++) {
@@ -502,13 +510,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void forceStart() {
         if (state.isHost) {
-            String msg = NetworkMessage.startGame();
-            if (server != null) server.send(msg);
             startMpGame();
         }
     }
 
     private void startMpGame() {
+        state.mpGameOverSent = false;
+        if (state.isHost && server != null) {
+            server.send(NetworkMessage.startGame());
+        }
         engine.resetGame();
         state.currentState = GameState.State.MP_PLAYING;
         if (state.isHost) {
@@ -519,11 +529,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void rematch() {
         if (state.isHost) {
-            engine.resetGame();
-            String startMsg = NetworkMessage.startGame();
-            if (server != null) server.send(startMsg);
-            state.currentState = GameState.State.MP_PLAYING;
-            sendHostState();
+            startMpGame();
         }
     }
 

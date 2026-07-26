@@ -10,7 +10,7 @@ public class GameState {
 
     enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS,
                  MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER }
-    State currentState = State.MENU;
+    volatile State currentState = State.MENU;
 
     enum SortMode { HIGH_SCORE, RECENT }
     SortMode sortMode = SortMode.HIGH_SCORE;
@@ -86,12 +86,13 @@ public class GameState {
     int editingColor = -1;
 
     // Multiplayer state
-    boolean isHost;
+    volatile boolean isHost;
     int clientColor = Color.GREEN;
-    boolean opponentReady;
-    boolean localReady;
-    boolean opponentConnected;
-    boolean mpLabelVisible;
+    volatile boolean opponentReady;
+    volatile boolean localReady;
+    volatile boolean opponentConnected;
+    volatile boolean mpLabelVisible;
+    volatile boolean mpGameOverSent;
     int mpWinner = -1;
     int mpLastScore0, mpLastScore1;
 

@@ -20,6 +20,14 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.4.1
+- NSD multiplayer discovery fix: TCP connect on background thread, fixes NetworkOnMainThreadException
+- MulticastLock acquired on both host and client so mDNS packets reach the WiFi driver
+- Fix: host sends "start" message to client when both players ready up
+- Fix: client parses snake direction data from host state messages
+- Fix: game over message sent once instead of spammed every tick
+- Fix: volatile qualifiers on multiplayer state fields for correct cross-thread visibility
+
 ### 1.4.0
 - LAN Local Multiplayer over WiFi (host/client via TCP + NSD discovery)
 - Host game simulation is authoritative — client renders received STATE snapshots

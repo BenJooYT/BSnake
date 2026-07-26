@@ -3,6 +3,7 @@ package com.benjoo.bsnake;
 import android.content.Context;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
+import android.net.wifi.WifiManager;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -26,6 +27,7 @@ class GameClient {
     private NsdManager.DiscoveryListener discoveryListener;
     private final ConcurrentLinkedQueue<String> incoming = new ConcurrentLinkedQueue<>();
     private volatile String discoveredHost;
+    private WifiManager.MulticastLock multicastLock;
 
     interface ClientCallback {
         void onHostFound(String host);
@@ -44,6 +46,11 @@ class GameClient {
     void startDiscovery() {
         try {
             nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
+            WifiManager wifi = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wifi != null) {
+                multicastLock = wifi.createMulticastLock("BSnakeMulticast");
+                multicastLock.acquire();
+            }
             discoveryListener = new NsdManager.DiscoveryListener() {
                 @Override public void onDiscoveryStarted(String t) { }
                 @Override public void onDiscoveryStopped(String t) { }
@@ -55,10 +62,14 @@ class GameClient {
                         discoveredHost = info.getServiceName();
                         callback.onHostFound(info.getServiceName());
                         nsdManager.resolveService(info, new NsdManager.ResolveListener() {
-                            @Override public void onResolveFailed(NsdServiceInfo s, int e) { }
+                            @Override public void onResolveFailed(NsdServiceInfo s, int e) {
+                                Log.e(TAG, "NSD resolve failed error=" + e);
+                            }
                             @Override
                             public void onServiceResolved(NsdServiceInfo res) {
-                                connect(res.getHost().getHostAddress(), res.getPort());
+                                final String host = res.getHost().getHostAddress();
+                                final int port = res.getPort();
+                                new Thread(() -> connect(host, port)).start();
                             }
                         });
                     }
@@ -112,6 +123,10 @@ class GameClient {
 
     void stop() {
         running = false;
+        if (multicastLock != null) {
+            try { multicastLock.release(); } catch (Exception e) { }
+            multicastLock = null;
+        }
         if (nsdManager != null && discoveryListener != null) {
             try { nsdManager.stopServiceDiscovery(discoveryListener); } catch (Exception e) { }
         }
