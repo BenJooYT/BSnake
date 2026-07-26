@@ -51,64 +51,54 @@ Simple Snake game for Android, AIDE-compatible.
 - Fixed various connectivity and timing issues
 
 ### 1.4.0
-- LAN Local Multiplayer over WiFi (host/client via TCP + NSD discovery)
-- Host game simulation is authoritative — client renders received STATE snapshots
-- Lobby system with ready/un-ready and force-start for host
-- Multi-snake support: 2 snakes on the same board with head-on/body collision rules
-- "YOU" label on local player's snake, tweens smoothly with the head
-- Color sharing: both players see each other's chosen snake colors
-- Rematch button reuses existing socket connection
-- Pause functionality disabled during multiplayer matches
-- Fix: host sends gameOver message to client at match end
-- Fix: client reads snake alive flags from state messages
-- Fix: client resets game state on rematch (no leftover data)
-- Fix: asymmetric snake-vs-snake body collision (dead bodies still block)
-- Fix: GameClient.running flag not set after connection
-- Fix: client interpolation t cycles 0–1 every tick for smooth rendering
-- Fix: drawColorField uses uiCellSize instead of cellSize
-- Fix: AudioTrack lifecycle safety (regeneration after surface destroy)
-- Fix: menu music rest-index crash and Markov chain corruption from rests
-- Fix: menu music beatPos initialized correctly for accurate chord/bar detection
-- Boss defeat sound: 7 echo repeats at 400ms with exponential decay
-- Code size reduction via dead-code elimination and expression simplification
+- Play against friends over WiFi (LAN multiplayer)
+- Host runs the game, joiner sees everything in real-time
+- Lobby with ready up and force start for the host
+- Two snakes on the same board with proper collision rules
+- "YOU" label follows your snake
+- Both players see each other's chosen colors
+- Rematch without reconnecting
+- Pause disabled during multiplayer
+- Boss defeat sound with echo effect
+- Various stability fixes for multiplayer
+- Code cleanup
 
 ### 1.3.7
-- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
-- Music and SFX volume sliders in settings with drag-to-adjust
-- Persistent camera mode and volume preferences
-- Default music volume 25%, SFX volume 50% on first-ever startup
-- Fix: pre-allocate AudioTrack objects to eliminate stutter during gameplay
-- Fix: use DownloadManager instead of browser ACTION_VIEW for APK downloads
+- Procedural menu music while browsing menus
+- Volume sliders for music and SFX
+- Camera mode and volume preferences save between sessions
+- Smoother audio during gameplay
+- Uses system download manager for APK updates
 
 ### 1.3.5
-- Added in-app update prompt that checks GitHub for new versions
+- Checks for updates on GitHub and prompts to download
 
 ### 1.3.4
-- Bump to v1.3.4; add in-app update prompt with GitHub version check
+- In-app update checker (checks GitHub for new versions)
 
 ### 1.3.3
-- Score/size decoupling: score and snake length are now independent
-- Boss AI: movement avoids snake tiles; teleport avoids snake only
-- Live color preview: swatch updates immediately as player types hex
-- Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
+- Score and snake length are now independent
+- Boss avoids snake tiles when moving
+- Live color preview while typing hex codes
+- Three camera modes to choose from
 
 ### 1.3.2
 - Live color preview and multiple camera modes
 
 ### 1.3.1
-- Boss AI improvement: movement avoids snake tiles
+- Boss avoids snake tiles when moving
 
 ### 1.3.0
-- Boss Fruit System (2×2 purple boss, 5 HP, trail cells)
-- Developer Mode (triple-tap title, custom starting score)
+- Boss Fruit system (2x2 purple boss with HP and trail cells)
+- Developer mode (triple-tap title for custom starting score)
 
 ### 1.2.0
-- Fixed 32×32 world, grid lines, zoomed camera with smooth following
-- Off-screen food direction arrows, toroidal teleportation
+- Fixed 32x32 grid with zoomed camera and smooth following
+- Food arrows point off-screen, wrap-around edges
 
 ### 1.1.0
-- Settings screen for snake color customization with live hex preview
-- Persistent color preferences via SharedPreferences
+- Settings screen with snake color customization
+- Colors save between sessions
 
 ## AIDE Instructions
 
