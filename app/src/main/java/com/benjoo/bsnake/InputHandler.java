@@ -28,6 +28,7 @@ class InputHandler {
         void forceStart();
         void rematch();
         void sendSwipe(int dx, int dy);
+        void connectToHost(int index);
     }
 
     private final GameState state;
@@ -136,10 +137,24 @@ class InputHandler {
                 break;
 
             case MP_HOST:
+                if (contains(state.cancelBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.cancelMp();
+                }
+                break;
+
             case MP_JOIN:
                 if (contains(state.cancelBtn, upX, upY)) {
                     actions.playClick();
                     actions.cancelMp();
+                } else {
+                    for (int i = 0; i < state.hostItemRects.size(); i++) {
+                        if (contains(state.hostItemRects.get(i), upX, upY)) {
+                            actions.playClick();
+                            actions.connectToHost(i);
+                            break;
+                        }
+                    }
                 }
                 break;
 

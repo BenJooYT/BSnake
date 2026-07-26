@@ -323,16 +323,39 @@ class GameRenderer {
 
     private void drawHostScreen(Canvas canvas) {
         drawCenteredText(canvas, "HOST GAME", state.screenW / 2f, state.screenH * 0.25f, 48, Color.GREEN, true);
-        drawCenteredText(canvas, "Waiting for player to join...", state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+        String status = state.mpStatus != null && !state.mpStatus.isEmpty()
+                ? state.mpStatus : "Waiting for player to join...";
+        drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
         drawButton(canvas, state.cancelBtn, "CANCEL");
     }
 
     private void drawJoinScreen(Canvas canvas) {
         drawCenteredText(canvas, "JOIN GAME", state.screenW / 2f, state.screenH * 0.25f, 48, Color.GREEN, true);
         if (state.opponentConnected) {
-            drawCenteredText(canvas, "Connecting...", state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+            drawCenteredText(canvas, "Connected!", state.screenW / 2f, state.screenH * 0.35f, 28, Color.GREEN, false);
         } else {
-            drawCenteredText(canvas, "Searching for hosts...", state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+            String status = state.mpStatus != null && !state.mpStatus.isEmpty()
+                    ? state.mpStatus : "Scanning for hosts...";
+            drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.35f, 24, Color.WHITE, false);
+        }
+        // Draw discovered hosts list
+        state.hostItemRects.clear();
+        if (!state.discoveredHosts.isEmpty()) {
+            float listY = state.screenH * 0.43f;
+            float itemH = state.uiCellSize * 1.4f;
+            float gap = state.uiCellSize * 0.3f;
+            float itemW = Math.min(state.screenW * 0.85f, 400);
+            float left = (state.screenW - itemW) / 2f;
+            for (int i = 0; i < state.discoveredHosts.size(); i++) {
+                GameState.DiscoveredHost dh = state.discoveredHosts.get(i);
+                float cy = listY + i * (itemH + gap);
+                RectF r = new RectF(left, cy - itemH / 2f, left + itemW, cy + itemH / 2f);
+                state.hostItemRects.add(r);
+                paint.setColor(dh.resolved ? Color.GREEN : Color.DKGRAY);
+                canvas.drawRect(r.left, r.top, r.right - 2, r.bottom - 2, paint);
+                drawCenteredText(canvas, dh.name, r.centerX(), r.centerY(), 28,
+                        dh.resolved ? Color.BLACK : Color.GRAY, true);
+            }
         }
         drawButton(canvas, state.cancelBtn, "CANCEL");
     }

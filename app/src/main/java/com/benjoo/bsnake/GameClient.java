@@ -30,8 +30,11 @@ class GameClient {
     private WifiManager.MulticastLock multicastLock;
 
     interface ClientCallback {
-        void onHostFound(String host);
+        void onDiscoveryStarted();
+        void onDiscoveryFailed();
+        void onHostFound(String name, String host, int port);
         void onConnected();
+        void onConnectFailed();
         void onMessage(String msg);
         void onDisconnected();
     }
@@ -51,25 +54,27 @@ class GameClient {
                 multicastLock = wifi.createMulticastLock("BSnakeMulticast");
                 multicastLock.acquire();
             }
+            callback.onDiscoveryStarted();
             discoveryListener = new NsdManager.DiscoveryListener() {
                 @Override public void onDiscoveryStarted(String t) { }
                 @Override public void onDiscoveryStopped(String t) { }
-                @Override public void onStartDiscoveryFailed(String t, int e) { }
+                @Override
+                public void onStartDiscoveryFailed(String t, int e) {
+                    callback.onDiscoveryFailed();
+                }
                 @Override public void onStopDiscoveryFailed(String t, int e) { }
                 @Override
                 public void onServiceFound(NsdServiceInfo info) {
                     if (info.getServiceType().equals(SERVICE_TYPE)) {
                         discoveredHost = info.getServiceName();
-                        callback.onHostFound(info.getServiceName());
                         nsdManager.resolveService(info, new NsdManager.ResolveListener() {
                             @Override public void onResolveFailed(NsdServiceInfo s, int e) {
                                 Log.e(TAG, "NSD resolve failed error=" + e);
                             }
                             @Override
                             public void onServiceResolved(NsdServiceInfo res) {
-                                final String host = res.getHost().getHostAddress();
-                                final int port = res.getPort();
-                                new Thread(() -> connect(host, port)).start();
+                                callback.onHostFound(info.getServiceName(),
+                                        res.getHost().getHostAddress(), res.getPort());
                             }
                         });
                     }
@@ -79,7 +84,12 @@ class GameClient {
             nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener);
         } catch (Exception e) {
             Log.e(TAG, "Discovery failed", e);
+            callback.onDiscoveryFailed();
         }
+    }
+
+    void connectTo(String host, int port) {
+        new Thread(() -> connect(host, port)).start();
     }
 
     private void connect(String host, int port) {
@@ -93,6 +103,7 @@ class GameClient {
             readThread.start();
         } catch (Exception e) {
             Log.e(TAG, "Connect failed", e);
+            callback.onConnectFailed();
         }
     }
 

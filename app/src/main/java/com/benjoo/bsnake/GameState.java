@@ -85,8 +85,20 @@ public class GameState {
     String bodyHex = "#00FF00";
     int editingColor = -1;
 
+    // A discovered host for the join list
+    static class DiscoveredHost {
+        String name;
+        String host;
+        int port;
+        boolean resolved;
+        DiscoveredHost(String name) { this.name = name; }
+    }
+
     // Multiplayer state
     volatile boolean isHost;
+    String mpStatus = "";
+    ArrayList<DiscoveredHost> discoveredHosts = new ArrayList<>();
+    ArrayList<RectF> hostItemRects = new ArrayList<>();
     int clientColor = Color.GREEN;
     volatile boolean opponentReady;
     volatile boolean localReady;

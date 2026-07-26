@@ -442,9 +442,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.opponentConnected = false;
         state.opponentReady = false;
         state.localReady = false;
+        state.mpStatus = "Starting server...";
         server = new GameServer(getContext(), new GameServer.ServerCallback() {
             @Override
             public void onClientConnected() {
+                state.mpStatus = "Client connected!";
                 server.send(NetworkMessage.hello(state.headColor));
             }
             @Override
@@ -456,7 +458,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
         });
         if (server.start()) {
+            String device = android.os.Build.MODEL != null ? android.os.Build.MODEL : "Android";
+            state.mpStatus = "Advertising as: BSnake - " + device;
             state.currentState = GameState.State.MP_HOST;
+        } else {
+            state.mpStatus = "Failed to start server!";
         }
     }
 
@@ -468,13 +474,38 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.opponentConnected = false;
         state.opponentReady = false;
         state.localReady = false;
+        state.discoveredHosts.clear();
+        state.mpStatus = "Scanning for hosts...";
         client = new GameClient(getContext(), new GameClient.ClientCallback() {
             @Override
-            public void onHostFound(String host) { }
+            public void onDiscoveryStarted() {
+                state.mpStatus = "Scanning for hosts...";
+            }
+            @Override
+            public void onDiscoveryFailed() {
+                state.mpStatus = "Discovery failed!";
+            }
+            @Override
+            public void onHostFound(String name, String host, int port) {
+                for (GameState.DiscoveredHost dh : state.discoveredHosts) {
+                    if (dh.name.equals(name)) return;
+                }
+                GameState.DiscoveredHost dh = new GameState.DiscoveredHost(name);
+                dh.host = host;
+                dh.port = port;
+                dh.resolved = true;
+                state.discoveredHosts.add(dh);
+                state.mpStatus = "Found " + state.discoveredHosts.size() + " host(s)";
+            }
             @Override
             public void onConnected() {
                 state.opponentConnected = true;
+                state.mpStatus = "Connected!";
                 client.send(NetworkMessage.hello(state.headColor));
+            }
+            @Override
+            public void onConnectFailed() {
+                state.mpStatus = "Connection failed!";
             }
             @Override
             public void onMessage(String msg) { }
@@ -534,6 +565,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     @Override
+    public void connectToHost(int index) {
+        if (client == null || index < 0 || index >= state.discoveredHosts.size()) return;
+        GameState.DiscoveredHost dh = state.discoveredHosts.get(index);
+        if (!dh.resolved) return;
+        state.mpStatus = "Connecting to " + dh.name + "...";
+        client.connectTo(dh.host, dh.port);
+    }
+
+    @Override
     public void sendSwipe(int dx, int dy) {
         if (client != null) {
             String msg = NetworkMessage.input(dx, dy, state.tickCount);
@@ -547,6 +587,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.opponentConnected = false;
         state.opponentReady = false;
         state.localReady = false;
+        state.isHost = false;
     }
 
     // ----- Keyboard setup -----

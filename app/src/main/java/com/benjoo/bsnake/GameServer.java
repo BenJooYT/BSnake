@@ -4,6 +4,7 @@ import android.content.Context;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
+import android.os.Build;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -107,7 +108,8 @@ class GameServer {
         try {
             nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
             NsdServiceInfo serviceInfo = new NsdServiceInfo();
-            serviceInfo.setServiceName("BSnake Game");
+            String device = Build.MODEL != null ? Build.MODEL : "Android";
+            serviceInfo.setServiceName("BSnake - " + device);
             serviceInfo.setServiceType(SERVICE_TYPE);
             serviceInfo.setPort(port);
             regListener = new NsdManager.RegistrationListener() {
