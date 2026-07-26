@@ -448,6 +448,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             public void onClientConnected() {
                 state.mpStatus = "Client connected!";
                 server.send(NetworkMessage.hello(state.headColor));
+                state.currentState = GameState.State.MP_LOBBY;
             }
             @Override
             public void onMessage(String msg) { }
@@ -502,6 +503,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.opponentConnected = true;
                 state.mpStatus = "Connected!";
                 client.send(NetworkMessage.hello(state.headColor));
+                state.currentState = GameState.State.MP_LOBBY;
             }
             @Override
             public void onConnectFailed() {
@@ -588,6 +590,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.opponentReady = false;
         state.localReady = false;
         state.isHost = false;
+        state.mpStatus = "";
+        state.discoveredHosts.clear();
+        state.hostItemRects.clear();
     }
 
     // ----- Keyboard setup -----
