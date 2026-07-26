@@ -222,7 +222,8 @@ class InputHandler {
                 float dx = upX - state.downX;
                 float dy = upY - state.downY;
                 boolean smallMove = Math.abs(dx) < 20 && Math.abs(dy) < 20;
-                if (smallMove && contains(state.pauseIcon, upX, upY)) {
+                if (state.currentState == GameState.State.PLAYING
+                        && smallMove && contains(state.pauseIcon, upX, upY)) {
                     actions.playClick();
                     state.currentState = GameState.State.PAUSED;
                     return;

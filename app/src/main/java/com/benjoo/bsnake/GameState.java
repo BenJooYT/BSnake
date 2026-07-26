@@ -91,6 +91,7 @@ public class GameState {
     boolean opponentReady;
     boolean localReady;
     boolean opponentConnected;
+    boolean mpLabelVisible;
     int mpWinner = -1;
     int mpLastScore0, mpLastScore1;
 

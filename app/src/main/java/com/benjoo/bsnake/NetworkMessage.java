@@ -48,6 +48,7 @@ class NetworkMessage {
 
     static String state(ArrayList<Point> snakes0, ArrayList<Point> snakes1,
                         int score0, int score1, int dirX0, int dirY0, int dirX1, int dirY1,
+                        boolean alive0, boolean alive1,
                         ArrayList<Point> foods, GameState.BossFruit boss,
                         ArrayList<GameState.BossTrailCell> trail, int tick) {
         try {
@@ -62,6 +63,10 @@ class NetworkMessage {
             scArr.put(score0);
             scArr.put(score1);
             msg.put("scores", scArr);
+            JSONArray alArr = new JSONArray();
+            alArr.put(alive0);
+            alArr.put(alive1);
+            msg.put("alive", alArr);
             JSONArray drArr = new JSONArray();
             drArr.put(new JSONArray().put(dirX0).put(dirY0));
             drArr.put(new JSONArray().put(dirX1).put(dirY1));

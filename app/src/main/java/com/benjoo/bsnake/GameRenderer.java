@@ -36,9 +36,12 @@ class GameRenderer {
             case MP_HOST: drawHostScreen(canvas); break;
             case MP_JOIN: drawJoinScreen(canvas); break;
             case MP_LOBBY: drawLobby(canvas); break;
-            case PLAYING: case MP_PLAYING:
+            case PLAYING:
                 drawGameField(canvas, t, false);
                 drawPauseIcon(canvas);
+                break;
+            case MP_PLAYING:
+                drawGameField(canvas, t, false);
                 break;
             case PAUSED:
                 drawGameField(canvas, 1f, false);
@@ -100,13 +103,19 @@ class GameRenderer {
                         + wrappedDelta(worldY - viewCameraY, state.rows));
                 canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
             }
-            // "YOU" label on local player's head
-            if (si == state.playerIndex && !sd.body.isEmpty()) {
+            // "YOU" label on local player's head (multiplayer only)
+            if (si == state.playerIndex && state.mpLabelVisible && !sd.body.isEmpty()) {
                 Point cur = sd.body.get(0);
+                Point prev = sd.prevBody.size() > 0 ? sd.prevBody.get(0) : cur;
+                float dx = cur.x - prev.x;
+                float dy = cur.y - prev.y;
+                boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
+                float worldX = wrapped ? cur.x : prev.x + dx * t;
+                float worldY = wrapped ? cur.y : prev.y + dy * t;
                 float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
-                        + wrappedDelta(cur.x - viewCameraX, state.cols));
+                        + wrappedDelta(worldX - viewCameraX, state.cols));
                 float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
-                        + wrappedDelta(cur.y - viewCameraY, state.rows));
+                        + wrappedDelta(worldY - viewCameraY, state.rows));
                 paint.setColor(Color.WHITE);
                 paint.setTextSize(state.cellSize * 0.35f);
                 paint.setTypeface(Typeface.DEFAULT_BOLD);
@@ -435,7 +444,6 @@ class GameRenderer {
         canvas.drawRect(left, barTop, fillX, barBot, paint);
         paint.setStyle(Paint.Style.FILL);
         canvas.drawCircle(fillX, cy, radius, paint);
-        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawColorField(Canvas canvas, RectF rect, String label, int color) {
@@ -445,8 +453,8 @@ class GameRenderer {
         canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(color);
-        canvas.drawRect(rect.left + 12, rect.top + 12, rect.left + state.cellSize, rect.bottom - 14, paint);
-        drawCenteredText(canvas, label, rect.centerX() + state.cellSize * 0.25f, rect.centerY(), 30, Color.WHITE, true);
+        canvas.drawRect(rect.left + 12, rect.top + 12, rect.left + state.uiCellSize, rect.bottom - 14, paint);
+        drawCenteredText(canvas, label, rect.centerX() + state.uiCellSize * 0.25f, rect.centerY(), 30, Color.WHITE, true);
     }
 
     private void drawLeaderboard(Canvas canvas) {

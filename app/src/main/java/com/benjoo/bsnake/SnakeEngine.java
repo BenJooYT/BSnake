@@ -30,10 +30,11 @@ public class SnakeEngine {
     }
 
     void resetGame() {
+        state.mpLabelVisible = true;
         for (int i = 0; i < 2; i++) {
             state.snakes[i] = new GameState.SnakeData();
-            state.snakes[i].headColor = i == 0 ? state.headColor : state.clientColor;
-            state.snakes[i].bodyColor = i == 0 ? state.bodyColor : state.clientColor;
+            state.snakes[i].headColor = (i == 0) == state.isHost ? state.headColor : state.clientColor;
+            state.snakes[i].bodyColor = (i == 0) == state.isHost ? state.bodyColor : state.clientColor;
         }
         state.score = state.devMode ? state.devStartScore : 0;
         state.snakes[0].score = state.score;
@@ -67,6 +68,7 @@ public class SnakeEngine {
     }
 
     void resetSinglePlayer() {
+        state.mpLabelVisible = false;
         for (int i = 0; i < 2; i++) {
             state.snakes[i] = new GameState.SnakeData();
         }
@@ -135,19 +137,20 @@ public class SnakeEngine {
             }
             if (!sd.alive) continue;
 
-            // Snake-vs-snake collision (check against the OTHER snake's body)
+            // Snake-vs-snake body collision (check against the OTHER snake's body,
+            // even if the other is already dead — its body still blocks)
             int oi = 1 - si;
             GameState.SnakeData other = state.snakes[oi];
-            if (other.alive) {
-                for (Point p : other.body) {
-                    if (p.x == nx && p.y == ny) {
-                        sd.alive = false;
-                        break;
-                    }
+            for (Point p : other.body) {
+                if (p.x == nx && p.y == ny) {
+                    sd.alive = false;
+                    break;
                 }
-                if (!sd.alive) continue;
+            }
+            if (!sd.alive) continue;
 
-                // Head-on: both heads on same cell
+            // Head-on: only if both are alive
+            if (other.alive) {
                 Point oh = other.body.get(0);
                 int onx = oh.x + other.dirX;
                 int ony = oh.y + other.dirY;
@@ -225,9 +228,7 @@ public class SnakeEngine {
                 }
             } else if (state.bossGrowthPending > 0 && si == 0) {
                 state.bossGrowthPending--;
-            } else if (ateFood || ateTrail) {
-                // grow (don't detach tail)
-            } else {
+            } else if (!ateFood && !ateTrail) {
                 sd.body.remove(sd.body.size() - 1);
             }
         }
@@ -261,7 +262,7 @@ public class SnakeEngine {
         for (int i = 0; i < 2; i++) {
             if (state.snakes[i].alive) { allDead = false; break; }
         }
-        if (allDead || (!state.isHost && !state.snakes[0].alive && !state.snakes[1].alive)) {
+        if (allDead) {
             state.lastScore = state.snakes[0].score;
             if (state.isHost) {
                 state.mpWinner = state.snakes[0].score > state.snakes[1].score ? 0 :
@@ -319,7 +320,7 @@ public class SnakeEngine {
         int dropped = 0;
         for (Point t : tiles) {
             if (dropped >= TRAIL_CELLS_PER_HIT) break;
-            if (!overlapsSnake(t.x, t.y, -1) && !overlapsTrail(t.x, t.y)) {
+            if (!overlapsSnake(t.x, t.y) && !overlapsTrail(t.x, t.y)) {
                 state.bossTrail.add(new GameState.BossTrailCell(t.x, t.y, state.tickCount));
                 dropped++;
             }
@@ -368,7 +369,7 @@ public class SnakeEngine {
             boolean onSnake = false;
             for (int dy = 0; dy < 2 && !onSnake; dy++) {
                 for (int dx = 0; dx < 2 && !onSnake; dx++) {
-                    if (overlapsSnake(px + dx, py + dy, -1)) onSnake = true;
+                    if (overlapsSnake(px + dx, py + dy)) onSnake = true;
                 }
             }
             if (!onSnake) return new Point(px, py);
@@ -383,7 +384,7 @@ public class SnakeEngine {
             for (int dx = 0; dx < 2; dx++) {
                 int cx = bx + dx;
                 int cy = by + dy;
-                if (overlapsSnake(cx, cy, -1)) return false;
+                if (overlapsSnake(cx, cy)) return false;
                 if (overlapsFood(cx, cy)) return false;
                 if (overlapsTrail(cx, cy)) return false;
             }
@@ -391,9 +392,8 @@ public class SnakeEngine {
         return true;
     }
 
-    private boolean overlapsSnake(int x, int y, int excludeIdx) {
+    private boolean overlapsSnake(int x, int y) {
         for (int si = 0; si < 2; si++) {
-            if (si == excludeIdx) continue;
             if (!state.snakes[si].alive) continue;
             for (Point p : state.snakes[si].body) {
                 if (p.x == x && p.y == y) return true;
@@ -433,7 +433,7 @@ public class SnakeEngine {
         do {
             fx = rand.nextInt(state.cols);
             fy = rand.nextInt(state.rows);
-            coll = overlapsSnake(fx, fy, -1) || overlapsFood(fx, fy) || overlapsTrail(fx, fy) || overlapsBoss(fx, fy);
+            coll = overlapsSnake(fx, fy) || overlapsFood(fx, fy) || overlapsTrail(fx, fy) || overlapsBoss(fx, fy);
         } while (coll);
         state.foods.add(new Point(fx, fy));
     }

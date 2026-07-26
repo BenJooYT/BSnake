@@ -53,8 +53,6 @@ public class MenuMusic {
             {0.25, 0.35, 0.20, 0.20},  // after dotted-quarter
     };
 
-    private static final double REST_PROBABILITY = 0.10;
-
     // ----- built-in leap limit (max semitones) -----
     private static final int MAX_LEAP_SEMITONES = 7;
 
@@ -226,12 +224,6 @@ public class MenuMusic {
                 if (!found) break; // shouldn't happen with 0.5 min
             }
 
-            // Occasionally insert a rest (duration still counts, note = -1)
-            if (rand.nextDouble() < REST_PROBABILITY) {
-                indices[count] = -1; // marker for rest
-                count++;
-            }
-
             indices[count] = chosen;
             count++;
             beats += durBeats;
@@ -256,7 +248,8 @@ public class MenuMusic {
         int p2 = (noteCount > 1) ? pickNextNote(rand, p1, p1, firstChord, true, false) : 0;
         if (noteCount > 1) melody[1] = p2;
 
-        double beatPos = 0;
+        double beatPos = noteCount > 1 ? DURATION_BEATS[durIndices[0]] : 0;
+        if (noteCount > 1) beatPos += DURATION_BEATS[durIndices[1]];
         int chordIndex = -1;
 
         for (int i = 2; i < noteCount; i++) {
@@ -296,9 +289,14 @@ public class MenuMusic {
                 next = 0; // C4 (tonic)
             }
 
-            melody[i] = next;
+            // Occasional rest (~10%) — set melody to -1 but don't update p1/p2
+            if (i > 0 && rand.nextDouble() < 0.10 && nextBeat < TOTAL_BEATS - 1.5) {
+                melody[i] = -1;
+            } else {
+                melody[i] = next;
+            }
             p2 = p1;
-            p1 = next;
+            p1 = melody[i] >= 0 ? melody[i] : p1;
             beatPos += durBeats;
         }
 
@@ -315,20 +313,14 @@ public class MenuMusic {
         for (int n = 0; n < NUM_NOTES; n++) {
             double w = base[n];
 
-            // Strong beats favour chord tones
+            boolean isTone = false;
+            for (int ct : chordTones) {
+                if (n == ct) { isTone = true; break; }
+            }
             if (strongBeat) {
-                boolean isTone = false;
-                for (int ct : chordTones) {
-                    if (n == ct) { isTone = true; break; }
-                }
                 w *= isTone ? 3.5 : 0.25;
-            } else {
-                // Weak beats still somewhat favour chord tones
-                boolean isTone = false;
-                for (int ct : chordTones) {
-                    if (n == ct) { isTone = true; break; }
-                }
-                if (isTone) w *= 1.4;
+            } else if (isTone) {
+                w *= 1.4;
             }
 
             // Cadence: push hard toward tonic
@@ -376,13 +368,15 @@ public class MenuMusic {
     }
 
     public void start() {
-        if (audioTrack != null && !playing) {
-            try {
+        try {
+            if (audioTrack == null) generate();
+            if (audioTrack != null && !playing) {
+                audioTrack.reloadStaticData();
                 audioTrack.play();
                 playing = true;
-            } catch (Exception e) {
-                Log.e("MenuMusic", "Failed to start", e);
             }
+        } catch (Exception e) {
+            Log.e("MenuMusic", "Failed to start", e);
         }
     }
 

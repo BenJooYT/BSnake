@@ -20,7 +20,7 @@ public class SoundEffects {
     private static final int CLICK_MS = 60;
     private static final int CRUNCH_MS = 80;
     private static final int DAMAGE_MS = 120;
-    private static final int BOSS_DEFEAT_MS = 800;
+    private static final int BOSS_DEFEAT_MS = 3200;
 
     private short[] clickBuffer;
     private short[] crunchBuffer;
@@ -117,19 +117,17 @@ public class SoundEffects {
         double[] mix = new double[n];
         Random rng = new Random(3);
 
-        // Main hit (unchanged character)
-        addDamageHit(mix, 0,   1.00, 1.00, 1.0, rng);
+        // Main hit
+        addDamageHit(mix, 0, 1.00, 1.00, 1.0, rng);
 
-        // Cinematic echoes: delay(ms), volume, pitch, low-pass alpha
-        addDamageHit(mix, 160, 0.50, 0.95, 0.25, rng);
-        addDamageHit(mix, 320, 0.30, 0.90, 0.12, rng);
-        addDamageHit(mix, 480, 0.15, 0.85, 0.06, rng);
-        addDamageHit(mix, 640, 0.07, 0.80, 0.03, rng);
-
-        // Room reverb: shorter, quieter, very muffled reflections
-        addDamageHit(mix, 90,  0.18, 0.93, 0.10, rng);
-        addDamageHit(mix, 210, 0.10, 0.88, 0.07, rng);
-        addDamageHit(mix, 300, 0.06, 0.83, 0.04, rng);
+        // 7 echo repeats at 400ms intervals
+        for (int e = 0; e < 7; e++) {
+            int delay = (e + 1) * 400;
+            double vol = 0.55 * Math.pow(0.55, e);
+            double pitch = 0.97 - e * 0.04;
+            double alpha = 0.30 * Math.pow(0.45, e);
+            addDamageHit(mix, delay, vol, pitch, alpha, rng);
+        }
 
         // Normalise to prevent clipping, then convert to short[]
         double max = 0;
@@ -202,6 +200,8 @@ public class SoundEffects {
         if (track == null) return;
         try {
             track.stop();
+        } catch (Exception e) { }
+        try {
             track.reloadStaticData();
             track.setVolume(volume);
             track.play();

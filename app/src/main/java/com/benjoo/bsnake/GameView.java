@@ -95,14 +95,25 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             // Game tick
             boolean isPlaying = state.currentState == GameState.State.PLAYING;
             boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
+            boolean isMpClient = state.currentState == GameState.State.MP_PLAYING && !state.isHost;
             if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
-                if (state.isHost && state.currentState == GameState.State.MP_PLAYING) {
-                    sendHostState();
+                if (state.isHost) {
+                    if (state.currentState == GameState.State.MP_PLAYING) {
+                        sendHostState();
+                    } else if (state.currentState == GameState.State.MP_GAME_OVER) {
+                        int[] scores = new int[]{state.mpLastScore0, state.mpLastScore1};
+                        String msg = NetworkMessage.gameOver(state.mpWinner, scores);
+                        if (msg != null && server != null) server.send(msg);
+                    }
                 }
                 lastTick = now;
                 now = System.currentTimeMillis();
-            } else if (!isPlaying && state.currentState != GameState.State.MP_PLAYING) {
+            } else if (isMpClient && now - lastTick >= state.tickDelay) {
+                // Client: advance tick timer so t cycles 0→1 for smooth interpolation
+                lastTick = now;
+                now = System.currentTimeMillis();
+            } else if (!isPlaying && !isMpClient) {
                 lastTick = now;
             }
 
@@ -116,10 +127,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
 
             float t = Math.min(1f, (now - lastTick) / (float) state.tickDelay);
-            Canvas canvas = null;
-            if (holder.getSurface().isValid()) {
-                canvas = holder.lockCanvas();
-            }
+            Canvas canvas = holder.getSurface().isValid() ? holder.lockCanvas() : null;
             renderer.draw(canvas, t);
             if (canvas != null) {
                 holder.unlockCanvasAndPost(canvas);
@@ -180,6 +188,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             JSONObject obj = new JSONObject(json);
             String type = obj.optString("type", "");
             switch (type) {
+                case "hello":
+                    state.clientColor = obj.optInt("color", state.clientColor);
+                    break;
                 case "state":
                     applyState(obj);
                     break;
@@ -196,6 +207,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 case "start":
                     state.opponentReady = true;
                     state.localReady = true;
+                    engine.resetGame();
                     state.currentState = GameState.State.MP_PLAYING;
                     break;
             }
@@ -246,8 +258,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.bossTrail.add(new GameState.BossTrailCell(tc.getInt(0), tc.getInt(1), tc.getInt(2)));
             }
             state.tickCount = obj.getInt("tick");
-            state.snakes[0].alive = true;
-            state.snakes[1].alive = true;
+            JSONArray alArr = obj.getJSONArray("alive");
+            state.snakes[0].alive = alArr.getBoolean(0);
+            state.snakes[1].alive = alArr.getBoolean(1);
         } catch (Exception e) { }
     }
 
@@ -258,6 +271,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.snakes[0].score, state.snakes[1].score,
                 state.snakes[0].dirX, state.snakes[0].dirY,
                 state.snakes[1].dirX, state.snakes[1].dirY,
+                state.snakes[0].alive, state.snakes[1].alive,
                 state.foods, state.boss, state.bossTrail, state.tickCount);
         if (msg != null) server.send(msg);
     }
@@ -430,11 +444,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             @Override
             public void onClientDisconnected() {
                 state.opponentConnected = false;
-                if (state.currentState == GameState.State.MP_PLAYING) {
-                    state.currentState = GameState.State.MENU;
-                } else {
-                    state.currentState = GameState.State.MENU;
-                }
+                state.currentState = GameState.State.MENU;
             }
         });
         if (server.start()) {
@@ -483,7 +493,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         String msg = NetworkMessage.ready(state.localReady);
         if (state.isHost && server != null) server.send(msg);
         else if (client != null) client.send(msg);
-        if (state.localReady && state.opponentReady) {
+        // Only the host starts the game when both are ready
+        if (state.isHost && state.localReady && state.opponentReady) {
             startMpGame();
         }
     }

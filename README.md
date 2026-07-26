@@ -25,8 +25,22 @@ Simple Snake game for Android, AIDE-compatible.
 - Host game simulation is authoritative — client renders received STATE snapshots
 - Lobby system with ready/un-ready and force-start for host
 - Multi-snake support: 2 snakes on the same board with head-on/body collision rules
-- "YOU" label on local player's snake for multiplayer matches
+- "YOU" label on local player's snake, tweens smoothly with the head
+- Color sharing: both players see each other's chosen snake colors
 - Rematch button reuses existing socket connection
+- Pause functionality disabled during multiplayer matches
+- Fix: host sends gameOver message to client at match end
+- Fix: client reads snake alive flags from state messages
+- Fix: client resets game state on rematch (no leftover data)
+- Fix: asymmetric snake-vs-snake body collision (dead bodies still block)
+- Fix: GameClient.running flag not set after connection
+- Fix: client interpolation t cycles 0–1 every tick for smooth rendering
+- Fix: drawColorField uses uiCellSize instead of cellSize
+- Fix: AudioTrack lifecycle safety (regeneration after surface destroy)
+- Fix: menu music rest-index crash and Markov chain corruption from rests
+- Fix: menu music beatPos initialized correctly for accurate chord/bar detection
+- Boss defeat sound: 7 echo repeats at 400ms with exponential decay
+- Code size reduction via dead-code elimination and expression simplification
 
 ### 1.3.7
 - Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX

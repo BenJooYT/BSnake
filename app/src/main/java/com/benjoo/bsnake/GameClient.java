@@ -76,6 +76,7 @@ class GameClient {
             socket = new Socket(host, port);
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             writer = new OutputStreamWriter(socket.getOutputStream());
+            running = true;
             callback.onConnected();
             readThread = new Thread(this::readLoop);
             readThread.start();
