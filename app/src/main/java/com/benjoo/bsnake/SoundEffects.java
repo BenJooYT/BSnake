@@ -167,6 +167,15 @@ public class SoundEffects {
         volume = Math.max(0, Math.min(1, vol));
     }
 
+    public void stopAll() {
+        AudioTrack[] tracks = { clickTrack, crunchTrack, damageTrack, bossDefeatTrack };
+        for (AudioTrack t : tracks) {
+            if (t != null) {
+                try { t.stop(); } catch (Exception e) { }
+            }
+        }
+    }
+
     public void release() {
         AudioTrack[] tracks = { clickTrack, crunchTrack, damageTrack, bossDefeatTrack };
         for (AudioTrack t : tracks) {

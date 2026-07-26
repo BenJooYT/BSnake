@@ -81,6 +81,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         running = true;
         thread = new Thread(this);
         thread.start();
+        menuMusic.setVolume(state.musicVolume);
+        soundEffects.setVolume(state.sfxVolume);
     }
 
     @Override
@@ -298,6 +300,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         try { if (thread != null) thread.join(); } catch (InterruptedException e) { }
         if (server != null) { server.stop(); server = null; }
         if (client != null) { client.stop(); client = null; }
+        menuMusic.pause();
+        soundEffects.stopAll();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
         menuMusic.release();
         soundEffects.release();
     }
