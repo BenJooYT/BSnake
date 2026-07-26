@@ -20,6 +20,15 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.4.2
+- MP host screen shows live connection status (advertising, connected, errors)
+- MP join screen lists discovered hosts as tappable buttons; tap to connect
+- Host device name shown in service advertisement: "BSnake - [device model]"
+- GameClient collects resolved hosts via NSD; manual host selection replaces auto-connect
+- Both sides transition to lobby immediately on successful connection
+- Discovered hosts list and multiplayer state fields cleared on disconnect/cancel
+- Fix: P2 score no longer leaks into singleplayer when canceling multiplayer
+
 ### 1.4.1
 - NSD multiplayer discovery fix: TCP connect on background thread, fixes NetworkOnMainThreadException
 - MulticastLock acquired on both host and client so mDNS packets reach the WiFi driver

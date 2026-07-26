@@ -1,7 +1,7 @@
 {
-  "versionCode": 7,
-  "versionName": "1.4.1",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.1/BSnake-v1.4.1.apk",
-  "changelog": "- NSD multiplayer discovery fix: TCP connect runs on background thread, fixes NetworkOnMainThreadException\n- MulticastLock acquired on both host and client so mDNS packets reach the WiFi driver\n- Fix: host sends \"start\" message to client when both players ready up (client calls engine.resetGame)\n- Fix: client parses snake direction data from host state messages (correct head rendering)\n- Fix: game over message sent once instead of spammed every tick\n- Fix: volatile qualifiers on multiplayer state fields for correct cross-thread visibility",
+  "versionCode": 8,
+  "versionName": "1.4.2",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.2/BSnake-v1.4.2.apk",
+  "changelog": "- MP host screen shows live connection status (advertising, connected, errors)\n- MP join screen lists discovered hosts as tappable buttons; tap to connect\n- Host device name shown in service advertisement: \"BSnake - [device model]\"\n- GameClient collects resolved hosts via NSD; manual host selection replaces auto-connect\n- Both sides transition to lobby immediately on successful connection\n- Discovered hosts list and multiplayer state fields cleared on disconnect/cancel\n- Fix: P2 score no longer leaks into singleplayer when canceling multiplayer",
   "needsReinstall": false
 }
