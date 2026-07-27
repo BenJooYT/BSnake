@@ -574,7 +574,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             @Override
             public void onHostFound(String name, String host, int port) {
                 for (GameState.DiscoveredHost dh : state.discoveredHosts) {
-                    if (dh.name.equals(name)) return;
+                    if (dh.host != null && dh.host.equals(host) && dh.port == port) return;
                 }
                 GameState.DiscoveredHost dh = new GameState.DiscoveredHost(name);
                 dh.host = host;
