@@ -20,6 +20,14 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.5.1
+- Multiplayer discovery now uses direct UDP multicast (more reliable than NSD)
+- Score display shows YOU / PARTNER / SUM in multiplayer
+- Boss spawn and food scaling use combined player score
+- Boss body now kills the player on contact (only head-on damages the boss)
+- Boss damage sound fixed
+- Boss moves faster and avoids its own body
+
 ### 1.5.0
 - **BOSS SNAKE REWORK:** The boss is now a snake that moves toward food, eats it, and grows. Position your snake to make the boss run into you — head-on or body contact damages it. Each hit removes 2 boss segments; when none remain, it dies. Trail drops under its body when teleporting.
 

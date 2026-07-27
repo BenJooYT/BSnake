@@ -1,7 +1,7 @@
 {
-  "versionCode": 11,
-  "versionName": "1.5.0",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.5.0/BSnake-v1.5.0.apk",
-  "changelog": "BOSS SNAKE REWORK! The boss is now a snake that moves toward food, eats it, and grows. Position your snake to make the boss run into you — head-on or body contact damages it. Each hit removes 2 boss segments; when none remain, it dies.\n\nYOU HAVE TO MANUALLY GO INTO YOUR FILES APP AND YOUR DOWNLOADS FOLDER TO INSTALL THIS UPDATE. Hopefully next update this won't be required. I'm working on it.",
+  "versionCode": 12,
+  "versionName": "1.5.1",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.5.1/BSnake-v1.5.1.apk",
+  "changelog": "Multiplayer discovery now uses direct UDP multicast instead of NSD for reliable host detection. Score display shows YOU / PARTNER / SUM. Boss spawn and food scaling use combined score. Boss body kills player on contact. Sound fixed for boss damage. Boss moves faster and avoids its own body.",
   "needsReinstall": false
 }
