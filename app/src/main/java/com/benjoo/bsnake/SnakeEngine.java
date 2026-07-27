@@ -11,7 +11,7 @@ public class SnakeEngine {
     private final PersistenceManager persistence;
     private final Random rand = new Random();
     private SoundEffects sound;
-    private static final int BOSS_MOVE_INTERVAL = 6;
+    private static final int BOSS_MOVE_INTERVAL = 3;
     private static final int TRAIL_MAX_AGE = 40;
     private static final int BOSS_SPAWN_INTERVAL = 125;
     private static final int BOSS_DEFEAT_SCORE = 25;
