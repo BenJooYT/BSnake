@@ -66,8 +66,11 @@ class InputHandler {
                 if (draggingSlider != 0) handleSliderDrag(event.getX());
                 break;
             case MotionEvent.ACTION_UP:
-                draggingSlider = 0;
-                handleTouchUp(event.getX(), event.getY());
+                if (draggingSlider != 0) {
+                    draggingSlider = 0;
+                } else {
+                    handleTouchUp(event.getX(), event.getY());
+                }
                 break;
         }
         return true;
