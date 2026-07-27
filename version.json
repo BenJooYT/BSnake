@@ -1,7 +1,7 @@
 {
-  "versionCode": 9,
-  "versionName": "1.4.3",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.3/BSnake-v1.4.3.apk",
-  "changelog": "- In-game sound effects (eating, damage, boss defeat) now play correctly\n- Music no longer resets volume when switching apps\n- Audio no longer cuts out after switching apps\n- Update download now automatically prompts installation when complete",
+  "versionCode": 10,
+  "versionName": "1.4.4",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.4/BSnake-v1.4.4.apk",
+  "changelog": "- New dedicated color picker with HSV sliders and live snake preview\n- Boss hits now have their own unique damage sound\n- Snake Color moved to Settings with a 3-segment preview\n- Update download automatically prompts installation when complete",
   "needsReinstall": false
 }

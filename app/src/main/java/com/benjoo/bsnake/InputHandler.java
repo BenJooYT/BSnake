@@ -10,14 +10,13 @@ class InputHandler {
         void startNewGame();
         void cycleSpeed();
         void openSettingsScreen();
-        void applyColors();
-        void editColorField(int index);
         void dismissKeyboard();
         void exitApp();
         void toggleDevMode();
         void showDevScoreInput();
         void toggleCameraMode();
         void playClick();
+        void playBossDamage();
         void setMusicVolume(float volume);
         void setSfxVolume(float volume);
         void openMpMenu();
@@ -29,6 +28,13 @@ class InputHandler {
         void rematch();
         void sendSwipe(int dx, int dy);
         void connectToHost(int index);
+        void openColorPicker();
+        void applyColorPicker();
+        void setPickerHue(float hue);
+        void setPickerSat(float sat);
+        void setPickerVal(float val);
+        void togglePickerTarget();
+        void editPickerHex();
     }
 
     private final GameState state;
@@ -52,6 +58,8 @@ class InputHandler {
                 state.downY = event.getY();
                 if (state.currentState == GameState.State.SETTINGS) {
                     checkSliderDown(event.getX(), event.getY());
+                } else if (state.currentState == GameState.State.COLOR_PICKER) {
+                    checkPickerSliderDown(event.getX(), event.getY());
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
@@ -77,12 +85,46 @@ class InputHandler {
         }
     }
 
+    private void checkPickerSliderDown(float x, float y) {
+        if (state.pickerHueBar != null && state.pickerHueBar.contains(x, y)) {
+            draggingSlider = 3;
+            float v = (x - state.pickerHueBar.left) / state.pickerHueBar.width() * 360f;
+            actions.setPickerHue(Math.max(0, Math.min(360, v)));
+        } else if (state.pickerSatBar != null && state.pickerSatBar.contains(x, y)) {
+            draggingSlider = 4;
+            float v = (x - state.pickerSatBar.left) / state.pickerSatBar.width();
+            actions.setPickerSat(Math.max(0, Math.min(1, v)));
+        } else if (state.pickerValBar != null && state.pickerValBar.contains(x, y)) {
+            draggingSlider = 5;
+            float v = (x - state.pickerValBar.left) / state.pickerValBar.width();
+            actions.setPickerVal(Math.max(0, Math.min(1, v)));
+        }
+    }
+
     private void handleSliderDrag(float x) {
-        RectF track = (draggingSlider == 1) ? state.musicSliderTrack : state.sfxSliderTrack;
-        float vol = (x - track.left) / track.width();
-        vol = Math.max(0, Math.min(1, vol));
-        if (draggingSlider == 1) actions.setMusicVolume(vol);
-        else actions.setSfxVolume(vol);
+        if (draggingSlider == 1 || draggingSlider == 2) {
+            RectF track = (draggingSlider == 1) ? state.musicSliderTrack : state.sfxSliderTrack;
+            float vol = (x - track.left) / track.width();
+            vol = Math.max(0, Math.min(1, vol));
+            if (draggingSlider == 1) actions.setMusicVolume(vol);
+            else actions.setSfxVolume(vol);
+        } else {
+            RectF track;
+            float val;
+            if (draggingSlider == 3) {
+                track = state.pickerHueBar;
+                val = (x - track.left) / track.width() * 360f;
+                actions.setPickerHue(Math.max(0, Math.min(360, val)));
+            } else if (draggingSlider == 4) {
+                track = state.pickerSatBar;
+                val = (x - track.left) / track.width();
+                actions.setPickerSat(Math.max(0, Math.min(1, val)));
+            } else if (draggingSlider == 5) {
+                track = state.pickerValBar;
+                val = (x - track.left) / track.width();
+                actions.setPickerVal(Math.max(0, Math.min(1, val)));
+            }
+        }
     }
 
     private void handleTouchUp(float upX, float upY) {
@@ -193,18 +235,12 @@ class InputHandler {
                 break;
 
             case SETTINGS:
-                if (contains(state.headInputBtn, upX, upY)) {
-                    actions.playClick();
-                    actions.editColorField(0);
-                } else if (contains(state.bodyInputBtn, upX, upY)) {
-                    actions.playClick();
-                    actions.editColorField(1);
-                } else if (contains(state.cameraModeBtn, upX, upY)) {
+                if (contains(state.cameraModeBtn, upX, upY)) {
                     actions.playClick();
                     actions.toggleCameraMode();
-                } else if (contains(state.settingsApplyBtn, upX, upY)) {
+                } else if (contains(state.snakeColorBtn, upX, upY)) {
                     actions.playClick();
-                    actions.applyColors();
+                    actions.openColorPicker();
                 } else if (contains(state.settingsBackBtn, upX, upY)) {
                     actions.playClick();
                     actions.dismissKeyboard();
@@ -270,6 +306,39 @@ class InputHandler {
                             sd.inputQueue.add(new Point(ndx, ndy));
                         }
                     }
+                }
+                break;
+
+            case COLOR_PICKER:
+                if (contains(state.pickerHeadBtn, upX, upY)) {
+                    if (state.pickerTarget != 0) {
+                        actions.playClick();
+                        actions.togglePickerTarget();
+                    }
+                } else if (contains(state.pickerBodyBtn, upX, upY)) {
+                    if (state.pickerTarget != 1) {
+                        actions.playClick();
+                        actions.togglePickerTarget();
+                    }
+                } else if (contains(state.pickerHexField, upX, upY)) {
+                    actions.playClick();
+                    actions.editPickerHex();
+                } else if (contains(state.pickerHueBar, upX, upY)) {
+                    float v = (upX - state.pickerHueBar.left) / state.pickerHueBar.width() * 360f;
+                    actions.setPickerHue(Math.max(0, Math.min(360, v)));
+                } else if (contains(state.pickerSatBar, upX, upY)) {
+                    float v = (upX - state.pickerSatBar.left) / state.pickerSatBar.width();
+                    actions.setPickerSat(Math.max(0, Math.min(1, v)));
+                } else if (contains(state.pickerValBar, upX, upY)) {
+                    float v = (upX - state.pickerValBar.left) / state.pickerValBar.width();
+                    actions.setPickerVal(Math.max(0, Math.min(1, v)));
+                } else if (contains(state.pickerApplyBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.applyColorPicker();
+                } else if (contains(state.pickerCancelBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.dismissKeyboard();
+                    state.currentState = GameState.State.MENU;
                 }
                 break;
         }

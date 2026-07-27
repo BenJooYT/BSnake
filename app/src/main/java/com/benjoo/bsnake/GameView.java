@@ -3,6 +3,7 @@ package com.benjoo.bsnake;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Point;
 import android.text.Editable;
 import android.text.InputType;
@@ -350,26 +351,85 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     @Override
-    public void applyColors() {
-        Integer newHeadColor = persistence.parseHexColor(state.headHex);
-        Integer newBodyColor = persistence.parseHexColor(state.bodyHex);
-        if (newHeadColor == null || newBodyColor == null) return;
-        state.headColor = newHeadColor;
-        state.bodyColor = newBodyColor;
+    public void openColorPicker() {
+        state.pickerTarget = 0;
+        float[] hsv = new float[3];
+        Color.colorToHSV(state.headColor, hsv);
+        state.pickerHue = hsv[0];
+        state.pickerSat = hsv[1];
+        state.pickerVal = hsv[2];
+        state.pickerColor = state.headColor;
+        state.pickerHex = String.format(Locale.US, "#%06X", state.headColor & 0xFFFFFF);
+        state.pickerEditingHex = false;
+        state.editingColor = -1;
+        state.currentState = GameState.State.COLOR_PICKER;
+    }
+
+    @Override
+    public void applyColorPicker() {
+        if (state.pickerTarget == 0) {
+            state.headColor = state.pickerColor;
+            state.headHex = state.pickerHex;
+        } else {
+            state.bodyColor = state.pickerColor;
+            state.bodyHex = state.pickerHex;
+        }
         persistence.saveColors(state.headColor, state.bodyColor);
         hideKeyboardInternal();
         state.currentState = GameState.State.MENU;
     }
 
     @Override
-    public void editColorField(int index) {
+    public void setPickerHue(float hue) {
+        state.pickerHue = hue;
+        state.pickerColor = Color.HSVToColor(new float[]{ state.pickerHue, state.pickerSat, state.pickerVal });
+        state.pickerHex = String.format(Locale.US, "#%06X", state.pickerColor & 0xFFFFFF);
+        invalidate();
+    }
+
+    @Override
+    public void setPickerSat(float sat) {
+        state.pickerSat = sat;
+        state.pickerColor = Color.HSVToColor(new float[]{ state.pickerHue, state.pickerSat, state.pickerVal });
+        state.pickerHex = String.format(Locale.US, "#%06X", state.pickerColor & 0xFFFFFF);
+        invalidate();
+    }
+
+    @Override
+    public void setPickerVal(float val) {
+        state.pickerVal = val;
+        state.pickerColor = Color.HSVToColor(new float[]{ state.pickerHue, state.pickerSat, state.pickerVal });
+        state.pickerHex = String.format(Locale.US, "#%06X", state.pickerColor & 0xFFFFFF);
+        invalidate();
+    }
+
+    @Override
+    public void togglePickerTarget() {
+        state.pickerTarget = state.pickerTarget == 0 ? 1 : 0;
+        int color = state.pickerTarget == 0 ? state.headColor : state.bodyColor;
+        float[] hsv = new float[3];
+        Color.colorToHSV(color, hsv);
+        state.pickerHue = hsv[0];
+        state.pickerSat = hsv[1];
+        state.pickerVal = hsv[2];
+        state.pickerColor = color;
+        state.pickerHex = String.format(Locale.US, "#%06X", color & 0xFFFFFF);
+        state.pickerEditingHex = false;
+        invalidate();
+    }
+
+    @Override
+    public void editPickerHex() {
         if (keyboardInput == null) return;
-        state.editingColor = index;
-        keyboardInput.setText(index == 0 ? state.headHex : state.bodyHex);
+        state.pickerEditingHex = true;
+        state.editingColor = 2; // special value for picker hex
+        keyboardInput.setText(state.pickerHex);
         keyboardInput.setSelection(keyboardInput.length());
+        keyboardInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
         keyboardInput.requestFocus();
         InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) imm.showSoftInput(keyboardInput, InputMethodManager.SHOW_IMPLICIT);
+        invalidate();
     }
 
     @Override
@@ -417,10 +477,14 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         keyboardInput.clearFocus();
         state.editingColor = -1;
         state.editingDevScore = false;
+        state.pickerEditingHex = false;
     }
 
     @Override
     public void playClick() { soundEffects.playClick(); }
+
+    @Override
+    public void playBossDamage() { soundEffects.playBossDamage(); }
 
     @Override
     public void setMusicVolume(float vol) {
@@ -621,6 +685,17 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     state.bodyHex = s.toString();
                     Integer c = persistence.parseHexColor(state.bodyHex);
                     if (c != null) state.bodyColor = c;
+                } else if (state.editingColor == 2 && state.currentState == GameState.State.COLOR_PICKER) {
+                    state.pickerHex = s.toString();
+                    Integer c = persistence.parseHexColor(state.pickerHex);
+                    if (c != null) {
+                        state.pickerColor = c;
+                        float[] hsv = new float[3];
+                        Color.colorToHSV(c, hsv);
+                        state.pickerHue = hsv[0];
+                        state.pickerSat = hsv[1];
+                        state.pickerVal = hsv[2];
+                    }
                 }
                 invalidate();
             }
@@ -628,12 +703,4 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         });
     }
 
-    EditText makeColorInput(Activity activity, String hint, int color) {
-        EditText input = new EditText(activity);
-        input.setSingleLine(true);
-        input.setHint(hint);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
-        input.setText(String.format(Locale.US, "#%06X", color & 0xFFFFFF));
-        return input;
-    }
 }

@@ -201,7 +201,7 @@ public class SnakeEngine {
                     damageBoss();
                     if (sound != null) {
                         if (killingBlow) sound.playBossDefeat();
-                        else sound.playDamage();
+                        else sound.playBossDamage();
                     }
                 }
             }

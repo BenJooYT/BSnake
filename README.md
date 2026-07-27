@@ -20,6 +20,12 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.4.4
+- New dedicated color picker with HSV sliders and live snake preview
+- Snake color moved to Settings with a 3-segment preview under the button
+- Boss hits now have their own unique damage sound
+- Update download now automatically prompts installation when complete
+
 ### 1.4.3
 - In-game sound effects (eating, damage, boss defeat) now play correctly
 - Music no longer resets volume when switching apps

@@ -9,7 +9,8 @@ import java.util.ArrayList;
 public class GameState {
 
     enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS,
-                 MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER }
+                 MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER,
+                 COLOR_PICKER }
     volatile State currentState = State.MENU;
 
     enum SortMode { HIGH_SCORE, RECENT }
@@ -65,8 +66,9 @@ public class GameState {
 
     int classicCellSize, fullAreaCellSize, fitVerticalCellSize;
 
-    RectF startBtn, speedBtn, settingsBtn, leaderboardBtn, exitBtn;
-    RectF headInputBtn, bodyInputBtn, settingsApplyBtn, settingsBackBtn, cameraModeBtn;
+    RectF startBtn, speedBtn, snakeColorBtn, settingsBtn, leaderboardBtn, exitBtn;
+    RectF settingsBackBtn, cameraModeBtn;
+    RectF snakePreviewRect;
     RectF resumeBtn, pauseMenuBtn;
     RectF restartBtn, overMenuBtn;
     RectF lbSortBtn, lbBackBtn;
@@ -84,6 +86,21 @@ public class GameState {
     String headHex = "#00FF00";
     String bodyHex = "#00FF00";
     int editingColor = -1;
+
+    // Color picker state
+    int pickerTarget = 0; // 0 = head, 1 = body
+    float pickerHue = 120f;
+    float pickerSat = 1f;
+    float pickerVal = 1f;
+    int pickerColor = Color.GREEN;
+    String pickerHex = "#00FF00";
+    boolean pickerEditingHex = false;
+    RectF pickerHeadBtn, pickerBodyBtn;
+    RectF pickerSnakePreview;
+    RectF pickerSwatch;
+    RectF pickerHueBar, pickerSatBar, pickerValBar;
+    RectF pickerHexField;
+    RectF pickerApplyBtn, pickerCancelBtn;
 
     // A discovered host for the join list
     static class DiscoveredHost {
@@ -186,19 +203,23 @@ public class GameState {
         mpRestartBtn = makeBtn(cx, screenH * 0.56f, bw, bh);
         mpMenuBtn = makeBtn(cx, screenH * 0.56f + bh + gap, bw, bh);
 
-        headInputBtn = makeBtn(cx, screenH * 0.30f, bw, bh);
-        bodyInputBtn = makeBtn(cx, screenH * 0.40f, bw, bh);
-        cameraModeBtn = makeBtn(cx, screenH * 0.55f, bw, bh);
+        snakeColorBtn = makeBtn(cx, screenH * 0.22f, bw, bh);
+        float previewSize = bh * 0.6f;
+        float previewGap = uiCellSize * 0.3f;
+        float previewTop = snakeColorBtn.bottom + previewGap;
+        snakePreviewRect = new RectF(cx - bw * 0.35f, previewTop,
+                                     cx + bw * 0.35f, previewTop + previewSize);
+
+        cameraModeBtn = makeBtn(cx, screenH * 0.38f, bw, bh);
 
         float sliderW = bw * 0.85f;
         float sliderH = 40;
-        musicSliderTrack = new RectF(cx - sliderW / 2f, screenH * 0.64f - sliderH / 2f,
-                                     cx + sliderW / 2f, screenH * 0.64f + sliderH / 2f);
-        sfxSliderTrack = new RectF(cx - sliderW / 2f, screenH * 0.73f - sliderH / 2f,
-                                   cx + sliderW / 2f, screenH * 0.73f + sliderH / 2f);
+        musicSliderTrack = new RectF(cx - sliderW / 2f, screenH * 0.48f - sliderH / 2f,
+                                     cx + sliderW / 2f, screenH * 0.48f + sliderH / 2f);
+        sfxSliderTrack = new RectF(cx - sliderW / 2f, screenH * 0.57f - sliderH / 2f,
+                                   cx + sliderW / 2f, screenH * 0.57f + sliderH / 2f);
 
-        settingsApplyBtn = makeBtn(cx, screenH * 0.82f, bw, bh);
-        settingsBackBtn = makeBtn(cx, screenH * 0.92f, bw, bh);
+        settingsBackBtn = makeBtn(cx, screenH * 0.70f, bw, bh);
 
         resumeBtn = makeBtn(cx, screenH * 0.5f, bw, bh);
         pauseMenuBtn = makeBtn(cx, screenH * 0.5f + bh + gap, bw, bh);
@@ -213,6 +234,36 @@ public class GameState {
 
         float iconSize = uiCellSize * 1.1f;
         pauseIcon = new RectF(screenW - iconSize - 16, 16, screenW - 16, 16 + iconSize);
+
+        // Color picker layout
+        float pbw = Math.min(screenW * 0.85f, 420);
+        float pbh = uiCellSize * 1.5f;
+        float pSliderH = Math.max(32, uiCellSize * 0.8f);
+        float gap2 = uiCellSize * 0.3f;
+        float swatchH = uiCellSize * 4f;
+        pickerHeadBtn = makeBtn(cx - pbw * 0.25f, screenH * 0.08f, pbw * 0.4f, pbh);
+        pickerBodyBtn = makeBtn(cx + pbw * 0.25f, screenH * 0.08f, pbw * 0.4f, pbh);
+        float pPreviewY = screenH * 0.14f;
+        float pPreviewSize = pbh * 0.45f;
+        pickerSnakePreview = new RectF(cx - pbw * 0.3f, pPreviewY,
+                                       cx + pbw * 0.3f, pPreviewY + pPreviewSize);
+        pickerSwatch = new RectF(cx - pbw / 2f, pickerSnakePreview.bottom + gap2,
+                                 cx + pbw / 2f, pickerSnakePreview.bottom + gap2 + swatchH);
+        float sliderLeft = cx - pbw / 2f;
+        float sliderRight = cx + pbw / 2f;
+        float sliderTop = pickerSwatch.bottom + gap2;
+        pickerHexField = new RectF(cx - pbw * 0.35f, sliderTop, cx + pbw * 0.35f,
+                                   sliderTop + pbh);
+        pickerHueBar = new RectF(sliderLeft, sliderTop + pbh + gap2,
+                                 sliderRight, sliderTop + pbh + gap2 + pSliderH);
+        pickerSatBar = new RectF(sliderLeft, pickerHueBar.bottom + gap2,
+                                 sliderRight, pickerHueBar.bottom + gap2 + pSliderH);
+        pickerValBar = new RectF(sliderLeft, pickerSatBar.bottom + gap2,
+                                 sliderRight, pickerSatBar.bottom + gap2 + pSliderH);
+        pickerApplyBtn = makeBtn(cx - pbw * 0.25f, pickerValBar.bottom + gap2 + pbh / 2f,
+                                 pbw * 0.4f, pbh);
+        pickerCancelBtn = makeBtn(cx + pbw * 0.25f, pickerValBar.bottom + gap2 + pbh / 2f,
+                                  pbw * 0.4f, pbh);
     }
 
     static RectF makeBtn(float cx, float cy, float w, float h) {

@@ -2,9 +2,11 @@ package com.benjoo.bsnake;
 
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Point;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 
 import java.text.SimpleDateFormat;
@@ -57,6 +59,9 @@ class GameRenderer {
                 drawGameField(canvas, 1f, true);
                 drawDim(canvas);
                 drawMpGameOverOverlay(canvas);
+                break;
+            case COLOR_PICKER:
+                drawColorPicker(canvas);
                 break;
         }
     }
@@ -434,10 +439,9 @@ class GameRenderer {
 
     private void drawSettings(Canvas canvas) {
         drawCenteredText(canvas, "SETTINGS", state.screenW / 2f, state.screenH * 0.10f, 64, Color.GREEN, true);
-        drawCenteredText(canvas, "CUSTOMIZE COLORS", state.screenW / 2f, state.screenH * 0.19f, 26, Color.WHITE, false);
-        drawColorField(canvas, state.headInputBtn, "HEAD:  " + state.headHex, state.headColor);
-        drawColorField(canvas, state.bodyInputBtn, "BODY:  " + state.bodyHex, state.bodyColor);
-        drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.screenH * 0.51f, 26, Color.WHITE, false);
+        drawButton(canvas, state.snakeColorBtn, "SNAKE COLOR");
+        drawSnakePreview(canvas, state.snakePreviewRect, state.headColor, state.bodyColor);
+        drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.cameraModeBtn.top - 10, 26, Color.WHITE, false);
         String camLabel;
         switch (state.cameraMode) {
             case FULL_PLAY_AREA: camLabel = "FULL AREA"; break;
@@ -447,8 +451,33 @@ class GameRenderer {
         drawButton(canvas, state.cameraModeBtn, camLabel);
         drawVolumeSlider(canvas, "MUSIC", state.musicSliderTrack, state.musicVolume);
         drawVolumeSlider(canvas, "SFX", state.sfxSliderTrack, state.sfxVolume);
-        drawButton(canvas, state.settingsApplyBtn, "APPLY");
         drawButton(canvas, state.settingsBackBtn, "BACK");
+    }
+
+    private void drawSnakePreview(Canvas canvas, RectF rect, int headColor, int bodyColor) {
+        if (rect == null) return;
+        float h = rect.height();
+        float y = rect.centerY();
+        float segW = h * 0.9f;
+        float segGap = segW * 0.15f;
+        float totalW = segW * 3 + segGap * 2;
+        float startX = rect.centerX() - totalW / 2f;
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(headColor);
+        canvas.drawRect(startX, y - h / 2f + 2, startX + segW, y + h / 2f - 2, paint);
+
+        paint.setColor(bodyColor);
+        canvas.drawRect(startX + segW + segGap, y - h / 2f + 2,
+                startX + segW * 2 + segGap, y + h / 2f - 2, paint);
+        canvas.drawRect(startX + (segW + segGap) * 2, y - h / 2f + 2,
+                startX + segW * 3 + segGap * 2, y + h / 2f - 2, paint);
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.GRAY);
+        canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawVolumeSlider(Canvas canvas, String label, RectF track, float volume) {
@@ -469,15 +498,95 @@ class GameRenderer {
         canvas.drawCircle(fillX, cy, radius, paint);
     }
 
-    private void drawColorField(Canvas canvas, RectF rect, String label, int color) {
+    private void drawColorPicker(Canvas canvas) {
+        drawCenteredText(canvas, "SNAKE COLOR", state.screenW / 2f, state.screenH * 0.04f,
+                48, Color.GREEN, true);
+
+        // Head/Body toggle
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(state.pickerTarget == 0 ? Color.GREEN : Color.DKGRAY);
+        canvas.drawRect(state.pickerHeadBtn.left, state.pickerHeadBtn.top,
+                state.pickerHeadBtn.right - 2, state.pickerHeadBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "HEAD", state.pickerHeadBtn.centerX(),
+                state.pickerHeadBtn.centerY(), 28, Color.BLACK, true);
+
+        paint.setColor(state.pickerTarget == 1 ? Color.GREEN : Color.DKGRAY);
+        canvas.drawRect(state.pickerBodyBtn.left, state.pickerBodyBtn.top,
+                state.pickerBodyBtn.right - 2, state.pickerBodyBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "BODY", state.pickerBodyBtn.centerX(),
+                state.pickerBodyBtn.centerY(), 28, Color.BLACK, true);
+
+        // Snake preview
+        int pH = state.pickerTarget == 0 ? state.pickerColor : state.headColor;
+        int pB = state.pickerTarget == 1 ? state.pickerColor : state.bodyColor;
+        drawSnakePreview(canvas, state.pickerSnakePreview, pH, pB);
+
+        // Color swatch
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(state.pickerColor);
+        canvas.drawRect(state.pickerSwatch.left, state.pickerSwatch.top,
+                state.pickerSwatch.right - 2, state.pickerSwatch.bottom - 2, paint);
+
+        // Hex field
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(3);
-        paint.setColor(Color.GREEN);
-        canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
+        paint.setColor(state.pickerEditingHex ? Color.GREEN : Color.GRAY);
+        canvas.drawRect(state.pickerHexField.left, state.pickerHexField.top,
+                state.pickerHexField.right - 2, state.pickerHexField.bottom - 2, paint);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(color);
-        canvas.drawRect(rect.left + 12, rect.top + 12, rect.left + state.uiCellSize, rect.bottom - 14, paint);
-        drawCenteredText(canvas, label, rect.centerX() + state.uiCellSize * 0.25f, rect.centerY(), 30, Color.WHITE, true);
+        drawCenteredText(canvas, state.pickerHex, state.pickerHexField.centerX(),
+                state.pickerHexField.centerY(), 30, Color.WHITE, true);
+
+        // Hue bar
+        drawColorSlider(canvas, state.pickerHueBar, getHueColors(),
+                state.pickerHue / 360f, Color.WHITE);
+
+        float[] hsv = new float[]{ state.pickerHue, 1f, 1f };
+        int fullHue = Color.HSVToColor(hsv);
+
+        // Sat bar
+        int gray = Color.rgb(128, 128, 128);
+        drawColorSlider(canvas, state.pickerSatBar, new int[]{ gray, fullHue },
+                state.pickerSat, Color.WHITE);
+
+        // Val bar
+        int black = Color.rgb(0, 0, 0);
+        hsv[1] = state.pickerSat;
+        hsv[2] = 1f;
+        int fullColor = Color.HSVToColor(hsv);
+        drawColorSlider(canvas, state.pickerValBar, new int[]{ black, fullColor },
+                state.pickerVal, Color.WHITE);
+
+        // Apply / Cancel
+        drawButton(canvas, state.pickerApplyBtn, "APPLY");
+        drawButton(canvas, state.pickerCancelBtn, "CANCEL");
+    }
+
+    private int[] getHueColors() {
+        return new int[]{ Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN,
+                Color.BLUE, Color.MAGENTA, Color.RED };
+    }
+
+    private void drawColorSlider(Canvas canvas, RectF rect, int[] colors,
+                                  float fraction, int thumbColor) {
+        if (rect == null) return;
+        LinearGradient lg = new LinearGradient(
+                rect.left, rect.top, rect.right, rect.top,
+                colors, null, Shader.TileMode.CLAMP);
+        paint.setShader(lg);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
+        paint.setShader(null);
+
+        float thumbX = rect.left + (rect.right - rect.left) * fraction;
+        float thumbY = rect.centerY();
+        paint.setColor(thumbColor);
+        canvas.drawCircle(thumbX, thumbY, 12, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.BLACK);
+        canvas.drawCircle(thumbX, thumbY, 12, paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawLeaderboard(Canvas canvas) {

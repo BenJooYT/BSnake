@@ -5,7 +5,6 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.util.Log;
 
-import java.util.ArrayList;
 import java.util.Random;
 
 public class SoundEffects {
@@ -14,19 +13,20 @@ public class SoundEffects {
     private static final int CLICK_MS = 60;
     private static final int CRUNCH_MS = 80;
     private static final int DAMAGE_MS = 120;
+    private static final int BOSS_DAMAGE_MS = 500;
     private static final int BOSS_DEFEAT_MS = 3200;
 
     private short[] clickBuffer;
     private short[] crunchBuffer;
-    private short[] damageBuffer;
+    private short[] bossDamageBuffer;
     private short[] bossDefeatBuffer;
-    private AudioTrack clickTrack, crunchTrack, damageTrack, bossDefeatTrack;
+    private AudioTrack clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack;
     private float volume = 1.0f;
 
     public SoundEffects() {
         generateClick();
         generateCrunch();
-        generateDamage();
+        generateBossDamage();
         generateBossDefeat();
         initTracks();
     }
@@ -48,8 +48,8 @@ public class SoundEffects {
         clickTrack.write(clickBuffer, 0, clickBuffer.length);
         crunchTrack = createTrack(crunchBuffer.length * 2);
         crunchTrack.write(crunchBuffer, 0, crunchBuffer.length);
-        damageTrack = createTrack(damageBuffer.length * 2);
-        damageTrack.write(damageBuffer, 0, damageBuffer.length);
+        bossDamageTrack = createTrack(bossDamageBuffer.length * 2);
+        bossDamageTrack.write(bossDamageBuffer, 0, bossDamageBuffer.length);
         bossDefeatTrack = createTrack(bossDefeatBuffer.length * 2);
         bossDefeatTrack.write(bossDefeatBuffer, 0, bossDefeatBuffer.length);
     }
@@ -82,19 +82,28 @@ public class SoundEffects {
         }
     }
 
-    private void generateDamage() {
-        int n = SAMPLE_RATE * DAMAGE_MS / 1000;
-        damageBuffer = new short[n];
-        Random rng = new Random(2);
+    private void generateBossDamage() {
+        int n = SAMPLE_RATE * BOSS_DAMAGE_MS / 1000;
+        bossDamageBuffer = new short[n];
+        Random rng = new Random(4);
+        double lp = 0, bp = 0;
         for (int i = 0; i < n; i++) {
             double t = (double) i / SAMPLE_RATE;
-            double envelope = Math.exp(-t * 30.0);
-            double thud = Math.sin(2 * Math.PI * 150.0 * t) * 0.6;
-            double crunch = Math.sin(2 * Math.PI * 2000.0 * t) * 0.4
-                          + Math.sin(2 * Math.PI * 3500.0 * t) * 0.2;
-            double noise = (rng.nextDouble() - 0.5) * 0.35;
-            double s = (thud + crunch + noise) * envelope * 0.5;
-            damageBuffer[i] = (short) (s * Short.MAX_VALUE);
+
+            double cutoff = 753.3 * Math.pow(2.0, -73.44 * t);
+            cutoff = Math.max(cutoff, 3.528);
+            cutoff *= 1.0 + 0.2285 * Math.sin(2.0 * Math.PI * 0.8799 * t);
+            cutoff = Math.min(cutoff, SAMPLE_RATE * 0.45);
+
+            double f = 2.0 * Math.sin(Math.PI * cutoff / SAMPLE_RATE);
+            double noise = (rng.nextDouble() - 0.5) * 0.7;
+
+            double hp = noise - lp - 0.45 * bp;
+            bp += f * hp;
+            lp += f * bp;
+
+            double env = t < 0.005224 ? 1.0 : Math.exp(-(t - 0.005224) * 6.0);
+            bossDamageBuffer[i] = (short) (lp * env * Short.MAX_VALUE * 0.5);
         }
     }
 
@@ -160,7 +169,7 @@ public class SoundEffects {
 
     public void playClick()      { playTrack(clickTrack); }
     public void playCrunch()     { playTrack(crunchTrack); }
-    public void playDamage()     { playTrack(damageTrack); }
+    public void playBossDamage() { playTrack(bossDamageTrack); }
     public void playBossDefeat() { playTrack(bossDefeatTrack); }
 
     public void setVolume(float vol) {
@@ -168,7 +177,7 @@ public class SoundEffects {
     }
 
     public void stopAll() {
-        AudioTrack[] tracks = { clickTrack, crunchTrack, damageTrack, bossDefeatTrack };
+        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); } catch (Exception e) { }
@@ -177,13 +186,13 @@ public class SoundEffects {
     }
 
     public void release() {
-        AudioTrack[] tracks = { clickTrack, crunchTrack, damageTrack, bossDefeatTrack };
+        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); t.release(); } catch (Exception e) { }
             }
         }
         clickTrack = null; crunchTrack = null;
-        damageTrack = null; bossDefeatTrack = null;
+        bossDamageTrack = null; bossDefeatTrack = null;
     }
 }
