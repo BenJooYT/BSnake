@@ -20,9 +20,8 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
-### 1.4.4
+### 1.5.0
 - **BOSS SNAKE REWORK:** The boss is now a snake that moves toward food, eats it, and grows. Position your snake to make the boss run into you — head-on or body contact damages it. Each hit removes 2 boss segments; when none remain, it dies. Trail drops under its body when teleporting.
-- **MANUAL INSTALL REQUIRED:** You must go into your Files app → Downloads to install; auto-install is being worked on
 - New dedicated color picker with HSV sliders and live snake preview
 - Snake color moved to Settings with a 3-segment preview under the button
 - Boss hits now have their own unique damage sound
@@ -30,6 +29,13 @@ Simple Snake game for Android, AIDE-compatible.
 - Color edits persist when switching between HEAD and BODY targets in the color picker
 - Slider dragging no longer activates buttons underneath on release
 - Snake preview enlarged with no border and no gap between segments
+
+### 1.4.4
+- **MANUAL INSTALL REQUIRED:** You must go into your Files app → Downloads to install; auto-install is being worked on
+- New dedicated color picker with HSV sliders and live snake preview
+- Snake color moved to Settings with a 3-segment preview under the button
+- Boss hits now have their own unique damage sound
+- Update download now automatically prompts installation when complete
 
 ### 1.4.3
 - In-game sound effects (eating, damage, boss defeat) now play correctly
