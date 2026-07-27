@@ -143,20 +143,28 @@ class GameRenderer {
             canvas.drawCircle(cx, cy, Math.max(4, state.cellSize / 2f - 4), paint);
         }
 
-        // Boss
-        if (state.boss.alive) {
-            for (Point tile : state.boss.getTiles()) {
-                float bDx = tile.x - viewCameraX;
-                float bDy = tile.y - viewCameraY;
+        // Boss — drawn as a snake with purple segments
+        if (state.boss.alive && !state.boss.body.isEmpty()) {
+            for (int i = 0; i < state.boss.body.size(); i++) {
+                Point seg = state.boss.body.get(i);
+                float bDx = seg.x - viewCameraX;
+                float bDy = seg.y - viewCameraY;
                 if (Math.abs(bDx) >= state.viewportWidthCells / 2f
                         || Math.abs(bDy) >= state.viewportHeightCells / 2f) continue;
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
                 float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
-                paint.setColor(Color.rgb(180, 50, 200));
+                if (i == 0) {
+                    paint.setColor(Color.rgb(200, 60, 220));
+                } else {
+                    int dim = Math.max(80, 180 - i * 15);
+                    paint.setColor(Color.rgb(dim, dim / 3, dim));
+                }
                 canvas.drawRect(bx, by, bx + state.cellSize - 1, by + state.cellSize - 1, paint);
             }
-            float bDx = state.boss.x - viewCameraX;
-            float bDy = state.boss.y - viewCameraY;
+            // Boss segment count label above head
+            Point head = state.boss.body.get(0);
+            float bDx = head.x - viewCameraX;
+            float bDy = head.y - viewCameraY;
             if (Math.abs(bDx) < state.viewportWidthCells / 2f
                     && Math.abs(bDy) < state.viewportHeightCells / 2f) {
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
@@ -164,7 +172,7 @@ class GameRenderer {
                 paint.setColor(Color.WHITE);
                 paint.setTextSize(state.cellSize * 0.5f);
                 paint.setTypeface(Typeface.DEFAULT_BOLD);
-                canvas.drawText("B" + state.boss.hp, bx, by - 4, paint);
+                canvas.drawText("B" + state.boss.body.size(), bx, by - 4, paint);
             }
         }
 

@@ -127,19 +127,12 @@ public class GameState {
     int mpWinner = -1;
     int mpLastScore0, mpLastScore1;
 
-    static class BossFruit {
-        int x = -1, y = -1;
-        int hp = 5;
+    static class BossSnake {
+        ArrayList<Point> body = new ArrayList<>();
+        int dirX = 0, dirY = 1;
         boolean alive = false;
         int lastMoveTick = 0;
-        ArrayList<Point> getTiles() {
-            ArrayList<Point> tiles = new ArrayList<>();
-            tiles.add(new Point(x, y));
-            tiles.add(new Point(x + 1, y));
-            tiles.add(new Point(x, y + 1));
-            tiles.add(new Point(x + 1, y + 1));
-            return tiles;
-        }
+        int growthPending = 0;
     }
 
     static class BossTrailCell {
@@ -148,7 +141,7 @@ public class GameState {
         BossTrailCell(int x, int y, int tick) { this.x = x; this.y = y; this.createdAtTick = tick; }
     }
 
-    BossFruit boss = new BossFruit();
+    BossSnake boss = new BossSnake();
     int bossGrowthPending = 0;
     ArrayList<BossTrailCell> bossTrail = new ArrayList<>();
     int nextBossSpawnScore = 125;

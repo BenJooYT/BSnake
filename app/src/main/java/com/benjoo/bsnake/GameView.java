@@ -254,10 +254,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
             if (obj.has("boss")) {
                 JSONObject bj = obj.getJSONObject("boss");
-                state.boss.x = bj.getInt("x");
-                state.boss.y = bj.getInt("y");
-                state.boss.hp = bj.getInt("hp");
+                state.boss.body = NetworkMessage.jsonToBody(bj.getJSONArray("body"));
+                state.boss.dirX = bj.getInt("dirX");
+                state.boss.dirY = bj.getInt("dirY");
                 state.boss.lastMoveTick = bj.getInt("lastMoveTick");
+                state.boss.growthPending = bj.getInt("growthPending");
                 state.boss.alive = true;
             } else {
                 state.boss.alive = false;
