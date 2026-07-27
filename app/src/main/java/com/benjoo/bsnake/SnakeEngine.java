@@ -193,12 +193,7 @@ public class SnakeEngine {
                 if (nx == bh.x && ny == bh.y) {
                     sd.score += BOSS_HIT_SCORE;
                     state.score = sd.score;
-                    boolean killingBlow = state.boss.body.size() <= 2;
                     damageBoss();
-                    if (sound != null) {
-                        if (killingBlow) sound.playBossDefeat();
-                        else sound.playBossDamage();
-                    }
                 } else {
                     for (int i = 1; i < state.boss.body.size(); i++) {
                         if (nx == state.boss.body.get(i).x && ny == state.boss.body.get(i).y) {
@@ -246,12 +241,7 @@ public class SnakeEngine {
                 if (bossHitPlayer) break;
             }
             if (bossHitPlayer) {
-                boolean killingBlow = state.boss.body.size() <= 2;
                 damageBoss();
-                if (sound != null) {
-                    if (killingBlow) sound.playBossDefeat();
-                    else sound.playBossDamage();
-                }
             }
 
             // Boss eats food at new head position
@@ -402,6 +392,7 @@ public class SnakeEngine {
 
     private void damageBoss() {
         int removed = 0;
+        boolean killingBlow = state.boss.body.size() <= 2;
         while (removed < 2 && state.boss.body.size() > 0) {
             state.boss.body.remove(state.boss.body.size() - 1);
             removed++;
@@ -413,9 +404,11 @@ public class SnakeEngine {
             state.score = state.snakes[0].score;
             state.bossGrowthPending += BOSS_DEFEAT_GROWTH;
             state.nextBossSpawnScore += BOSS_SPAWN_INTERVAL;
+            if (sound != null) sound.playBossDefeat();
         } else {
             spawnBossTrailAtBody();
             teleportBoss();
+            if (sound != null) sound.playBossDamage();
         }
     }
 
