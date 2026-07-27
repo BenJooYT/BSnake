@@ -26,6 +26,9 @@ Simple Snake game for Android, AIDE-compatible.
 - Snake color moved to Settings with a 3-segment preview under the button
 - Boss hits now have their own unique damage sound
 - Update download now automatically prompts installation when complete
+- Color edits persist when switching between HEAD and BODY targets in the color picker
+- Slider dragging no longer activates buttons underneath on release
+- Snake preview enlarged with no border and no gap between segments
 
 ### 1.4.3
 - In-game sound effects (eating, damage, boss defeat) now play correctly
