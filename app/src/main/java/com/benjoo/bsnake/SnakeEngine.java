@@ -264,13 +264,14 @@ public class SnakeEngine {
             }
         }
 
-        // Boss spawn check (using snake[0]'s score for spawn thresholds)
-        if (!state.boss.alive && state.snakes[0].score >= state.nextBossSpawnScore) {
+        // Boss spawn check (uses sum score in multiplayer)
+        int progressionScore = state.snakes[0].score + state.snakes[1].score;
+        if (!state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
             spawnBoss();
         }
 
         // Refill food
-        int targetFoodCount = getTargetFoodCount(state.snakes[0].score);
+        int targetFoodCount = getTargetFoodCount(progressionScore);
         while (state.foods.size() < targetFoodCount) {
             spawnFood();
         }

@@ -201,7 +201,8 @@ class GameRenderer {
         paint.setTypeface(Typeface.DEFAULT);
         String scoreLabel;
         if (state.currentState == GameState.State.MP_PLAYING || state.currentState == GameState.State.MP_GAME_OVER) {
-            scoreLabel = "P1: " + state.snakes[0].score + "  P2: " + state.snakes[1].score;
+            int sum = state.snakes[0].score + state.snakes[1].score;
+            scoreLabel = "P1:" + state.snakes[0].score + " P2:" + state.snakes[1].score + " SUM:" + sum;
         } else {
             scoreLabel = "Score: " + state.snakes[0].score;
             if (state.devMode) scoreLabel += " [DEV]";
