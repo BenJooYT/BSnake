@@ -458,26 +458,20 @@ class GameRenderer {
         if (rect == null) return;
         float h = rect.height();
         float y = rect.centerY();
-        float segW = h * 0.9f;
-        float segGap = segW * 0.15f;
+        float segW = h;
+        float segGap = 0;
         float totalW = segW * 3 + segGap * 2;
         float startX = rect.centerX() - totalW / 2f;
 
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(headColor);
-        canvas.drawRect(startX, y - h / 2f + 2, startX + segW, y + h / 2f - 2, paint);
+        canvas.drawRect(startX, y - h / 2f, startX + segW, y + h / 2f, paint);
 
         paint.setColor(bodyColor);
-        canvas.drawRect(startX + segW + segGap, y - h / 2f + 2,
-                startX + segW * 2 + segGap, y + h / 2f - 2, paint);
-        canvas.drawRect(startX + (segW + segGap) * 2, y - h / 2f + 2,
-                startX + segW * 3 + segGap * 2, y + h / 2f - 2, paint);
-
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(2);
-        paint.setColor(Color.GRAY);
-        canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
-        paint.setStyle(Paint.Style.FILL);
+        canvas.drawRect(startX + segW, y - h / 2f,
+                startX + segW * 2, y + h / 2f, paint);
+        canvas.drawRect(startX + segW * 2, y - h / 2f,
+                startX + segW * 3, y + h / 2f, paint);
     }
 
     private void drawVolumeSlider(Canvas canvas, String label, RectF track, float volume) {

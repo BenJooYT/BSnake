@@ -204,7 +204,7 @@ public class GameState {
         mpMenuBtn = makeBtn(cx, screenH * 0.56f + bh + gap, bw, bh);
 
         snakeColorBtn = makeBtn(cx, screenH * 0.22f, bw, bh);
-        float previewSize = bh * 0.6f;
+        float previewSize = bh * 1.0f;
         float previewGap = uiCellSize * 0.3f;
         float previewTop = snakeColorBtn.bottom + previewGap;
         snakePreviewRect = new RectF(cx - bw * 0.35f, previewTop,
@@ -244,7 +244,7 @@ public class GameState {
         pickerHeadBtn = makeBtn(cx - pbw * 0.25f, screenH * 0.08f, pbw * 0.4f, pbh);
         pickerBodyBtn = makeBtn(cx + pbw * 0.25f, screenH * 0.08f, pbw * 0.4f, pbh);
         float pPreviewY = screenH * 0.14f;
-        float pPreviewSize = pbh * 0.45f;
+        float pPreviewSize = pbh * 0.7f;
         pickerSnakePreview = new RectF(cx - pbw * 0.3f, pPreviewY,
                                        cx + pbw * 0.3f, pPreviewY + pPreviewSize);
         pickerSwatch = new RectF(cx - pbw / 2f, pickerSnakePreview.bottom + gap2,
