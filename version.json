@@ -2,6 +2,6 @@
   "versionCode": 10,
   "versionName": "1.4.4",
   "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.4.4/BSnake-v1.4.4.apk",
-  "changelog": "- New dedicated color picker with HSV sliders and live snake preview\n- Boss hits now have their own unique damage sound\n- Snake Color moved to Settings with a 3-segment preview\n- Update download automatically prompts installation when complete\n\nYOU HAVE TO MANUALLY GO INTO YOUR FILES APP AND YOUR DOWNLOADS FOLDER TO INSTALL THIS UPDATE. Hopefully next update this won't be required. I'm working on it.",
+  "changelog": "YOU HAVE TO MANUALLY GO INTO YOUR FILES APP AND YOUR DOWNLOADS FOLDER TO INSTALL THIS UPDATE. Hopefully next update this won't be required. I'm working on it.\n\n- New dedicated color picker with HSV sliders and live snake preview\n- Boss hits now have their own unique damage sound\n- Snake Color moved to Settings with a 3-segment preview\n- Update download automatically prompts installation when complete",
   "needsReinstall": false
 }
