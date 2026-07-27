@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.style.ForegroundColorSpan;
 import android.view.Window;
 import android.view.WindowManager;
 import android.graphics.Color;
@@ -58,9 +61,14 @@ public class MainActivity extends Activity {
     }
 
     private void showUpdateDialog(UpdateChecker.UpdateInfo info) {
+        String msg = "Version " + info.versionName + "\n\n" + info.changelog;
+        String extra = "\n\nYOU HAVE TO MANUALLY GO INTO YOUR FILES APP AND YOUR DOWNLOADS FOLDER TO INSTALL THIS UPDATE. Hopefully next update this won't be required. I'm working on it.";
+        SpannableString spannable = new SpannableString(msg + extra);
+        spannable.setSpan(new ForegroundColorSpan(Color.RED), msg.length(), msg.length() + extra.length(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         new AlertDialog.Builder(this)
                 .setTitle("Update Available")
-                .setMessage("Version " + info.versionName + "\n\n" + info.changelog)
+                .setMessage(spannable)
                 .setPositiveButton("Update", (dialog, which) ->
                         UpdateChecker.openDownloadUrl(this, info.downloadUrl))
                 .setNegativeButton("Later", null)
@@ -69,13 +77,17 @@ public class MainActivity extends Activity {
     }
 
     private void showReinstallDialog(UpdateChecker.UpdateInfo info) {
-        String message = "Version " + info.versionName
+        String msg = "Version " + info.versionName
                 + " requires a reinstall.\n\n"
                 + info.changelog + "\n\n"
                 + "Please uninstall the current version and install the new APK.";
+        String extra = "\n\nYOU HAVE TO MANUALLY GO INTO YOUR FILES APP AND YOUR DOWNLOADS FOLDER TO INSTALL THIS UPDATE. Hopefully next update this won't be required. I'm working on it.";
+        SpannableString spannable = new SpannableString(msg + extra);
+        spannable.setSpan(new ForegroundColorSpan(Color.RED), msg.length(), msg.length() + extra.length(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
         new AlertDialog.Builder(this)
                 .setTitle("Reinstall Required")
-                .setMessage(message)
+                .setMessage(spannable)
                 .setPositiveButton("Download New Version", (dialog, which) ->
                         UpdateChecker.openDownloadUrl(this, info.downloadUrl))
                 .setNegativeButton("Later", null)
