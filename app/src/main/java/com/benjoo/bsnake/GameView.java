@@ -352,6 +352,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void openColorPicker() {
+        state.pickerOrigHeadColor = state.headColor;
+        state.pickerOrigBodyColor = state.bodyColor;
         state.pickerTarget = 0;
         float[] hsv = new float[3];
         Color.colorToHSV(state.headColor, hsv);
@@ -405,6 +407,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void togglePickerTarget() {
+        // Save current edits to the current target
+        if (state.pickerTarget == 0) {
+            state.headColor = state.pickerColor;
+            state.headHex = state.pickerHex;
+        } else {
+            state.bodyColor = state.pickerColor;
+            state.bodyHex = state.pickerHex;
+        }
+        // Switch target
         state.pickerTarget = state.pickerTarget == 0 ? 1 : 0;
         int color = state.pickerTarget == 0 ? state.headColor : state.bodyColor;
         float[] hsv = new float[3];

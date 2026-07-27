@@ -338,6 +338,8 @@ class InputHandler {
                 } else if (contains(state.pickerCancelBtn, upX, upY)) {
                     actions.playClick();
                     actions.dismissKeyboard();
+                    state.headColor = state.pickerOrigHeadColor;
+                    state.bodyColor = state.pickerOrigBodyColor;
                     state.currentState = GameState.State.MENU;
                 }
                 break;

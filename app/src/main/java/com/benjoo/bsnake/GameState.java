@@ -88,6 +88,8 @@ public class GameState {
     int editingColor = -1;
 
     // Color picker state
+    int pickerOrigHeadColor = Color.GREEN;
+    int pickerOrigBodyColor = Color.GREEN;
     int pickerTarget = 0; // 0 = head, 1 = body
     float pickerHue = 120f;
     float pickerSat = 1f;
