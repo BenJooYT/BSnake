@@ -187,12 +187,11 @@ public class SnakeEngine {
                 if (sound != null && si == 0) sound.playCrunch();
             }
 
-            // Head-on collision with boss head
+            // Boss body collision — player head runs into any boss segment
             boolean hitBoss = false;
             if (state.boss.alive) {
-                Point bh = state.boss.body.get(0);
-                if (nx == bh.x && ny == bh.y) {
-                    hitBoss = true;
+                for (Point bp : state.boss.body) {
+                    if (nx == bp.x && ny == bp.y) { hitBoss = true; break; }
                 }
                 if (hitBoss) {
                     sd.score += BOSS_HIT_SCORE;
@@ -222,7 +221,7 @@ public class SnakeEngine {
             // Growth / shrink / detach
             if (state.bossGrowthPending > 0 && si == 0) {
                 state.bossGrowthPending--;
-            } else if (!ateFood && !ateTrail && !hitBoss) {
+            } else if (!ateFood && !ateTrail) {
                 sd.body.remove(sd.body.size() - 1);
             }
         }
