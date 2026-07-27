@@ -187,13 +187,10 @@ public class SnakeEngine {
                 if (sound != null && si == 0) sound.playCrunch();
             }
 
-            // Boss body collision — player head runs into any boss segment
-            boolean hitBoss = false;
+            // Boss collision — head-on damages boss, body kills player
             if (state.boss.alive) {
-                for (Point bp : state.boss.body) {
-                    if (nx == bp.x && ny == bp.y) { hitBoss = true; break; }
-                }
-                if (hitBoss) {
+                Point bh = state.boss.body.get(0);
+                if (nx == bh.x && ny == bh.y) {
                     sd.score += BOSS_HIT_SCORE;
                     state.score = sd.score;
                     boolean killingBlow = state.boss.body.size() <= 2;
@@ -201,6 +198,13 @@ public class SnakeEngine {
                     if (sound != null) {
                         if (killingBlow) sound.playBossDefeat();
                         else sound.playBossDamage();
+                    }
+                } else {
+                    for (int i = 1; i < state.boss.body.size(); i++) {
+                        if (nx == state.boss.body.get(i).x && ny == state.boss.body.get(i).y) {
+                            sd.alive = false;
+                            break;
+                        }
                     }
                 }
             }
@@ -463,7 +467,7 @@ public class SnakeEngine {
     }
 
     private boolean isBossMoveValid(int x, int y) {
-        for (int i = 1; i < state.boss.body.size(); i++) {
+        for (int i = 1; i < state.boss.body.size() - 1; i++) {
             Point p = state.boss.body.get(i);
             if (p.x == x && p.y == y) return false;
         }
