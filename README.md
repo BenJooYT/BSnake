@@ -24,16 +24,7 @@ Simple Snake game for Android, AIDE-compatible.
 - In-game sound effects (eating, damage, boss defeat) now play correctly
 - Music no longer resets volume when switching apps
 - Audio no longer cuts out after switching apps
-- Host screen now shows live connection status
-- Join screen lists available games to pick from
-- Each host is identified by their device name
-- Automatically transition to the lobby after connecting
-- Clean disconnect clears all connection data
-- Devices can now discover each other in multiplayer
-- Both players see the game start at the same time
-- Players see correct snake direction on their screen
-- Game over notification only appears once per game
-- Fixed various connectivity and timing issues
+- Update download now automatically prompts installation when complete
 
 ### 1.4.2
 - Host screen shows live status updates instead of a static message
