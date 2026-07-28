@@ -20,6 +20,22 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.5.7
+- Multiplayer network ownership refactor: client sends full clientState (body/dir/score/alive) before each tick; host uses body as-is, no local movement of remote snake
+- State message streamlined: single snake key (host only), client keeps its own body
+- sendSwipe() is now local-only enqueue — no per-swipe network message
+- Client camera init in applyState() and start handlers — game starts even if "start" message dropped
+- Colors redundantly synced via state() message every tick
+- Dead snake body cleared at every death point — no phantom hitbox after visual disappearance
+- Remote snake jitter fixed: host no longer moves remote snake independently
+- Client prediction no longer runs boss AI, boss spawn, or food refill (host is authoritative for all game state)
+- Host removes food at remote snake's current head — food eaten by client properly disappears
+- Client game loop ticks independently of host state arrival — no more lag pauses
+- isHost set AFTER server/client reference to ensure volatile happens-before ordering
+- toggleReady() null-safe guard
+- Empty snake body guards in engine update and clientState handler
+- Color picker sliders 2x taller with doubled spacing
+
 ### 1.5.6
 - Dev mode: force boss type selection (RANDOM / CHASER / WALL), show boss pathfinding toggle
 - Boss AI: player body avoidance via scoring penalties (not hard block) — boss prefers to avoid but can still be baited into body contact
