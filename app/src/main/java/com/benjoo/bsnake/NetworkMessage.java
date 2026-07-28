@@ -50,7 +50,10 @@ class NetworkMessage {
                         int score0, int score1, int dirX0, int dirY0, int dirX1, int dirY1,
                         boolean alive0, boolean alive1,
                         ArrayList<Point> foods, GameState.BossSnake boss,
-                        ArrayList<GameState.BossTrailCell> trail, int tick) {
+                        ArrayList<GameState.BossTrailCell> trail, int tick,
+                        ArrayList<GameState.WallCell> walls,
+                        ArrayList<Point> wallPreviewPositions, int wallPreviewStartTick,
+                        boolean wallPreviewActive, int nextWallTick) {
         try {
             JSONObject msg = new JSONObject();
             msg.put("type", "state");
@@ -81,6 +84,7 @@ class NetworkMessage {
                 bj.put("dirY", boss.dirY);
                 bj.put("lastMoveTick", boss.lastMoveTick);
                 bj.put("growthPending", boss.growthPending);
+                bj.put("type", boss.type.ordinal());
                 msg.put("boss", bj);
             }
             JSONArray trArr = new JSONArray();
@@ -88,6 +92,25 @@ class NetworkMessage {
                 trArr.put(new JSONArray().put(tc.x).put(tc.y).put(tc.createdAtTick));
             }
             msg.put("trail", trArr);
+            // Wall data
+            if (walls != null && !walls.isEmpty()) {
+                JSONArray wlArr = new JSONArray();
+                for (GameState.WallCell w : walls) {
+                    wlArr.put(new JSONArray().put(w.x).put(w.y).put(w.createdAtTick)
+                            .put(w.dying ? 1 : 0).put(w.deathStartTick));
+                }
+                msg.put("walls", wlArr);
+            }
+            if (wallPreviewPositions != null) {
+                JSONArray wpArr = new JSONArray();
+                for (Point p : wallPreviewPositions) {
+                    wpArr.put(new JSONArray().put(p.x).put(p.y));
+                }
+                msg.put("wallPP", wpArr);
+            }
+            msg.put("wallPST", wallPreviewStartTick);
+            msg.put("wallPA", wallPreviewActive);
+            msg.put("nextWT", nextWallTick);
             return msg.toString() + "\n";
         } catch (Exception e) { return null; }
     }

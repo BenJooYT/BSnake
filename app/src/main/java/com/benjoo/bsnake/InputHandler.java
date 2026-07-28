@@ -133,12 +133,9 @@ class InputHandler {
     private void handleTouchUp(float upX, float upY) {
         switch (state.currentState) {
             case MENU:
-                if (contains(state.mpBtn, upX, upY)) {
+                if (contains(state.playBtn, upX, upY)) {
                     actions.playClick();
-                    actions.openMpMenu();
-                } else if (contains(state.startBtn, upX, upY)) {
-                    actions.playClick();
-                    actions.startNewGame();
+                    state.currentState = GameState.State.PLAY_MENU;
                 } else if (contains(state.speedBtn, upX, upY)) {
                     actions.playClick();
                     actions.cycleSpeed();
@@ -165,6 +162,29 @@ class InputHandler {
                             titleTapIndex = 0;
                         }
                     }
+                }
+                break;
+
+            case PLAY_MENU:
+                if (contains(state.singleplayerBtn, upX, upY)) {
+                    actions.playClick();
+                    state.currentState = GameState.State.MODE_SELECT;
+                } else if (contains(state.multiplayerBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.openMpMenu();
+                } else if (contains(state.playBackBtn, upX, upY)) {
+                    actions.playClick();
+                    state.currentState = GameState.State.MENU;
+                }
+                break;
+
+            case MODE_SELECT:
+                if (contains(state.arcadeBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.startNewGame();
+                } else if (contains(state.modeBackBtn, upX, upY)) {
+                    actions.playClick();
+                    state.currentState = GameState.State.PLAY_MENU;
                 }
                 break;
 

@@ -22,6 +22,7 @@ public class SoundEffects {
     private short[] bossDefeatBuffer;
     private AudioTrack clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack;
     private float volume = 1.0f;
+    private boolean muted;
 
     public SoundEffects() {
         generateClick();
@@ -167,10 +168,11 @@ public class SoundEffects {
 
     // ----- public API -----
 
-    public void playClick()      { playTrack(clickTrack); }
-    public void playCrunch()     { playTrack(crunchTrack); }
-    public void playBossDamage() { playTrack(bossDamageTrack); }
-    public void playBossDefeat() { playTrack(bossDefeatTrack); }
+    public void playClick()      { if (!muted) playTrack(clickTrack); }
+    public void playCrunch()     { if (!muted) playTrack(crunchTrack); }
+    public void playBossDamage() { if (!muted) playTrack(bossDamageTrack); }
+    public void playBossDefeat() { if (!muted) playTrack(bossDefeatTrack); }
+    public void setMuted(boolean m) { muted = m; }
 
     public void setVolume(float vol) {
         volume = Math.max(0, Math.min(1, vol));

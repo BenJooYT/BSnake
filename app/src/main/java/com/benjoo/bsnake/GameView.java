@@ -78,7 +78,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.screenH = getHeight();
         state.configureBoard();
         state.layoutButtons();
-        state.currentState = GameState.State.MENU;
+        // Preserve single-player game state across app switches (don't force MENU)
+        if (state.currentState != GameState.State.PLAYING
+                && state.currentState != GameState.State.PAUSED
+                && state.currentState != GameState.State.GAME_OVER) {
+            state.currentState = GameState.State.MENU;
+        }
         running = true;
         thread = new Thread(this);
         thread.start();
@@ -94,6 +99,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
             // Network message processing
             processNetworkMessages();
+
+            // Reset interpolation clock when new MP state arrives
+            if (state.mpLastStateTime > lastTick) {
+                lastTick = state.mpLastStateTime;
+            }
 
             // Game tick
             boolean isPlaying = state.currentState == GameState.State.PLAYING;
@@ -114,15 +124,22 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 lastTick = now;
                 now = System.currentTimeMillis();
             } else if (isMpClient && now - lastTick >= state.tickDelay) {
-                // Client: advance tick timer so t cycles 0→1 for smooth interpolation
+                // Client prediction: run simulation locally for responsive input
+                soundEffects.setMuted(true);
+                boolean savedAlive = state.snakes[state.playerIndex].alive;
+                engine.update(true);
+                state.snakes[state.playerIndex].alive = savedAlive;
+                soundEffects.setMuted(false);
                 lastTick = now;
                 now = System.currentTimeMillis();
-            } else if (!isPlaying && !isMpClient) {
+            } else if (!isPlaying && !isMpHost && !isMpClient) {
                 lastTick = now;
             }
 
             // Music
-            if (state.currentState == GameState.State.MENU || state.currentState == GameState.State.MP_MENU
+            if (state.currentState == GameState.State.MENU || state.currentState == GameState.State.PLAY_MENU
+                    || state.currentState == GameState.State.MODE_SELECT
+                    || state.currentState == GameState.State.MP_MENU
                     || state.currentState == GameState.State.MP_HOST || state.currentState == GameState.State.MP_JOIN
                     || state.currentState == GameState.State.MP_LOBBY) {
                 if (!menuMusic.isPlaying()) menuMusic.start();
@@ -165,6 +182,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     break;
                 case "ready":
                     state.opponentReady = obj.optBoolean("ready", false);
+                    if (state.localReady && state.opponentReady) {
+                        startMpGame();
+                    }
                     break;
                 case "input":
                     int dx = obj.getInt("dx");
@@ -229,13 +249,23 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             for (int i = 0; i < snArr.length() && i < 2; i++) {
                 JSONArray bodyArr = snArr.getJSONArray(i);
                 GameState.SnakeData sd = state.snakes[i];
+                // Use last received host body as prevBody for smooth reconciliation
+                ArrayList<Point> prevHost;
+                if (sd.mpHostBody.isEmpty()) {
+                    prevHost = new ArrayList<>();
+                    for (Point p : sd.body) prevHost.add(new Point(p));
+                } else {
+                    prevHost = new ArrayList<>(sd.mpHostBody);
+                }
                 sd.prevBody.clear();
-                sd.prevBody.addAll(sd.body);
+                sd.prevBody.addAll(prevHost);
                 sd.body.clear();
                 for (int j = 0; j < bodyArr.length(); j++) {
                     JSONArray pt = bodyArr.getJSONArray(j);
                     sd.body.add(new Point(pt.getInt(0), pt.getInt(1)));
                 }
+                sd.mpHostBody.clear();
+                for (Point p : sd.body) sd.mpHostBody.add(new Point(p));
             }
             JSONArray scArr = obj.getJSONArray("scores");
             state.snakes[0].score = scArr.getInt(0);
@@ -259,6 +289,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.boss.dirY = bj.getInt("dirY");
                 state.boss.lastMoveTick = bj.getInt("lastMoveTick");
                 state.boss.growthPending = bj.getInt("growthPending");
+                state.boss.type = GameState.BossType.values()[bj.optInt("type", 0)];
                 state.boss.alive = true;
             } else {
                 state.boss.alive = false;
@@ -269,10 +300,35 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 JSONArray tc = trArr.getJSONArray(i);
                 state.bossTrail.add(new GameState.BossTrailCell(tc.getInt(0), tc.getInt(1), tc.getInt(2)));
             }
+            // Walls
+            state.walls.clear();
+            if (obj.has("walls")) {
+                JSONArray wlArr = obj.getJSONArray("walls");
+                for (int i = 0; i < wlArr.length(); i++) {
+                    JSONArray wc = wlArr.getJSONArray(i);
+                    GameState.WallCell w = new GameState.WallCell(
+                            wc.getInt(0), wc.getInt(1), wc.getInt(2));
+                    w.dying = wc.getInt(3) == 1;
+                    w.deathStartTick = wc.getInt(4);
+                    state.walls.add(w);
+                }
+            }
+            state.wallPreviewPositions.clear();
+            if (obj.has("wallPP")) {
+                JSONArray wpArr = obj.getJSONArray("wallPP");
+                for (int i = 0; i < wpArr.length(); i++) {
+                    JSONArray pt = wpArr.getJSONArray(i);
+                    state.wallPreviewPositions.add(new Point(pt.getInt(0), pt.getInt(1)));
+                }
+            }
+            state.wallPreviewStartTick = obj.optInt("wallPST", 0);
+            state.wallPreviewActive = obj.optBoolean("wallPA", false);
+            state.nextWallTick = obj.optInt("nextWT", 0);
             state.tickCount = obj.getInt("tick");
             JSONArray alArr = obj.getJSONArray("alive");
             state.snakes[0].alive = alArr.getBoolean(0);
             state.snakes[1].alive = alArr.getBoolean(1);
+            state.mpLastStateTime = System.currentTimeMillis();
         } catch (Exception e) { }
     }
 
@@ -284,7 +340,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.snakes[0].dirX, state.snakes[0].dirY,
                 state.snakes[1].dirX, state.snakes[1].dirY,
                 state.snakes[0].alive, state.snakes[1].alive,
-                state.foods, state.boss, state.bossTrail, state.tickCount);
+                state.foods, state.boss, state.bossTrail, state.tickCount,
+                state.walls,
+                state.wallPreviewPositions, state.wallPreviewStartTick,
+                state.wallPreviewActive, state.nextWallTick);
         if (msg != null) server.send(msg);
     }
 
@@ -665,6 +724,18 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         if (client != null) {
             String msg = NetworkMessage.input(dx, dy, state.tickCount);
             if (msg != null) client.send(msg);
+        }
+        // Local prediction: enqueue input immediately
+        GameState.SnakeData sd = state.snakes[state.playerIndex];
+        if (sd.alive) {
+            Point lastDir = sd.inputQueue.isEmpty()
+                    ? new Point(sd.dirX, sd.dirY)
+                    : sd.inputQueue.get(sd.inputQueue.size() - 1);
+            if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
+                if (!(dx == lastDir.x && dy == lastDir.y)) {
+                    sd.inputQueue.add(new Point(dx, dy));
+                }
+            }
         }
     }
 

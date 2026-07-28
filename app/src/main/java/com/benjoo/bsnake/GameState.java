@@ -10,7 +10,7 @@ public class GameState {
 
     enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS,
                  MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER,
-                 COLOR_PICKER }
+                 COLOR_PICKER, PLAY_MENU, MODE_SELECT }
     volatile State currentState = State.MENU;
 
     enum SortMode { HIGH_SCORE, RECENT }
@@ -34,6 +34,7 @@ public class GameState {
     static class SnakeData {
         ArrayList<Point> body = new ArrayList<>();
         ArrayList<Point> prevBody = new ArrayList<>();
+        ArrayList<Point> mpHostBody = new ArrayList<>();
         int dirX = 1, dirY = 0;
         ArrayList<Point> inputQueue = new ArrayList<>();
         int score = 0;
@@ -67,6 +68,8 @@ public class GameState {
     int classicCellSize, fullAreaCellSize, fitVerticalCellSize;
 
     RectF startBtn, speedBtn, snakeColorBtn, settingsBtn, leaderboardBtn, exitBtn;
+    RectF playBtn, singleplayerBtn, multiplayerBtn, playBackBtn;
+    RectF arcadeBtn, modeBackBtn;
     RectF settingsBackBtn, cameraModeBtn;
     RectF snakePreviewRect;
     RectF resumeBtn, pauseMenuBtn;
@@ -75,7 +78,7 @@ public class GameState {
     RectF pauseIcon;
 
     // Multiplayer menu buttons
-    RectF mpBtn, backBtn;
+    RectF backBtn;
     RectF hostBtn, joinBtn;
     RectF cancelBtn, readyBtn, forceStartBtn;
     RectF mpRestartBtn, mpMenuBtn;
@@ -126,6 +129,7 @@ public class GameState {
     volatile boolean mpGameOverSent;
     int mpWinner = -1;
     int mpLastScore0, mpLastScore1;
+    volatile long mpLastStateTime;
 
     static class BossSnake {
         ArrayList<Point> body = new ArrayList<>();
@@ -133,6 +137,23 @@ public class GameState {
         boolean alive = false;
         int lastMoveTick = 0;
         int growthPending = 0;
+        BossType type = BossType.CHASER;
+        int evasionCooldown = 0;
+        boolean isEvading = false;
+        int hesitationTicks = 0;
+    }
+
+    enum BossType { CHASER, WALL_BUILDER }
+
+    static class WallCell {
+        int x, y;
+        int createdAtTick;
+        boolean dying;
+        int deathStartTick;
+        WallCell(int x, int y, int tick) {
+            this.x = x; this.y = y; this.createdAtTick = tick;
+            this.dying = false; this.deathStartTick = 0;
+        }
     }
 
     static class BossTrailCell {
@@ -146,6 +167,16 @@ public class GameState {
     ArrayList<BossTrailCell> bossTrail = new ArrayList<>();
     int nextBossSpawnScore = 125;
     int tickCount = 0;
+
+    // Wall builder state
+    ArrayList<WallCell> walls = new ArrayList<>();
+    int maxWalls = 15;
+    int wallPlaceInterval = 60;
+    int nextWallTick = 0;
+    ArrayList<Point> wallPreviewPositions = new ArrayList<>();
+    int wallPreviewStartTick = 0;
+    boolean wallPreviewActive = false;
+    boolean wallsDying = false;
 
     boolean devMode = false;
     int devStartScore = 0;
@@ -185,7 +216,16 @@ public class GameState {
         settingsBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
         leaderboardBtn = makeBtn(cx, startY + (bh + gap) * 3, bw, bh);
         exitBtn = makeBtn(cx, startY + (bh + gap) * 4, bw, bh);
-        mpBtn = makeBtn(cx, startY - bh - gap, bw, bh);
+        playBtn = makeBtn(cx, startY - bh - gap, bw, bh);
+
+        // Play menu
+        singleplayerBtn = makeBtn(cx, startY, bw, bh);
+        multiplayerBtn = makeBtn(cx, startY + bh + gap, bw, bh);
+        playBackBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
+
+        // Mode select
+        arcadeBtn = makeBtn(cx, startY, bw, bh);
+        modeBackBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
 
         backBtn = makeBtn(cx, screenH * 0.90f, bw, bh);
         hostBtn = makeBtn(cx, startY, bw, bh);

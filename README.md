@@ -20,6 +20,36 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.5.5
+- Menu restructure: Main menu now has PLAY button leading to PLAY_MENU (SINGLEPLAYER / MULTIPLAYER / BACK)
+- Singleplayer opens MODE_SELECT screen with ARCADE mode (the original game)
+- Added PLAY_MENU and MODE_SELECT states
+
+### 1.5.4
+- Boss AI overhaul: evasion with danger radius (7 cells), 40/60 evade/task blend, turn speed limits, hesitation (10%), and imperfect moves (12%)
+- Fixed boss circling food: alignment bonus (40) now outweighs turn penalty (10)
+- Boss always moves on tick: brute-force fallback when all scored candidates are blocked
+- Boss trail now spawns at correct length (before segments are removed on damage)
+- Wall placement range increased 3→6; walls avoid map border (-20 score penalty)
+- Food thresholds changed: 50, 175, 375, 550, 825 (was exponential 50/100/200/400/800)
+- App switching no longer resets to main menu — preserves PLAYING, PAUSED, and GAME_OVER states
+
+### 1.5.3
+- New **Wall Builder** boss type — orange body, bright blue head, places destructible red walls
+- Walls flash a preview tile 0.5–1s before placement, grow in from the ground, and crumble into particles when the boss is defeated
+- Wall placement within 6 cells of boss body, **3 walls at a time** (difficulty-scaled interval and cap)
+- Boss AI targets the closest player or food, scores wall positions for tactical trapping (ahead of player direction, near borders/walls, avoids trapping)
+- Wall collision kills the player; walls persist until boss defeat
+- Each boss has 40% chance of being Wall Builder, 60% chaser
+- Boss spawn interval reduced from 125 → 100 score
+- Boss trail fruit no longer increases snake size (still gives +1 score)
+- Full multiplayer sync — walls, preview state, and boss type serialized over network
+
+### 1.5.2
+- Fixed multiplayer lobby player labels (host = Player 1, client = Player 2)
+- Fixed host game loop so snakes actually move in multiplayer
+- Fixed game auto-start when client readies after host
+
 ### 1.5.1
 - Multiplayer discovery now uses direct UDP multicast (more reliable than NSD)
 - Score display shows YOU / PARTNER / SUM in multiplayer
