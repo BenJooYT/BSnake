@@ -2,36 +2,6 @@
   "versionCode": 16,
   "versionName": "1.5.5",
   "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.5.5/BSnake-v1.5.5.apk",
-  "changelog": {
-    "1.5.5": {
-      "ADDED": ["PLAY_MENU and MODE_SELECT states", "SINGLEPLAYER / MULTIPLAYER / BACK navigation in PLAY_MENU", "ARCADE mode entry under MODE_SELECT"],
-      "CHANGED": ["Main menu PLAY button replaces START + LOCAL MULTIPLAYER buttons"]
-    },
-    "1.5.4": {
-      "ADDED": ["Boss evasion AI with danger radius (7 cells), 40/60 evade/task blend", "Turn speed limits, 10% hesitation, 12% imperfect moves", "Brute-force fallback when all scored moves are blocked"],
-      "CHANGED": ["Boss alignment bonus (40) outweighs turn penalty (10) — fixes food circling", "Wall placement range 3→6, walls avoid border (-20 score)", "Food thresholds 50/175/375/550/825 (was 50/100/200/400/800)"],
-      "FIXED": ["Boss trail spawns at correct length (before tail segments removed)", "App switching preserves PLAYING/PAUSED/GAME_OVER state"]
-    },
-    "1.5.3": {
-      "ADDED": ["Wall Builder boss type — orange body, blue head, places 3 destructible red walls", "Wall preview flash (0.5–1s), grow-in animation, crumble particles on boss defeat", "Wall scoring AI (ahead of player, near walls, avoids trapping)", "40% Wall Builder / 60% chaser boss type selection"],
-      "CHANGED": ["Boss spawn interval 125→100 score", "Boss trail fruit no longer increases snake size (still +1 score)"],
-      "FIXED": ["Full multiplayer sync for walls, previews, and boss type"]
-    },
-    "1.5.2": {
-      "FIXED": ["Multiplayer lobby player labels (host = Player 1, client = Player 2)", "Host game loop — snakes actually move in multiplayer", "Game auto-start when client readies after host"]
-    },
-    "1.5.1": {
-      "ADDED": ["UDP multicast discovery (more reliable than NSD)", "YOU / PARTNER / SUM score display in multiplayer", "Boss body kills player on contact (only head-on damages boss)"],
-      "CHANGED": ["Boss spawn and food scaling use combined player score"],
-      "FIXED": ["Boss damage sound", "Boss moves faster and avoids its own body"]
-    },
-    "1.5.0": {
-      "CHANGED": ["Boss reworked as a moving snake that eats food and grows", "Head-on or body contact damages boss (2 segments per hit)", "Trail drops under boss body when teleporting"]
-    },
-    "1.4.4": {
-      "ADDED": ["Dedicated color picker with HSV sliders and live snake preview", "Snake color in Settings with 3-segment preview", "Boss hit damage sound"],
-      "CHANGED": ["Update download auto-prompts installation on complete"]
-    }
-  },
+  "changelog": "1.5.5\n  ADDED: PLAY_MENU and MODE_SELECT states; SINGLEPLAYER/MULTIPLAYER/BACK navigation; ARCADE mode\n  CHANGED: PLAY button replaces START + LOCAL MULTIPLAYER\n\n1.5.4\n  ADDED: Boss evasion AI (danger radius 7, 40/60 evade/task, turn limits, hesitation); brute-force fallback\n  CHANGED: Alignment bonus outweighs turn penalty; wall range 3->6, avoid border; food thresholds 50/175/375/550/825\n  FIXED: Boss trail length; app switching preserves state\n\n1.5.3\n  ADDED: Wall Builder boss type (3 walls, preview, grow-in, crumble); 40/60 boss type selection\n  CHANGED: Boss interval 125->100; trail fruit no longer grows snake\n  FIXED: Multiplayer wall/preview/boss sync\n\n1.5.2\n  FIXED: Lobby labels; host game loop; auto-start\n\n1.5.1\n  ADDED: UDP multicast; YOU/PARTNER/SUM score; boss body kills on contact\n  CHANGED: Boss spawn and food use combined score\n  FIXED: Boss damage sound; boss avoids own body\n\n1.5.0\n  CHANGED: Boss is now a moving snake that eats food; head/body contact damages it; trail on teleport\n\n1.4.4\n  ADDED: Color picker with HSV; snake color in Settings; boss damage sound\n  CHANGED: Update download auto-installs",
   "needsReinstall": false
 }
