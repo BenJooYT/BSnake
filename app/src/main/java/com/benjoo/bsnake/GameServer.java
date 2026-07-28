@@ -24,7 +24,7 @@ class GameServer {
     private ServerSocket serverSocket;
     private Socket clientSocket;
     private BufferedReader reader;
-    private OutputStreamWriter writer;
+    private volatile OutputStreamWriter writer;
     private Thread acceptThread;
     private Thread readThread;
     private Thread beaconThread;
@@ -92,6 +92,7 @@ class GameServer {
     private void acceptLoop() {
         try {
             clientSocket = serverSocket.accept();
+            clientSocket.setTcpNoDelay(true);
             reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             writer = new OutputStreamWriter(clientSocket.getOutputStream());
             callback.onClientConnected();
@@ -120,8 +121,10 @@ class GameServer {
     void send(String msg) {
         if (writer == null) return;
         try {
-            writer.write(msg);
-            writer.flush();
+            synchronized (writer) {
+                writer.write(msg);
+                writer.flush();
+            }
         } catch (Exception e) {
             Log.e(TAG, "Send failed", e);
         }

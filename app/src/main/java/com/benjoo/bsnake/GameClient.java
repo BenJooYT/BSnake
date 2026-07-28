@@ -22,7 +22,7 @@ class GameClient {
     private final Context context;
     private Socket socket;
     private BufferedReader reader;
-    private OutputStreamWriter writer;
+    private volatile OutputStreamWriter writer;
     private Thread readThread;
     private Thread discoveryThread;
     private volatile boolean running;
@@ -102,6 +102,7 @@ class GameClient {
     private void connect(String host, int port) {
         try {
             socket = new Socket(host, port);
+            socket.setTcpNoDelay(true);
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             writer = new OutputStreamWriter(socket.getOutputStream());
             running = true;
@@ -132,8 +133,10 @@ class GameClient {
     void send(String msg) {
         if (writer == null) return;
         try {
-            writer.write(msg);
-            writer.flush();
+            synchronized (writer) {
+                writer.write(msg);
+                writer.flush();
+            }
         } catch (Exception e) {
             Log.e(TAG, "Send failed", e);
         }

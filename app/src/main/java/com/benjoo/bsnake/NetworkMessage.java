@@ -9,11 +9,12 @@ import java.util.ArrayList;
 
 class NetworkMessage {
 
-    static String hello(int color) {
+    static String hello(int headColor, int bodyColor) {
         try {
             return new JSONObject()
                     .put("type", "hello")
-                    .put("color", color)
+                    .put("color", headColor)
+                    .put("bodyColor", bodyColor)
                     .toString() + "\n";
         } catch (Exception e) { return null; }
     }
@@ -46,22 +47,33 @@ class NetworkMessage {
         } catch (Exception e) { return null; }
     }
 
-    static String state(ArrayList<Point> snakes0, ArrayList<Point> snakes1,
-                        int score0, int score1, int dirX0, int dirY0, int dirX1, int dirY1,
+    static String clientState(ArrayList<Point> body, int dirX, int dirY, int score, boolean alive) {
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("type", "clientState");
+            msg.put("body", bodyToJson(body));
+            msg.put("dirX", dirX);
+            msg.put("dirY", dirY);
+            msg.put("score", score);
+            msg.put("alive", alive);
+            return msg.toString() + "\n";
+        } catch (Exception e) { return null; }
+    }
+
+    static String state(ArrayList<Point> snakes0,
+                        int score0, int score1, int dirX0, int dirY0,
                         boolean alive0, boolean alive1,
                         ArrayList<Point> foods, GameState.BossSnake boss,
                         ArrayList<GameState.BossTrailCell> trail, int tick,
                         ArrayList<GameState.WallCell> walls,
                         ArrayList<Point> wallPreviewPositions, int wallPreviewStartTick,
-                        boolean wallPreviewActive, int nextWallTick) {
+                        boolean wallPreviewActive, int nextWallTick,
+                        int headColor0, int headColor1, int bodyColor0, int bodyColor1) {
         try {
             JSONObject msg = new JSONObject();
             msg.put("type", "state");
             msg.put("tick", tick);
-            JSONArray snArr = new JSONArray();
-            snArr.put(bodyToJson(snakes0));
-            snArr.put(bodyToJson(snakes1));
-            msg.put("snakes", snArr);
+            msg.put("snake", bodyToJson(snakes0));
             JSONArray scArr = new JSONArray();
             scArr.put(score0);
             scArr.put(score1);
@@ -72,8 +84,15 @@ class NetworkMessage {
             msg.put("alive", alArr);
             JSONArray drArr = new JSONArray();
             drArr.put(new JSONArray().put(dirX0).put(dirY0));
-            drArr.put(new JSONArray().put(dirX1).put(dirY1));
             msg.put("dirs", drArr);
+            JSONArray hcArr = new JSONArray();
+            hcArr.put(headColor0);
+            hcArr.put(headColor1);
+            msg.put("headColors", hcArr);
+            JSONArray bcArr = new JSONArray();
+            bcArr.put(bodyColor0);
+            bcArr.put(bodyColor1);
+            msg.put("bodyColors", bcArr);
             JSONArray fdArr = new JSONArray();
             for (Point f : foods) fdArr.put(new JSONArray().put(f.x).put(f.y));
             msg.put("foods", fdArr);

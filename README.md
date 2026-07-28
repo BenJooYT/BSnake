@@ -20,6 +20,15 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.5.6
+- Dev mode: force boss type selection (RANDOM / CHASER / WALL), show boss pathfinding toggle
+- Boss AI: player body avoidance via scoring penalties (not hard block) — boss prefers to avoid but can still be baited into body contact
+- Boss adjacent-to-player scoring penalty to prevent cornering
+- Multiplayer: TCP_NODELAY on both sockets — fixes client input not reaching host
+- Multiplayer: volatile writer in GameServer/GameClient — fixes ready messages silently dropping
+- Color sync: hello message now sends bodyColor, stored as clientBodyColor, used in resetGame()
+- Lobby UI redesigned: player names on left, snake previews with actual colors beside them, ready status on right
+
 ### 1.5.5
 - Menu restructure: Main menu now has PLAY button leading to PLAY_MENU (SINGLEPLAYER / MULTIPLAYER / BACK)
 - Singleplayer opens MODE_SELECT screen with ARCADE mode (the original game)

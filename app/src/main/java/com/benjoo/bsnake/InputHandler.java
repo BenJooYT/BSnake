@@ -14,6 +14,8 @@ class InputHandler {
         void exitApp();
         void toggleDevMode();
         void showDevScoreInput();
+        void cycleDevBossType();
+        void toggleDevPathfinding();
         void toggleCameraMode();
         void playClick();
         void playBossDamage();
@@ -151,6 +153,12 @@ class InputHandler {
                 } else if (state.devMode && contains(state.devScoreBtn, upX, upY)) {
                     actions.playClick();
                     actions.showDevScoreInput();
+                } else if (state.devMode && contains(state.devBossBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.cycleDevBossType();
+                } else if (state.devMode && contains(state.devPathBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.toggleDevPathfinding();
                 } else if (isTapOnTitle(upX, upY)) {
                     titleTapTimes[titleTapIndex % 3] = System.currentTimeMillis();
                     titleTapIndex++;

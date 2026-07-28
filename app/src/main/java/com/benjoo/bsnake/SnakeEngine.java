@@ -44,7 +44,7 @@ public class SnakeEngine {
         for (int i = 0; i < 2; i++) {
             state.snakes[i] = new GameState.SnakeData();
             state.snakes[i].headColor = (i == 0) == state.isHost ? state.headColor : state.clientColor;
-            state.snakes[i].bodyColor = (i == 0) == state.isHost ? state.bodyColor : state.clientColor;
+            state.snakes[i].bodyColor = (i == 0) == state.isHost ? state.bodyColor : state.clientBodyColor;
         }
         state.score = state.devMode ? state.devStartScore : 0;
         state.snakes[0].score = state.score;
@@ -132,6 +132,70 @@ public class SnakeEngine {
             GameState.SnakeData sd = state.snakes[si];
             if (!sd.alive) continue;
 
+            // In multiplayer, snake[1] is owned by the remote client — use its body as-is
+            // (no local movement, just collision detection against snake[0])
+            boolean isRemote = state.currentState == GameState.State.MP_PLAYING
+                    && state.isHost && si == 1;
+            // Also on client side in prediction, snake[0] is from host — use as-is
+            boolean isHostControlled = state.currentState == GameState.State.MP_PLAYING
+                    && !state.isHost && si == 0;
+
+            if (isRemote || isHostControlled) {
+                // Save prevBody for interpolation
+                sd.prevBody.clear();
+                for (Point p : sd.body) sd.prevBody.add(new Point(p));
+                // Sanity check
+                if (sd.body.isEmpty()) { sd.alive = false; continue; }
+                // Collision: other snake (the locally-controlled one) hits this body
+                int li = 1 - si;
+                GameState.SnakeData local = state.snakes[li];
+                if (!local.alive || local.body.isEmpty()) continue;
+                Point lh = local.body.get(0);
+                int lnx = lh.x + local.dirX;
+                int lny = lh.y + local.dirY;
+                if (lnx < 0) lnx = state.cols - 1;
+                if (lnx >= state.cols) lnx = 0;
+                if (lny < 0) lny = state.rows - 1;
+                if (lny >= state.rows) lny = 0;
+                // Local hits remote body
+                for (Point p : sd.body) {
+                    if (p.x == lnx && p.y == lny) { local.alive = false; local.body.clear(); break; }
+                }
+                // Head-on: compare local new head with remote new head
+                if (local.alive && !sd.body.isEmpty()) {
+                    Point rh = sd.body.get(0);
+                    int rnx = rh.x + sd.dirX;
+                    int rny = rh.y + sd.dirY;
+                    if (rnx < 0) rnx = state.cols - 1;
+                    if (rnx >= state.cols) rnx = 0;
+                    if (rny < 0) rny = state.rows - 1;
+                    if (rny >= state.rows) rny = 0;
+                    if (lnx == rnx && lny == rny) {
+                        if (local.body.size() > sd.body.size()) {
+                            sd.alive = false;
+                            sd.body.clear();
+                        } else if (sd.body.size() > local.body.size()) {
+                            local.alive = false;
+                            local.body.clear();
+                        } else {
+                            local.alive = false;
+                            local.body.clear();
+                            sd.alive = false;
+                            sd.body.clear();
+                        }
+                    }
+                }
+                // On host: remove food at client's current head (food client already ate)
+                if (!predict) {
+                    Point h = sd.body.get(0);
+                    for (int fi = 0; fi < state.foods.size(); fi++) {
+                        Point f = state.foods.get(fi);
+                        if (f.x == h.x && f.y == h.y) { state.foods.remove(fi); break; }
+                    }
+                }
+                continue;
+            }
+
             // Consume one queued direction
             if (!sd.inputQueue.isEmpty()) {
                 Point nextDir = sd.inputQueue.remove(0);
@@ -144,6 +208,7 @@ public class SnakeEngine {
             for (Point p : sd.body) sd.prevBody.add(new Point(p));
 
             // Compute new head position with toroidal wrap
+            if (sd.body.isEmpty()) { sd.alive = false; continue; }
             Point head = sd.body.get(0);
             int nx = head.x + sd.dirX;
             int ny = head.y + sd.dirY;
@@ -159,10 +224,9 @@ public class SnakeEngine {
                     break;
                 }
             }
-            if (!sd.alive) continue;
+            if (!sd.alive) { sd.body.clear(); continue; }
 
-            // Snake-vs-snake body collision (check against the OTHER snake's body,
-            // even if the other is already dead — its body still blocks)
+            // Snake-vs-snake body collision
             int oi = 1 - si;
             GameState.SnakeData other = state.snakes[oi];
             for (Point p : other.body) {
@@ -171,10 +235,10 @@ public class SnakeEngine {
                     break;
                 }
             }
-            if (!sd.alive) continue;
+            if (!sd.alive) { sd.body.clear(); continue; }
 
             // Head-on: only if both are alive
-            if (other.alive) {
+            if (other.alive && !other.body.isEmpty()) {
                 Point oh = other.body.get(0);
                 int onx = oh.x + other.dirX;
                 int ony = oh.y + other.dirY;
@@ -185,11 +249,15 @@ public class SnakeEngine {
                 if (nx == onx && ny == ony) {
                     if (sd.body.size() > other.body.size()) {
                         other.alive = false;
+                        other.body.clear();
                     } else if (other.body.size() > sd.body.size()) {
                         sd.alive = false;
+                        sd.body.clear();
                     } else {
                         sd.alive = false;
+                        sd.body.clear();
                         other.alive = false;
+                        other.body.clear();
                     }
                     if (!sd.alive) continue;
                 }
@@ -228,15 +296,17 @@ public class SnakeEngine {
                     }
                 }
             }
-            if (!sd.alive) continue;
+            if (!sd.alive) { sd.body.clear(); continue; }
 
             // Wall collision — touching walls kills player
             for (GameState.WallCell w : state.walls) {
                 if (!w.dying && nx == w.x && ny == w.y) {
                     sd.alive = false;
+                    sd.body.clear();
                     break;
                 }
             }
+            if (!sd.alive) continue;
 
             // Trail eating
             boolean ateTrail = false;
@@ -259,81 +329,79 @@ public class SnakeEngine {
             }
         }
 
-        // Boss auto-movement
-        if (state.boss.alive && state.tickCount - state.boss.lastMoveTick >= BOSS_MOVE_INTERVAL) {
-            if (state.boss.type == GameState.BossType.WALL_BUILDER) {
-                moveWallBuilder();
-            } else {
-                moveBoss();
-            }
-            state.boss.lastMoveTick = state.tickCount;
-
-            // After moving, check if boss head overlaps a player snake segment
-            Point bh = state.boss.body.get(0);
-            boolean bossHitPlayer = false;
-            for (int si = 0; si < 2; si++) {
-                if (!state.snakes[si].alive) continue;
-                for (Point p : state.snakes[si].body) {
-                    if (p.x == bh.x && p.y == bh.y) { bossHitPlayer = true; break; }
+        // Boss auto-movement, spawn, and food refill: host only
+        if (!predict) {
+            if (state.boss.alive && state.tickCount - state.boss.lastMoveTick >= BOSS_MOVE_INTERVAL) {
+                if (state.boss.type == GameState.BossType.WALL_BUILDER) {
+                    moveWallBuilder();
+                } else {
+                    moveBoss();
                 }
-                if (bossHitPlayer) break;
-            }
-            if (bossHitPlayer) {
-                damageBoss();
-            }
+                state.boss.lastMoveTick = state.tickCount;
 
-            // Boss eats food at new head position
-            if (state.boss.alive) {
-                Point head = state.boss.body.get(0);
-                for (int i = state.foods.size() - 1; i >= 0; i--) {
-                    if (state.foods.get(i).x == head.x && state.foods.get(i).y == head.y) {
-                        state.foods.remove(i);
-                        state.boss.growthPending++;
-                        break;
+                // After moving, check if boss head overlaps a player snake segment
+                Point bh = state.boss.body.get(0);
+                boolean bossHitPlayer = false;
+                for (int si = 0; si < 2; si++) {
+                    if (!state.snakes[si].alive) continue;
+                    for (Point p : state.snakes[si].body) {
+                        if (p.x == bh.x && p.y == bh.y) { bossHitPlayer = true; break; }
+                    }
+                    if (bossHitPlayer) break;
+                }
+                if (bossHitPlayer) {
+                    damageBoss();
+                }
+
+                // Boss eats food at new head position
+                if (state.boss.alive) {
+                    Point head = state.boss.body.get(0);
+                    for (int i = state.foods.size() - 1; i >= 0; i--) {
+                        if (state.foods.get(i).x == head.x && state.foods.get(i).y == head.y) {
+                            state.foods.remove(i);
+                            state.boss.growthPending++;
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        // Wall builder: wall placement and preview management (only in non-prediction ticks)
-        if (!predict && state.boss.alive && state.boss.type == GameState.BossType.WALL_BUILDER) {
-            // Place wall from preview
-            if (state.wallPreviewActive && state.tickCount - state.wallPreviewStartTick >= WALL_PREVIEW_DURATION) {
-                placePreviewWall();
+            // Wall builder: wall placement and preview
+            if (state.boss.alive && state.boss.type == GameState.BossType.WALL_BUILDER) {
+                if (state.wallPreviewActive && state.tickCount - state.wallPreviewStartTick >= WALL_PREVIEW_DURATION) {
+                    placePreviewWall();
+                }
+                if (!state.wallPreviewActive && state.tickCount >= state.nextWallTick) {
+                    tryPlaceWall();
+                }
             }
-            // Schedule next wall attempt
-            if (!state.wallPreviewActive && state.tickCount >= state.nextWallTick) {
-                tryPlaceWall();
-            }
-        }
 
-        // Remove fully decayed dying walls (only in non-prediction ticks)
-        if (!predict) {
+            // Remove fully decayed dying walls
             for (int i = state.walls.size() - 1; i >= 0; i--) {
                 GameState.WallCell w = state.walls.get(i);
                 if (w.dying && state.tickCount - w.deathStartTick >= WALL_DEATH_DURATION) {
                     state.walls.remove(i);
                 }
             }
+
+            // Boss spawn check (uses sum score in multiplayer)
+            int progressionScore = state.snakes[0].score + state.snakes[1].score;
+            if (!state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
+                spawnBoss();
+            }
+
+            // Refill food
+            int targetFoodCount = getTargetFoodCount(progressionScore);
+            while (state.foods.size() < targetFoodCount) {
+                spawnFood();
+            }
         }
 
-        // Trail expiry
+        // Trail expiry (both sides)
         for (int i = state.bossTrail.size() - 1; i >= 0; i--) {
             if (state.tickCount - state.bossTrail.get(i).createdAtTick >= TRAIL_MAX_AGE) {
                 state.bossTrail.remove(i);
             }
-        }
-
-        // Boss spawn check (uses sum score in multiplayer)
-        int progressionScore = state.snakes[0].score + state.snakes[1].score;
-        if (!state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
-            spawnBoss();
-        }
-
-        // Refill food
-        int targetFoodCount = getTargetFoodCount(progressionScore);
-        while (state.foods.size() < targetFoodCount) {
-            spawnFood();
         }
 
         // Check game over (skip during client prediction — host is authoritative)
@@ -416,12 +484,14 @@ public class SnakeEngine {
     private void moveBoss() {
         Point head = state.boss.body.get(0);
         Point target = findNearestFood(head.x, head.y);
+        if (target != null) { state.bossTargetX = target.x; state.bossTargetY = target.y; }
         moveBossWithAI(head, target);
     }
 
     private void moveWallBuilder() {
         Point head = state.boss.body.get(0);
         Point target = findBestTarget(head.x, head.y);
+        if (target != null) { state.bossTargetX = target.x; state.bossTargetY = target.y; }
         moveBossWithAI(head, target);
     }
 
@@ -494,6 +564,9 @@ public class SnakeEngine {
             if (m[0] == -state.boss.dirX && m[1] == -state.boss.dirY) score -= 100;
             // Light turn speed bias: only a gentle tiebreaker
             if (m[0] != state.boss.dirX || m[1] != state.boss.dirY) score -= 10;
+            // Prefer to avoid player body (but not hard-blocked)
+            if (overlapsPlayerBody(nx, ny)) score -= 60;
+            else if (adjacentToPlayerBody(nx, ny)) score -= 30;
             // Random imperfection (outside evasion)
             if (imperfect) score -= rand.nextInt(60);
 
@@ -611,6 +684,8 @@ public class SnakeEngine {
 
         if (state.boss.body.isEmpty()) {
             state.boss.alive = false;
+            state.bossTargetX = -1;
+            state.bossTargetY = -1;
             if (state.boss.type == GameState.BossType.WALL_BUILDER) {
                 startWallDeathAnimation();
             }
@@ -680,6 +755,24 @@ public class SnakeEngine {
         // Wall builder also avoids walls (can walk through them, but shouldn't sit on them)
         if (overlapsWall(x, y)) return false;
         return true;
+    }
+
+    private boolean overlapsPlayerBody(int x, int y) {
+        return overlapsSnake(x, y);
+    }
+
+    private boolean adjacentToPlayerBody(int x, int y) {
+        int[][] dirs = {{1,0},{-1,0},{0,1},{0,-1}};
+        for (int[] d : dirs) {
+            int nx = x + d[0];
+            int ny = y + d[1];
+            if (nx < 0) nx = state.cols - 1;
+            if (nx >= state.cols) nx = 0;
+            if (ny < 0) ny = state.rows - 1;
+            if (ny >= state.rows) ny = 0;
+            if (overlapsSnake(nx, ny)) return true;
+        }
+        return false;
     }
 
     private Point findNearestFood(int bx, int by) {
@@ -771,9 +864,15 @@ public class SnakeEngine {
         state.boss.isEvading = false;
         state.boss.evasionCooldown = 0;
         state.boss.hesitationTicks = 0;
-        state.boss.type = rand.nextInt(100) < 40
-                ? GameState.BossType.WALL_BUILDER
-                : GameState.BossType.CHASER;
+        if (state.devForcedBossType == 1) {
+            state.boss.type = GameState.BossType.CHASER;
+        } else if (state.devForcedBossType == 2) {
+            state.boss.type = GameState.BossType.WALL_BUILDER;
+        } else {
+            state.boss.type = rand.nextInt(100) < 40
+                    ? GameState.BossType.WALL_BUILDER
+                    : GameState.BossType.CHASER;
+        }
         if (state.boss.type == GameState.BossType.WALL_BUILDER) {
             initWallDifficulty();
             state.nextWallTick = state.tickCount + state.wallPlaceInterval;

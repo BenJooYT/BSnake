@@ -97,18 +97,25 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         while (running) {
             long now = System.currentTimeMillis();
 
+            boolean isMpClient = state.currentState == GameState.State.MP_PLAYING && !state.isHost;
+
+            // Client sends its full snake state BEFORE each tick so the host
+            // receives the pre-move position and both sides move in sync
+            if (isMpClient && client != null) {
+                String cs = NetworkMessage.clientState(
+                        state.snakes[1].body,
+                        state.snakes[1].dirX, state.snakes[1].dirY,
+                        state.snakes[1].score,
+                        state.snakes[1].alive);
+                if (cs != null) client.send(cs);
+            }
+
             // Network message processing
             processNetworkMessages();
-
-            // Reset interpolation clock when new MP state arrives
-            if (state.mpLastStateTime > lastTick) {
-                lastTick = state.mpLastStateTime;
-            }
 
             // Game tick
             boolean isPlaying = state.currentState == GameState.State.PLAYING;
             boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
-            boolean isMpClient = state.currentState == GameState.State.MP_PLAYING && !state.isHost;
             if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
                 if (state.isHost) {
@@ -178,6 +185,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             switch (type) {
                 case "hello":
                     state.clientColor = obj.optInt("color", state.headColor);
+                    state.clientBodyColor = obj.optInt("bodyColor", state.bodyColor);
                     state.opponentConnected = true;
                     break;
                 case "ready":
@@ -186,21 +194,19 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                         startMpGame();
                     }
                     break;
-                case "input":
-                    int dx = obj.getInt("dx");
-                    int dy = obj.getInt("dy");
+                case "clientState":
                     if (state.currentState == GameState.State.MP_PLAYING) {
+                        JSONArray bodyArr = obj.getJSONArray("body");
+                        ArrayList<Point> newBody = NetworkMessage.jsonToBody(bodyArr);
+                        if (newBody.isEmpty()) break;
                         GameState.SnakeData sd = state.snakes[1];
-                        if (sd.alive) {
-                            Point lastDir = sd.inputQueue.isEmpty()
-                                    ? new Point(sd.dirX, sd.dirY)
-                                    : sd.inputQueue.get(sd.inputQueue.size() - 1);
-                            if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
-                                if (!(dx == lastDir.x && dy == lastDir.y)) {
-                                    sd.inputQueue.add(new Point(dx, dy));
-                                }
-                            }
-                        }
+                        sd.prevBody.clear();
+                        for (Point p : sd.body) sd.prevBody.add(new Point(p));
+                        sd.body = newBody;
+                        sd.dirX = obj.getInt("dirX");
+                        sd.dirY = obj.getInt("dirY");
+                        sd.score = obj.getInt("score");
+                        sd.alive = obj.getBoolean("alive");
                     }
                     break;
             }
@@ -214,6 +220,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             switch (type) {
                 case "hello":
                     state.clientColor = obj.optInt("color", state.clientColor);
+                    state.clientBodyColor = obj.optInt("bodyColor", state.clientBodyColor);
                     break;
                 case "state":
                     applyState(obj);
@@ -234,6 +241,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     state.mpGameOverSent = false;
                     engine.resetGame();
                     state.currentState = GameState.State.MP_PLAYING;
+                    // Force camera to local player's head position
+                    if (!state.snakes[state.playerIndex].body.isEmpty()) {
+                        Point h = state.snakes[state.playerIndex].body.get(0);
+                        state.cameraX = h.x;
+                        state.cameraY = h.y;
+                    }
                     break;
             }
         } catch (Exception e) { }
@@ -243,39 +256,38 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     private void applyState(JSONObject obj) {
         try {
             if (state.currentState != GameState.State.MP_PLAYING) {
+                // First state message — ensure game is initialized even if "start" was lost
+                engine.resetGame();
                 state.currentState = GameState.State.MP_PLAYING;
             }
-            JSONArray snArr = obj.getJSONArray("snakes");
-            for (int i = 0; i < snArr.length() && i < 2; i++) {
-                JSONArray bodyArr = snArr.getJSONArray(i);
-                GameState.SnakeData sd = state.snakes[i];
-                // Use last received host body as prevBody for smooth reconciliation
-                ArrayList<Point> prevHost;
-                if (sd.mpHostBody.isEmpty()) {
-                    prevHost = new ArrayList<>();
-                    for (Point p : sd.body) prevHost.add(new Point(p));
-                } else {
-                    prevHost = new ArrayList<>(sd.mpHostBody);
-                }
-                sd.prevBody.clear();
-                sd.prevBody.addAll(prevHost);
-                sd.body.clear();
-                for (int j = 0; j < bodyArr.length(); j++) {
-                    JSONArray pt = bodyArr.getJSONArray(j);
-                    sd.body.add(new Point(pt.getInt(0), pt.getInt(1)));
-                }
-                sd.mpHostBody.clear();
-                for (Point p : sd.body) sd.mpHostBody.add(new Point(p));
+            JSONArray bodyArr = obj.getJSONArray("snake");
+            if (bodyArr.length() == 0) return;
+            GameState.SnakeData sd0 = state.snakes[0];
+            ArrayList<Point> prevHost;
+            if (sd0.mpHostBody.isEmpty()) {
+                prevHost = new ArrayList<>();
+                for (Point p : sd0.body) prevHost.add(new Point(p));
+            } else {
+                prevHost = new ArrayList<>(sd0.mpHostBody);
             }
+            sd0.prevBody.clear();
+            sd0.prevBody.addAll(prevHost);
+            sd0.body.clear();
+            for (int j = 0; j < bodyArr.length(); j++) {
+                JSONArray pt = bodyArr.getJSONArray(j);
+                sd0.body.add(new Point(pt.getInt(0), pt.getInt(1)));
+            }
+            sd0.mpHostBody.clear();
+            for (Point p : sd0.body) sd0.mpHostBody.add(new Point(p));
+            // Own snake: save prevBody for interpolation, keep local body
+            state.snakes[1].prevBody.clear();
+            for (Point p : state.snakes[1].body) state.snakes[1].prevBody.add(new Point(p));
             JSONArray scArr = obj.getJSONArray("scores");
             state.snakes[0].score = scArr.getInt(0);
             state.snakes[1].score = scArr.getInt(1);
             JSONArray drArr = obj.getJSONArray("dirs");
-            for (int i = 0; i < drArr.length() && i < 2; i++) {
-                JSONArray d = drArr.getJSONArray(i);
-                state.snakes[i].dirX = d.getInt(0);
-                state.snakes[i].dirY = d.getInt(1);
-            }
+            state.snakes[0].dirX = drArr.getJSONArray(0).getInt(0);
+            state.snakes[0].dirY = drArr.getJSONArray(0).getInt(1);
             JSONArray fdArr = obj.getJSONArray("foods");
             state.foods.clear();
             for (int i = 0; i < fdArr.length(); i++) {
@@ -328,6 +340,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             JSONArray alArr = obj.getJSONArray("alive");
             state.snakes[0].alive = alArr.getBoolean(0);
             state.snakes[1].alive = alArr.getBoolean(1);
+            JSONArray hcArr = obj.getJSONArray("headColors");
+            state.snakes[0].headColor = hcArr.getInt(0);
+            state.snakes[1].headColor = hcArr.getInt(1);
+            JSONArray bcArr = obj.getJSONArray("bodyColors");
+            state.snakes[0].bodyColor = bcArr.getInt(0);
+            state.snakes[1].bodyColor = bcArr.getInt(1);
             state.mpLastStateTime = System.currentTimeMillis();
         } catch (Exception e) { }
     }
@@ -335,15 +353,16 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     private void sendHostState() {
         if (server == null) return;
         String msg = NetworkMessage.state(
-                state.snakes[0].body, state.snakes[1].body,
+                state.snakes[0].body,
                 state.snakes[0].score, state.snakes[1].score,
                 state.snakes[0].dirX, state.snakes[0].dirY,
-                state.snakes[1].dirX, state.snakes[1].dirY,
                 state.snakes[0].alive, state.snakes[1].alive,
                 state.foods, state.boss, state.bossTrail, state.tickCount,
                 state.walls,
                 state.wallPreviewPositions, state.wallPreviewStartTick,
-                state.wallPreviewActive, state.nextWallTick);
+                state.wallPreviewActive, state.nextWallTick,
+                state.snakes[0].headColor, state.snakes[1].headColor,
+                state.snakes[0].bodyColor, state.snakes[1].bodyColor);
         if (msg != null) server.send(msg);
     }
 
@@ -529,6 +548,16 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     @Override
+    public void cycleDevBossType() {
+        state.devForcedBossType = (state.devForcedBossType + 1) % 3;
+    }
+
+    @Override
+    public void toggleDevPathfinding() {
+        state.showBossPathfinding = !state.showBossPathfinding;
+    }
+
+    @Override
     public void showDevScoreInput() {
         if (keyboardInput == null) return;
         state.editingDevScore = true;
@@ -581,7 +610,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void startHost() {
         stopNetworking();
-        state.isHost = true;
         state.playerIndex = 0;
         state.opponentConnected = false;
         state.opponentReady = false;
@@ -591,7 +619,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             @Override
             public void onClientConnected() {
                 state.mpStatus = "Client connected!";
-                server.send(NetworkMessage.hello(state.headColor));
+                server.send(NetworkMessage.hello(state.headColor, state.bodyColor));
                 state.currentState = GameState.State.MP_LOBBY;
             }
             @Override
@@ -602,6 +630,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.currentState = GameState.State.MENU;
             }
         });
+        state.isHost = true;
         if (server.start()) {
             String device = android.os.Build.MODEL != null ? android.os.Build.MODEL : "Android";
             state.mpStatus = "Advertising as: BSnake - " + device;
@@ -614,7 +643,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void startJoin() {
         stopNetworking();
-        state.isHost = false;
         state.playerIndex = 1;
         state.opponentConnected = false;
         state.opponentReady = false;
@@ -646,7 +674,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             public void onConnected() {
                 state.opponentConnected = true;
                 state.mpStatus = "Connected!";
-                client.send(NetworkMessage.hello(state.headColor));
+                client.send(NetworkMessage.hello(state.headColor, state.bodyColor));
                 state.currentState = GameState.State.MP_LOBBY;
             }
             @Override
@@ -662,6 +690,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 }
             }
         });
+        state.isHost = false;
         client.startDiscovery();
         state.currentState = GameState.State.MP_JOIN;
     }
@@ -676,9 +705,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void toggleReady() {
         state.localReady = !state.localReady;
         String msg = NetworkMessage.ready(state.localReady);
-        if (state.isHost && server != null) server.send(msg);
-        else if (client != null) client.send(msg);
-        // Only the host starts the game when both are ready
+        if (msg != null) {
+            if (state.isHost && server != null) server.send(msg);
+            else if (client != null) client.send(msg);
+        }
         if (state.isHost && state.localReady && state.opponentReady) {
             startMpGame();
         }
@@ -698,8 +728,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         }
         engine.resetGame();
         state.currentState = GameState.State.MP_PLAYING;
-        if (state.isHost) {
-            sendHostState();
+        // Force camera to local player's head position
+        if (!state.snakes[state.playerIndex].body.isEmpty()) {
+            Point h = state.snakes[state.playerIndex].body.get(0);
+            state.cameraX = h.x;
+            state.cameraY = h.y;
         }
     }
 
@@ -721,10 +754,6 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void sendSwipe(int dx, int dy) {
-        if (client != null) {
-            String msg = NetworkMessage.input(dx, dy, state.tickCount);
-            if (msg != null) client.send(msg);
-        }
         // Local prediction: enqueue input immediately
         GameState.SnakeData sd = state.snakes[state.playerIndex];
         if (sd.alive) {

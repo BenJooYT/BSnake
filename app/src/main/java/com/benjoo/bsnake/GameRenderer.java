@@ -182,6 +182,51 @@ class GameRenderer {
             }
         }
 
+        // Boss pathfinding visualization
+        if (state.showBossPathfinding && state.boss.alive && !state.boss.body.isEmpty()
+                && state.bossTargetX >= 0) {
+            Point head = state.boss.body.get(0);
+            float hx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + (head.x - viewCameraX));
+            float hy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + (head.y - viewCameraY));
+            // Target marker
+            float tdx = state.bossTargetX - viewCameraX;
+            float tdy = state.bossTargetY - viewCameraY;
+            if (Math.abs(tdx) < state.viewportWidthCells / 2f && Math.abs(tdy) < state.viewportHeightCells / 2f) {
+                float tx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + tdx);
+                float ty = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + tdy);
+                paint.setColor(Color.argb(180, 0, 255, 100));
+                canvas.drawCircle(tx + state.cellSize / 2f, ty + state.cellSize / 2f, state.cellSize * 0.8f, paint);
+                // Line from boss head to target
+                paint.setColor(Color.argb(120, 0, 255, 100));
+                paint.setStrokeWidth(2);
+                canvas.drawLine(hx + state.cellSize / 2f, hy + state.cellSize / 2f,
+                        tx + state.cellSize / 2f, ty + state.cellSize / 2f, paint);
+                paint.setStrokeWidth(0);
+            }
+            // Direction arrow
+            float arrowLen = state.cellSize * 1.5f;
+            float ax = hx + state.cellSize / 2f + state.boss.dirX * arrowLen;
+            float ay = hy + state.cellSize / 2f + state.boss.dirY * arrowLen;
+            paint.setColor(Color.argb(200, 255, 255, 0));
+            paint.setStrokeWidth(3);
+            canvas.drawLine(hx + state.cellSize / 2f, hy + state.cellSize / 2f, ax, ay, paint);
+            paint.setStrokeWidth(0);
+            // Danger radius around player
+            for (int si = 0; si < 2; si++) {
+                if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
+                Point ph = state.snakes[si].body.get(0);
+                float pdx = ph.x - viewCameraX;
+                float pdy = ph.y - viewCameraY;
+                if (Math.abs(pdx) >= state.viewportWidthCells / 2f
+                        || Math.abs(pdy) >= state.viewportHeightCells / 2f) continue;
+                float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + pdx);
+                float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + pdy);
+                float r = 7 * state.cellSize;
+                paint.setColor(Color.argb(60, 255, 50, 50));
+                canvas.drawCircle(px + state.cellSize / 2f, py + state.cellSize / 2f, r, paint);
+            }
+        }
+
         // Trail
         for (GameState.BossTrailCell tc : state.bossTrail) {
             float tDx = tc.x - viewCameraX;
@@ -394,6 +439,9 @@ class GameRenderer {
         if (state.devMode) {
             drawCenteredText(canvas, "DEV MODE", state.screenW / 2f, state.screenH * 0.17f, 28, Color.RED, true);
             drawButton(canvas, state.devScoreBtn, "START SCORE: " + state.devScoreText);
+            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL"};
+            drawButton(canvas, state.devBossBtn, bossLabels[state.devForcedBossType]);
+            drawButton(canvas, state.devPathBtn, "PATH: " + (state.showBossPathfinding ? "ON" : "OFF"));
         }
     }
 
@@ -457,18 +505,52 @@ class GameRenderer {
     }
 
     private void drawLobby(Canvas canvas) {
-        drawCenteredText(canvas, "LOBBY", state.screenW / 2f, state.screenH * 0.20f, 48, Color.GREEN, true);
+        drawCenteredText(canvas, "LOBBY", state.screenW / 2f, state.screenH * 0.12f, 48, Color.GREEN, true);
+
         String myLabel = state.isHost ? "Player 1" : "Player 2";
         String oppLabel = state.isHost ? "Player 2" : "Player 1";
-        String status = myLabel + " " + (state.localReady ? "READY" : "NOT READY");
-        drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.35f, 28, Color.WHITE, false);
-        String oppStatus = oppLabel + " " + (state.opponentReady ? "READY" : "NOT READY");
-        drawCenteredText(canvas, oppStatus, state.screenW / 2f, state.screenH * 0.42f, 28, Color.WHITE, false);
+        int myHead = state.headColor;
+        int myBody = state.bodyColor;
+        int oppHead = state.clientColor;
+        int oppBody = state.clientBodyColor;
+
+        drawPlayerRow(canvas, myLabel, myHead, myBody, state.localReady, state.screenH * 0.26f);
+        drawPlayerRow(canvas, oppLabel, oppHead, oppBody, state.opponentReady, state.screenH * 0.36f);
+
         drawButton(canvas, state.readyBtn, state.localReady ? "UN-READY" : "READY");
         if (state.isHost) {
             drawButton(canvas, state.forceStartBtn, "FORCE START");
         }
         drawButton(canvas, state.cancelBtn, "DISCONNECT");
+    }
+
+    private void drawPlayerRow(Canvas canvas, String label, int headColor, int bodyColor,
+                                boolean ready, float centerY) {
+        float previewSize = Math.min(state.uiCellSize * 1.2f, state.screenH * 0.055f);
+        float nameX = state.screenW * 0.08f;
+
+        // Player name on the left, vertically centered
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(32);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = centerY - (fm.ascent + fm.descent) / 2f;
+        canvas.drawText(label, nameX, textY, paint);
+
+        // Snake preview to the right of the name
+        float previewLeft = state.screenW * 0.42f;
+        float previewTop = centerY - previewSize / 2f;
+        RectF previewRect = new RectF(previewLeft, previewTop,
+                previewLeft + previewSize * 3, previewTop + previewSize);
+        drawSnakePreview(canvas, previewRect, headColor, bodyColor);
+
+        // Ready status on the right side
+        paint.setColor(ready ? Color.GREEN : Color.RED);
+        paint.setTextSize(28);
+        paint.setTypeface(Typeface.DEFAULT);
+        String status = ready ? "READY" : "NOT READY";
+        float statusX = state.screenW * 0.80f;
+        canvas.drawText(status, statusX, textY, paint);
     }
 
     private void drawMpGameOverOverlay(Canvas canvas) {

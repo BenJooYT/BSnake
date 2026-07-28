@@ -122,6 +122,7 @@ public class GameState {
     ArrayList<DiscoveredHost> discoveredHosts = new ArrayList<>();
     ArrayList<RectF> hostItemRects = new ArrayList<>();
     int clientColor = Color.GREEN;
+    int clientBodyColor = Color.rgb(0, 160, 0);
     volatile boolean opponentReady;
     volatile boolean localReady;
     volatile boolean opponentConnected;
@@ -183,6 +184,10 @@ public class GameState {
     String devScoreText = "0";
     boolean editingDevScore = false;
     RectF devScoreBtn;
+    int devForcedBossType = 0; // 0=RANDOM, 1=CHASER, 2=WALL_BUILDER
+    boolean showBossPathfinding = false;
+    RectF devBossBtn, devPathBtn;
+    int bossTargetX = -1, bossTargetY = -1; // for pathfinding viz
 
     float musicVolume = 0.25f;
     float sfxVolume = 0.5f;
@@ -266,6 +271,8 @@ public class GameState {
         lbBackBtn = makeBtn(cx, screenH * 0.88f, bw, bh);
 
         devScoreBtn = makeBtn(cx, startY + (bh + gap) * 5, bw, bh * 0.8f);
+        devBossBtn = makeBtn(cx, startY + (bh + gap) * 6 + uiCellSize * 0.2f, bw, bh * 0.8f);
+        devPathBtn = makeBtn(cx, startY + (bh + gap) * 7 + uiCellSize * 0.4f, bw, bh * 0.8f);
 
         float iconSize = uiCellSize * 1.1f;
         pauseIcon = new RectF(screenW - iconSize - 16, 16, screenW - 16, 16 + iconSize);
@@ -273,8 +280,8 @@ public class GameState {
         // Color picker layout
         float pbw = Math.min(screenW * 0.85f, 420);
         float pbh = uiCellSize * 1.5f;
-        float pSliderH = Math.max(32, uiCellSize * 0.8f);
-        float gap2 = uiCellSize * 0.3f;
+        float pSliderH = Math.max(64, uiCellSize * 1.6f);
+        float gap2 = uiCellSize * 0.6f;
         float swatchH = uiCellSize * 4f;
         pickerHeadBtn = makeBtn(cx - pbw * 0.25f, screenH * 0.08f, pbw * 0.4f, pbh);
         pickerBodyBtn = makeBtn(cx + pbw * 0.25f, screenH * 0.08f, pbw * 0.4f, pbh);
