@@ -1,8 +1,6 @@
 package com.benjoo.bsnake;
 
 import android.content.Context;
-import android.net.nsd.NsdManager;
-import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.util.Log;
@@ -10,24 +8,26 @@ import android.util.Log;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 class GameServer {
 
-    private static final String SERVICE_TYPE = "_bsnake._tcp";
     private static final String TAG = "GameServer";
+    private static final int BEACON_PORT = 5010;
 
     private final Context context;
     private ServerSocket serverSocket;
     private Socket clientSocket;
     private BufferedReader reader;
-    private OutputStreamWriter writer;
-    private NsdManager nsdManager;
-    private NsdManager.RegistrationListener regListener;
+    private volatile OutputStreamWriter writer;
     private Thread acceptThread;
     private Thread readThread;
+    private Thread beaconThread;
     private volatile boolean running;
     private int port;
     private WifiManager.MulticastLock multicastLock;
@@ -56,7 +56,7 @@ class GameServer {
                 multicastLock.acquire();
             }
             running = true;
-            startAdvertising();
+            startBeacon();
             acceptThread = new Thread(this::acceptLoop);
             acceptThread.start();
             return true;
@@ -66,9 +66,33 @@ class GameServer {
         }
     }
 
+    private void startBeacon() {
+        beaconThread = new Thread(() -> {
+            String device = Build.MODEL != null ? Build.MODEL : "Android";
+            try {
+                MulticastSocket beaconSocket = new MulticastSocket();
+                beaconSocket.setTimeToLive(1);
+                InetAddress group = InetAddress.getByName("224.0.0.1");
+                byte[] buf;
+                while (running) {
+                    String data = "BSNAKE:" + device + ":" + port;
+                    buf = data.getBytes("UTF-8");
+                    DatagramPacket packet = new DatagramPacket(buf, buf.length, group, BEACON_PORT);
+                    beaconSocket.send(packet);
+                    Thread.sleep(2000);
+                }
+                beaconSocket.close();
+            } catch (Exception e) {
+                Log.e(TAG, "Beacon failed", e);
+            }
+        });
+        beaconThread.start();
+    }
+
     private void acceptLoop() {
         try {
             clientSocket = serverSocket.accept();
+            clientSocket.setTcpNoDelay(true);
             reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             writer = new OutputStreamWriter(clientSocket.getOutputStream());
             callback.onClientConnected();
@@ -97,30 +121,12 @@ class GameServer {
     void send(String msg) {
         if (writer == null) return;
         try {
-            writer.write(msg);
-            writer.flush();
+            synchronized (writer) {
+                writer.write(msg);
+                writer.flush();
+            }
         } catch (Exception e) {
             Log.e(TAG, "Send failed", e);
-        }
-    }
-
-    private void startAdvertising() {
-        try {
-            nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
-            NsdServiceInfo serviceInfo = new NsdServiceInfo();
-            String device = Build.MODEL != null ? Build.MODEL : "Android";
-            serviceInfo.setServiceName("BSnake - " + device);
-            serviceInfo.setServiceType(SERVICE_TYPE);
-            serviceInfo.setPort(port);
-            regListener = new NsdManager.RegistrationListener() {
-                @Override public void onRegistrationFailed(NsdServiceInfo s, int e) { }
-                @Override public void onUnregistrationFailed(NsdServiceInfo s, int e) { }
-                @Override public void onServiceRegistered(NsdServiceInfo s) { }
-                @Override public void onServiceUnregistered(NsdServiceInfo s) { }
-            };
-            nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, regListener);
-        } catch (Exception e) {
-            Log.e(TAG, "NSD register failed", e);
         }
     }
 
@@ -129,9 +135,6 @@ class GameServer {
         if (multicastLock != null) {
             try { multicastLock.release(); } catch (Exception e) { }
             multicastLock = null;
-        }
-        if (nsdManager != null && regListener != null) {
-            try { nsdManager.unregisterService(regListener); } catch (Exception e) { }
         }
         try { if (clientSocket != null) clientSocket.close(); } catch (Exception e) { }
         try { if (serverSocket != null) serverSocket.close(); } catch (Exception e) { }

@@ -2,9 +2,11 @@ package com.benjoo.bsnake;
 
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Point;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 
 import java.text.SimpleDateFormat;
@@ -30,6 +32,8 @@ class GameRenderer {
         canvas.drawColor(Color.BLACK);
         switch (state.currentState) {
             case MENU: drawMenu(canvas); break;
+            case PLAY_MENU: drawPlayMenu(canvas); break;
+            case MODE_SELECT: drawModeSelect(canvas); break;
             case LEADERBOARD: drawLeaderboard(canvas); break;
             case SETTINGS: drawSettings(canvas); break;
             case MP_MENU: drawMpMenu(canvas); break;
@@ -58,6 +62,9 @@ class GameRenderer {
                 drawDim(canvas);
                 drawMpGameOverOverlay(canvas);
                 break;
+            case COLOR_PICKER:
+                drawColorPicker(canvas);
+                break;
         }
     }
 
@@ -65,12 +72,10 @@ class GameRenderer {
         int savedCellSize = state.cellSize;
         float savedViewportW = state.viewportWidthCells;
         float savedViewportH = state.viewportHeightCells;
-        if (state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM) {
-            if (state.cameraMode == GameState.CameraMode.FIT_VERTICAL) {
-                state.cellSize = state.fitVerticalCellSize;
-            } else {
-                state.cellSize = state.fullAreaCellSize;
-            }
+        boolean spectator = state.currentState == GameState.State.MP_PLAYING
+                && !state.snakes[state.playerIndex].alive;
+        if (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM) {
+            state.cellSize = state.fullAreaCellSize;
             state.viewportWidthCells = state.screenW / (float) state.cellSize;
             state.viewportHeightCells = state.screenH / (float) state.cellSize;
         }
@@ -138,20 +143,34 @@ class GameRenderer {
             canvas.drawCircle(cx, cy, Math.max(4, state.cellSize / 2f - 4), paint);
         }
 
-        // Boss
-        if (state.boss.alive) {
-            for (Point tile : state.boss.getTiles()) {
-                float bDx = tile.x - viewCameraX;
-                float bDy = tile.y - viewCameraY;
+        // Boss — drawn as a snake with type-specific colors
+        if (state.boss.alive && !state.boss.body.isEmpty()) {
+            boolean isWallBuilder = state.boss.type == GameState.BossType.WALL_BUILDER;
+            for (int i = 0; i < state.boss.body.size(); i++) {
+                Point seg = state.boss.body.get(i);
+                float bDx = seg.x - viewCameraX;
+                float bDy = seg.y - viewCameraY;
                 if (Math.abs(bDx) >= state.viewportWidthCells / 2f
                         || Math.abs(bDy) >= state.viewportHeightCells / 2f) continue;
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
                 float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
-                paint.setColor(Color.rgb(180, 50, 200));
+                if (i == 0) {
+                    paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255) : Color.rgb(200, 60, 220));
+                } else {
+                    if (isWallBuilder) {
+                        int dim = Math.max(120, 255 - i * 20);
+                        paint.setColor(Color.rgb(255, dim / 2, 0));
+                    } else {
+                        int dim = Math.max(80, 180 - i * 15);
+                        paint.setColor(Color.rgb(dim, dim / 3, dim));
+                    }
+                }
                 canvas.drawRect(bx, by, bx + state.cellSize - 1, by + state.cellSize - 1, paint);
             }
-            float bDx = state.boss.x - viewCameraX;
-            float bDy = state.boss.y - viewCameraY;
+            // Boss segment count label above head
+            Point head = state.boss.body.get(0);
+            float bDx = head.x - viewCameraX;
+            float bDy = head.y - viewCameraY;
             if (Math.abs(bDx) < state.viewportWidthCells / 2f
                     && Math.abs(bDy) < state.viewportHeightCells / 2f) {
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
@@ -159,7 +178,52 @@ class GameRenderer {
                 paint.setColor(Color.WHITE);
                 paint.setTextSize(state.cellSize * 0.5f);
                 paint.setTypeface(Typeface.DEFAULT_BOLD);
-                canvas.drawText("B" + state.boss.hp, bx, by - 4, paint);
+                canvas.drawText("B" + state.boss.body.size(), bx, by - 4, paint);
+            }
+        }
+
+        // Boss pathfinding visualization
+        if (state.showBossPathfinding && state.boss.alive && !state.boss.body.isEmpty()
+                && state.bossTargetX >= 0) {
+            Point head = state.boss.body.get(0);
+            float hx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + (head.x - viewCameraX));
+            float hy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + (head.y - viewCameraY));
+            // Target marker
+            float tdx = state.bossTargetX - viewCameraX;
+            float tdy = state.bossTargetY - viewCameraY;
+            if (Math.abs(tdx) < state.viewportWidthCells / 2f && Math.abs(tdy) < state.viewportHeightCells / 2f) {
+                float tx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + tdx);
+                float ty = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + tdy);
+                paint.setColor(Color.argb(180, 0, 255, 100));
+                canvas.drawCircle(tx + state.cellSize / 2f, ty + state.cellSize / 2f, state.cellSize * 0.8f, paint);
+                // Line from boss head to target
+                paint.setColor(Color.argb(120, 0, 255, 100));
+                paint.setStrokeWidth(2);
+                canvas.drawLine(hx + state.cellSize / 2f, hy + state.cellSize / 2f,
+                        tx + state.cellSize / 2f, ty + state.cellSize / 2f, paint);
+                paint.setStrokeWidth(0);
+            }
+            // Direction arrow
+            float arrowLen = state.cellSize * 1.5f;
+            float ax = hx + state.cellSize / 2f + state.boss.dirX * arrowLen;
+            float ay = hy + state.cellSize / 2f + state.boss.dirY * arrowLen;
+            paint.setColor(Color.argb(200, 255, 255, 0));
+            paint.setStrokeWidth(3);
+            canvas.drawLine(hx + state.cellSize / 2f, hy + state.cellSize / 2f, ax, ay, paint);
+            paint.setStrokeWidth(0);
+            // Danger radius around player
+            for (int si = 0; si < 2; si++) {
+                if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
+                Point ph = state.snakes[si].body.get(0);
+                float pdx = ph.x - viewCameraX;
+                float pdy = ph.y - viewCameraY;
+                if (Math.abs(pdx) >= state.viewportWidthCells / 2f
+                        || Math.abs(pdy) >= state.viewportHeightCells / 2f) continue;
+                float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + pdx);
+                float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + pdy);
+                float r = 7 * state.cellSize;
+                paint.setColor(Color.argb(60, 255, 50, 50));
+                canvas.drawCircle(px + state.cellSize / 2f, py + state.cellSize / 2f, r, paint);
             }
         }
 
@@ -180,6 +244,55 @@ class GameRenderer {
                     ty + state.cellSize - 1 - inset, paint);
         }
 
+        // Walls — draw with grow/death animations
+        for (GameState.WallCell w : state.walls) {
+            float wDx = w.x - viewCameraX;
+            float wDy = w.y - viewCameraY;
+            if (Math.abs(wDx) >= state.viewportWidthCells / 2f
+                    || Math.abs(wDy) >= state.viewportHeightCells / 2f) continue;
+            float wx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + wDx);
+            float wy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + wDy);
+            int cellS = state.cellSize;
+
+            if (w.dying) {
+                // Death animation: shrink + fade
+                int deathElapsed = state.tickCount - w.deathStartTick;
+                float deathT = Math.min(1f, deathElapsed / 15f);
+                int alpha = (int) (255 * (1f - deathT));
+                float scale = 1f - deathT * 0.5f;
+                float inset = cellS * (1f - scale) / 2f;
+                paint.setColor(Color.argb(alpha, 255, 50, 50));
+                canvas.drawRect(wx + inset, wy + inset, wx + cellS - 1 - inset, wy + cellS - 1 - inset, paint);
+            } else {
+                // Quick grow-in, starts near full size
+                int growElapsed = state.tickCount - w.createdAtTick;
+                float growT = Math.min(1f, growElapsed / 3f);
+                float scale = 0.85f + growT * 0.15f;
+                float inset = cellS * (1f - scale) / 2f;
+                paint.setColor(Color.RED);
+                canvas.drawRect(wx + inset, wy + inset, wx + cellS - 1 - inset, wy + cellS - 1 - inset, paint);
+            }
+        }
+
+        // Wall preview flash
+        if (state.wallPreviewActive) {
+            for (Point preview : state.wallPreviewPositions) {
+                float pDx = preview.x - viewCameraX;
+                float pDy = preview.y - viewCameraY;
+                if (Math.abs(pDx) >= state.viewportWidthCells / 2f
+                        || Math.abs(pDy) >= state.viewportHeightCells / 2f) continue;
+                float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + pDx);
+                float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + pDy);
+                int elapsed = state.tickCount - state.wallPreviewStartTick;
+                float flash = (float) Math.sin(elapsed * Math.PI * 0.5);
+                int alpha = (int) (100 + 155 * Math.abs(flash));
+                // Red flash warns if adjacent to player head
+                boolean warning = isWallPreviewAdjacentToPlayer(preview.x, preview.y);
+                paint.setColor(warning ? Color.argb(alpha, 255, 60, 60) : Color.argb(alpha, 255, 150, 80));
+                canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
+            }
+        }
+
         canvas.restore();
 
         // Score label
@@ -188,7 +301,10 @@ class GameRenderer {
         paint.setTypeface(Typeface.DEFAULT);
         String scoreLabel;
         if (state.currentState == GameState.State.MP_PLAYING || state.currentState == GameState.State.MP_GAME_OVER) {
-            scoreLabel = "P1: " + state.snakes[0].score + "  P2: " + state.snakes[1].score;
+            int sum = state.snakes[0].score + state.snakes[1].score;
+            int youIdx = state.playerIndex;
+            int partnerIdx = 1 - youIdx;
+            scoreLabel = "YOU:" + state.snakes[youIdx].score + " PARTNER:" + state.snakes[partnerIdx].score + " SUM:" + sum;
         } else {
             scoreLabel = "Score: " + state.snakes[0].score;
             if (state.devMode) scoreLabel += " [DEV]";
@@ -244,7 +360,9 @@ class GameRenderer {
     }
 
     private void updateCamera(float t) {
-        if (state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
+        boolean spectator = state.currentState == GameState.State.MP_PLAYING
+                && !state.snakes[state.playerIndex].alive;
+        if (spectator || state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
             state.cameraX = state.cols / 2f - 0.5f;
             state.cameraY = state.rows / 2f - 0.5f;
             return;
@@ -269,6 +387,17 @@ class GameRenderer {
         while (delta > size / 2f) delta -= size;
         while (delta < -size / 2f) delta += size;
         return delta;
+    }
+
+    private boolean isWallPreviewAdjacentToPlayer(int wx, int wy) {
+        for (int si = 0; si < 2; si++) {
+            if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
+            Point head = state.snakes[si].body.get(0);
+            int dx = Math.abs(wx - head.x);
+            int dy = Math.abs(wy - head.y);
+            if (dx <= 1 && dy <= 1 && !(dx == 0 && dy == 0)) return true;
+        }
+        return false;
     }
 
     private void drawFoodArrow(Canvas canvas, float dx, float dy) {
@@ -302,8 +431,7 @@ class GameRenderer {
 
     private void drawMenu(Canvas canvas) {
         drawTitle(canvas, state.screenH * 0.20f);
-        drawButton(canvas, state.mpBtn, "LOCAL MULTIPLAYER");
-        drawButton(canvas, state.startBtn, "START");
+        drawButton(canvas, state.playBtn, "PLAY");
         drawButton(canvas, state.speedBtn, "SPEED: " + state.speedLabels[state.speedIndex]);
         drawButton(canvas, state.settingsBtn, "SETTINGS");
         drawButton(canvas, state.leaderboardBtn, "LEADERBOARD");
@@ -311,7 +439,23 @@ class GameRenderer {
         if (state.devMode) {
             drawCenteredText(canvas, "DEV MODE", state.screenW / 2f, state.screenH * 0.17f, 28, Color.RED, true);
             drawButton(canvas, state.devScoreBtn, "START SCORE: " + state.devScoreText);
+            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL"};
+            drawButton(canvas, state.devBossBtn, bossLabels[state.devForcedBossType]);
+            drawButton(canvas, state.devPathBtn, "PATH: " + (state.showBossPathfinding ? "ON" : "OFF"));
         }
+    }
+
+    private void drawPlayMenu(Canvas canvas) {
+        drawCenteredText(canvas, "PLAY", state.screenW / 2f, state.screenH * 0.20f, 48, Color.GREEN, true);
+        drawButton(canvas, state.singleplayerBtn, "SINGLEPLAYER");
+        drawButton(canvas, state.multiplayerBtn, "MULTIPLAYER");
+        drawButton(canvas, state.playBackBtn, "BACK");
+    }
+
+    private void drawModeSelect(Canvas canvas) {
+        drawCenteredText(canvas, "SELECT MODE", state.screenW / 2f, state.screenH * 0.20f, 48, Color.GREEN, true);
+        drawButton(canvas, state.arcadeBtn, "ARCADE");
+        drawButton(canvas, state.modeBackBtn, "BACK");
     }
 
     private void drawMpMenu(Canvas canvas) {
@@ -361,16 +505,52 @@ class GameRenderer {
     }
 
     private void drawLobby(Canvas canvas) {
-        drawCenteredText(canvas, "LOBBY", state.screenW / 2f, state.screenH * 0.20f, 48, Color.GREEN, true);
-        String status = "Player 1 " + (state.localReady ? "READY" : "NOT READY");
-        drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.35f, 28, Color.WHITE, false);
-        String oppStatus = "Player 2 " + (state.opponentReady ? "READY" : "NOT READY");
-        drawCenteredText(canvas, oppStatus, state.screenW / 2f, state.screenH * 0.42f, 28, Color.WHITE, false);
+        drawCenteredText(canvas, "LOBBY", state.screenW / 2f, state.screenH * 0.12f, 48, Color.GREEN, true);
+
+        String myLabel = state.isHost ? "Player 1" : "Player 2";
+        String oppLabel = state.isHost ? "Player 2" : "Player 1";
+        int myHead = state.headColor;
+        int myBody = state.bodyColor;
+        int oppHead = state.clientColor;
+        int oppBody = state.clientBodyColor;
+
+        drawPlayerRow(canvas, myLabel, myHead, myBody, state.localReady, state.screenH * 0.26f);
+        drawPlayerRow(canvas, oppLabel, oppHead, oppBody, state.opponentReady, state.screenH * 0.36f);
+
         drawButton(canvas, state.readyBtn, state.localReady ? "UN-READY" : "READY");
         if (state.isHost) {
             drawButton(canvas, state.forceStartBtn, "FORCE START");
         }
         drawButton(canvas, state.cancelBtn, "DISCONNECT");
+    }
+
+    private void drawPlayerRow(Canvas canvas, String label, int headColor, int bodyColor,
+                                boolean ready, float centerY) {
+        float previewSize = Math.min(state.uiCellSize * 1.2f, state.screenH * 0.055f);
+        float nameX = state.screenW * 0.08f;
+
+        // Player name on the left, vertically centered
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(32);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = centerY - (fm.ascent + fm.descent) / 2f;
+        canvas.drawText(label, nameX, textY, paint);
+
+        // Snake preview to the right of the name
+        float previewLeft = state.screenW * 0.42f;
+        float previewTop = centerY - previewSize / 2f;
+        RectF previewRect = new RectF(previewLeft, previewTop,
+                previewLeft + previewSize * 3, previewTop + previewSize);
+        drawSnakePreview(canvas, previewRect, headColor, bodyColor);
+
+        // Ready status on the right side
+        paint.setColor(ready ? Color.GREEN : Color.RED);
+        paint.setTextSize(28);
+        paint.setTypeface(Typeface.DEFAULT);
+        String status = ready ? "READY" : "NOT READY";
+        float statusX = state.screenW * 0.80f;
+        canvas.drawText(status, statusX, textY, paint);
     }
 
     private void drawMpGameOverOverlay(Canvas canvas) {
@@ -434,10 +614,9 @@ class GameRenderer {
 
     private void drawSettings(Canvas canvas) {
         drawCenteredText(canvas, "SETTINGS", state.screenW / 2f, state.screenH * 0.10f, 64, Color.GREEN, true);
-        drawCenteredText(canvas, "CUSTOMIZE COLORS", state.screenW / 2f, state.screenH * 0.19f, 26, Color.WHITE, false);
-        drawColorField(canvas, state.headInputBtn, "HEAD:  " + state.headHex, state.headColor);
-        drawColorField(canvas, state.bodyInputBtn, "BODY:  " + state.bodyHex, state.bodyColor);
-        drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.screenH * 0.51f, 26, Color.WHITE, false);
+        drawButton(canvas, state.snakeColorBtn, "SNAKE COLOR");
+        drawSnakePreview(canvas, state.snakePreviewRect, state.headColor, state.bodyColor);
+        drawCenteredText(canvas, "CAMERA MODE", state.screenW / 2f, state.cameraModeBtn.top - 10, 26, Color.WHITE, false);
         String camLabel;
         switch (state.cameraMode) {
             case FULL_PLAY_AREA: camLabel = "FULL AREA"; break;
@@ -447,8 +626,27 @@ class GameRenderer {
         drawButton(canvas, state.cameraModeBtn, camLabel);
         drawVolumeSlider(canvas, "MUSIC", state.musicSliderTrack, state.musicVolume);
         drawVolumeSlider(canvas, "SFX", state.sfxSliderTrack, state.sfxVolume);
-        drawButton(canvas, state.settingsApplyBtn, "APPLY");
         drawButton(canvas, state.settingsBackBtn, "BACK");
+    }
+
+    private void drawSnakePreview(Canvas canvas, RectF rect, int headColor, int bodyColor) {
+        if (rect == null) return;
+        float h = rect.height();
+        float y = rect.centerY();
+        float segW = h;
+        float segGap = 0;
+        float totalW = segW * 3 + segGap * 2;
+        float startX = rect.centerX() - totalW / 2f;
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(headColor);
+        canvas.drawRect(startX, y - h / 2f, startX + segW, y + h / 2f, paint);
+
+        paint.setColor(bodyColor);
+        canvas.drawRect(startX + segW, y - h / 2f,
+                startX + segW * 2, y + h / 2f, paint);
+        canvas.drawRect(startX + segW * 2, y - h / 2f,
+                startX + segW * 3, y + h / 2f, paint);
     }
 
     private void drawVolumeSlider(Canvas canvas, String label, RectF track, float volume) {
@@ -469,15 +667,95 @@ class GameRenderer {
         canvas.drawCircle(fillX, cy, radius, paint);
     }
 
-    private void drawColorField(Canvas canvas, RectF rect, String label, int color) {
+    private void drawColorPicker(Canvas canvas) {
+        drawCenteredText(canvas, "SNAKE COLOR", state.screenW / 2f, state.screenH * 0.04f,
+                48, Color.GREEN, true);
+
+        // Head/Body toggle
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(state.pickerTarget == 0 ? Color.GREEN : Color.DKGRAY);
+        canvas.drawRect(state.pickerHeadBtn.left, state.pickerHeadBtn.top,
+                state.pickerHeadBtn.right - 2, state.pickerHeadBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "HEAD", state.pickerHeadBtn.centerX(),
+                state.pickerHeadBtn.centerY(), 28, Color.BLACK, true);
+
+        paint.setColor(state.pickerTarget == 1 ? Color.GREEN : Color.DKGRAY);
+        canvas.drawRect(state.pickerBodyBtn.left, state.pickerBodyBtn.top,
+                state.pickerBodyBtn.right - 2, state.pickerBodyBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "BODY", state.pickerBodyBtn.centerX(),
+                state.pickerBodyBtn.centerY(), 28, Color.BLACK, true);
+
+        // Snake preview
+        int pH = state.pickerTarget == 0 ? state.pickerColor : state.headColor;
+        int pB = state.pickerTarget == 1 ? state.pickerColor : state.bodyColor;
+        drawSnakePreview(canvas, state.pickerSnakePreview, pH, pB);
+
+        // Color swatch
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(state.pickerColor);
+        canvas.drawRect(state.pickerSwatch.left, state.pickerSwatch.top,
+                state.pickerSwatch.right - 2, state.pickerSwatch.bottom - 2, paint);
+
+        // Hex field
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(3);
-        paint.setColor(Color.GREEN);
-        canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
+        paint.setColor(state.pickerEditingHex ? Color.GREEN : Color.GRAY);
+        canvas.drawRect(state.pickerHexField.left, state.pickerHexField.top,
+                state.pickerHexField.right - 2, state.pickerHexField.bottom - 2, paint);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(color);
-        canvas.drawRect(rect.left + 12, rect.top + 12, rect.left + state.uiCellSize, rect.bottom - 14, paint);
-        drawCenteredText(canvas, label, rect.centerX() + state.uiCellSize * 0.25f, rect.centerY(), 30, Color.WHITE, true);
+        drawCenteredText(canvas, state.pickerHex, state.pickerHexField.centerX(),
+                state.pickerHexField.centerY(), 30, Color.WHITE, true);
+
+        // Hue bar
+        drawColorSlider(canvas, state.pickerHueBar, getHueColors(),
+                state.pickerHue / 360f, Color.WHITE);
+
+        float[] hsv = new float[]{ state.pickerHue, 1f, 1f };
+        int fullHue = Color.HSVToColor(hsv);
+
+        // Sat bar
+        int gray = Color.rgb(128, 128, 128);
+        drawColorSlider(canvas, state.pickerSatBar, new int[]{ gray, fullHue },
+                state.pickerSat, Color.WHITE);
+
+        // Val bar
+        int black = Color.rgb(0, 0, 0);
+        hsv[1] = state.pickerSat;
+        hsv[2] = 1f;
+        int fullColor = Color.HSVToColor(hsv);
+        drawColorSlider(canvas, state.pickerValBar, new int[]{ black, fullColor },
+                state.pickerVal, Color.WHITE);
+
+        // Apply / Cancel
+        drawButton(canvas, state.pickerApplyBtn, "APPLY");
+        drawButton(canvas, state.pickerCancelBtn, "CANCEL");
+    }
+
+    private int[] getHueColors() {
+        return new int[]{ Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN,
+                Color.BLUE, Color.MAGENTA, Color.RED };
+    }
+
+    private void drawColorSlider(Canvas canvas, RectF rect, int[] colors,
+                                  float fraction, int thumbColor) {
+        if (rect == null) return;
+        LinearGradient lg = new LinearGradient(
+                rect.left, rect.top, rect.right, rect.top,
+                colors, null, Shader.TileMode.CLAMP);
+        paint.setShader(lg);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawRect(rect.left, rect.top, rect.right - 2, rect.bottom - 2, paint);
+        paint.setShader(null);
+
+        float thumbX = rect.left + (rect.right - rect.left) * fraction;
+        float thumbY = rect.centerY();
+        paint.setColor(thumbColor);
+        canvas.drawCircle(thumbX, thumbY, 12, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.BLACK);
+        canvas.drawCircle(thumbX, thumbY, 12, paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawLeaderboard(Canvas canvas) {

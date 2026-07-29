@@ -391,6 +391,14 @@ public class MenuMusic {
         }
     }
 
+    public void pause() {
+        stop();
+    }
+
+    public void resume() {
+        start();
+    }
+
     public void setVolume(float vol) {
         if (audioTrack != null) {
             try {

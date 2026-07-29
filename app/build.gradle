@@ -8,8 +8,8 @@ android {
         applicationId "com.benjoo.bsnake"
         minSdk 16
         targetSdk 33
-        versionCode 8
-        versionName "1.4.2"
+        versionCode 18
+        versionName "1.5.7"
     }
 
     compileOptions {

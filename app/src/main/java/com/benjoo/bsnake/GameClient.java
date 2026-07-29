@@ -1,32 +1,32 @@
 package com.benjoo.bsnake;
 
 import android.content.Context;
-import android.net.nsd.NsdManager;
-import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 class GameClient {
 
-    private static final String SERVICE_TYPE = "_bsnake._tcp";
     private static final String TAG = "GameClient";
+    private static final int BEACON_PORT = 5010;
 
     private final Context context;
     private Socket socket;
     private BufferedReader reader;
-    private OutputStreamWriter writer;
+    private volatile OutputStreamWriter writer;
     private Thread readThread;
+    private Thread discoveryThread;
     private volatile boolean running;
-    private NsdManager nsdManager;
-    private NsdManager.DiscoveryListener discoveryListener;
     private final ConcurrentLinkedQueue<String> incoming = new ConcurrentLinkedQueue<>();
-    private volatile String discoveredHost;
     private WifiManager.MulticastLock multicastLock;
 
     interface ClientCallback {
@@ -48,43 +48,50 @@ class GameClient {
 
     void startDiscovery() {
         try {
-            nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
             WifiManager wifi = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wifi != null) {
                 multicastLock = wifi.createMulticastLock("BSnakeMulticast");
                 multicastLock.acquire();
             }
+            running = true;
             callback.onDiscoveryStarted();
-            discoveryListener = new NsdManager.DiscoveryListener() {
-                @Override public void onDiscoveryStarted(String t) { }
-                @Override public void onDiscoveryStopped(String t) { }
-                @Override
-                public void onStartDiscoveryFailed(String t, int e) {
-                    callback.onDiscoveryFailed();
-                }
-                @Override public void onStopDiscoveryFailed(String t, int e) { }
-                @Override
-                public void onServiceFound(NsdServiceInfo info) {
-                    if (info.getServiceType().equals(SERVICE_TYPE)) {
-                        discoveredHost = info.getServiceName();
-                        nsdManager.resolveService(info, new NsdManager.ResolveListener() {
-                            @Override public void onResolveFailed(NsdServiceInfo s, int e) {
-                                Log.e(TAG, "NSD resolve failed error=" + e);
-                            }
-                            @Override
-                            public void onServiceResolved(NsdServiceInfo res) {
-                                callback.onHostFound(info.getServiceName(),
-                                        res.getHost().getHostAddress(), res.getPort());
-                            }
-                        });
-                    }
-                }
-                @Override public void onServiceLost(NsdServiceInfo info) { }
-            };
-            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener);
+            discoveryThread = new Thread(this::discoveryLoop);
+            discoveryThread.start();
         } catch (Exception e) {
             Log.e(TAG, "Discovery failed", e);
             callback.onDiscoveryFailed();
+        }
+    }
+
+    private void discoveryLoop() {
+        try {
+            MulticastSocket socket = new MulticastSocket(BEACON_PORT);
+            InetAddress group = InetAddress.getByName("224.0.0.1");
+            socket.joinGroup(group);
+            socket.setSoTimeout(3000);
+            byte[] buf = new byte[256];
+            while (running) {
+                DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                try {
+                    socket.receive(packet);
+                    String data = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
+                    if (data.startsWith("BSNAKE:")) {
+                        String[] parts = data.split(":");
+                        if (parts.length >= 3) {
+                            String name = parts[1];
+                            String host = packet.getAddress().getHostAddress();
+                            int port = Integer.parseInt(parts[2]);
+                            callback.onHostFound(name, host, port);
+                        }
+                    }
+                } catch (SocketTimeoutException e) {
+                    // Timeout is normal, just keep listening
+                }
+            }
+            try { socket.leaveGroup(group); } catch (Exception e) { }
+            socket.close();
+        } catch (Exception e) {
+            Log.e(TAG, "Discovery loop failed", e);
         }
     }
 
@@ -95,6 +102,7 @@ class GameClient {
     private void connect(String host, int port) {
         try {
             socket = new Socket(host, port);
+            socket.setTcpNoDelay(true);
             reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             writer = new OutputStreamWriter(socket.getOutputStream());
             running = true;
@@ -125,8 +133,10 @@ class GameClient {
     void send(String msg) {
         if (writer == null) return;
         try {
-            writer.write(msg);
-            writer.flush();
+            synchronized (writer) {
+                writer.write(msg);
+                writer.flush();
+            }
         } catch (Exception e) {
             Log.e(TAG, "Send failed", e);
         }
@@ -137,9 +147,6 @@ class GameClient {
         if (multicastLock != null) {
             try { multicastLock.release(); } catch (Exception e) { }
             multicastLock = null;
-        }
-        if (nsdManager != null && discoveryListener != null) {
-            try { nsdManager.stopServiceDiscovery(discoveryListener); } catch (Exception e) { }
         }
         try { if (socket != null) socket.close(); } catch (Exception e) { }
     }

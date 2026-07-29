@@ -20,82 +20,149 @@ Simple Snake game for Android, AIDE-compatible.
 
 ## Changelog
 
+### 1.5.7
+- Multiplayer network ownership refactor: client sends full clientState (body/dir/score/alive) before each tick; host uses body as-is, no local movement of remote snake
+- State message streamlined: single snake key (host only), client keeps its own body
+- sendSwipe() is now local-only enqueue — no per-swipe network message
+- Client camera init in applyState() and start handlers — game starts even if "start" message dropped
+- Colors redundantly synced via state() message every tick
+- Dead snake body cleared at every death point — no phantom hitbox after visual disappearance
+- Remote snake jitter fixed: host no longer moves remote snake independently
+- Client prediction no longer runs boss AI, boss spawn, or food refill (host is authoritative for all game state)
+- Host removes food at remote snake's current head — food eaten by client properly disappears
+- Client game loop ticks independently of host state arrival — no more lag pauses
+- isHost set AFTER server/client reference to ensure volatile happens-before ordering
+- toggleReady() null-safe guard
+- Empty snake body guards in engine update and clientState handler
+- Color picker sliders 2x taller with doubled spacing
+
+### 1.5.6
+- Dev mode: force boss type selection (RANDOM / CHASER / WALL), show boss pathfinding toggle
+- Boss AI: player body avoidance via scoring penalties (not hard block) — boss prefers to avoid but can still be baited into body contact
+- Boss adjacent-to-player scoring penalty to prevent cornering
+- Multiplayer: TCP_NODELAY on both sockets — fixes client input not reaching host
+- Multiplayer: volatile writer in GameServer/GameClient — fixes ready messages silently dropping
+- Color sync: hello message now sends bodyColor, stored as clientBodyColor, used in resetGame()
+- Lobby UI redesigned: player names on left, snake previews with actual colors beside them, ready status on right
+
+### 1.5.5
+- Menu restructure: Main menu now has PLAY button leading to PLAY_MENU (SINGLEPLAYER / MULTIPLAYER / BACK)
+- Singleplayer opens MODE_SELECT screen with ARCADE mode (the original game)
+- Added PLAY_MENU and MODE_SELECT states
+
+### 1.5.4
+- Boss AI overhaul: evasion with danger radius (7 cells), 40/60 evade/task blend, turn speed limits, hesitation (10%), and imperfect moves (12%)
+- Fixed boss circling food: alignment bonus (40) now outweighs turn penalty (10)
+- Boss always moves on tick: brute-force fallback when all scored candidates are blocked
+- Boss trail now spawns at correct length (before segments are removed on damage)
+- Wall placement range increased 3→6; walls avoid map border (-20 score penalty)
+- Food thresholds changed: 50, 175, 375, 550, 825 (was exponential 50/100/200/400/800)
+- App switching no longer resets to main menu — preserves PLAYING, PAUSED, and GAME_OVER states
+
+### 1.5.3
+- New **Wall Builder** boss type — orange body, bright blue head, places destructible red walls
+- Walls flash a preview tile 0.5–1s before placement, grow in from the ground, and crumble into particles when the boss is defeated
+- Wall placement within 6 cells of boss body, **3 walls at a time** (difficulty-scaled interval and cap)
+- Boss AI targets the closest player or food, scores wall positions for tactical trapping (ahead of player direction, near borders/walls, avoids trapping)
+- Wall collision kills the player; walls persist until boss defeat
+- Each boss has 40% chance of being Wall Builder, 60% chaser
+- Boss spawn interval reduced from 125 → 100 score
+- Boss trail fruit no longer increases snake size (still gives +1 score)
+- Full multiplayer sync — walls, preview state, and boss type serialized over network
+
+### 1.5.2
+- Fixed multiplayer lobby player labels (host = Player 1, client = Player 2)
+- Fixed host game loop so snakes actually move in multiplayer
+- Fixed game auto-start when client readies after host
+
+### 1.5.1
+- Multiplayer discovery now uses direct UDP multicast (more reliable than NSD)
+- Score display shows YOU / PARTNER / SUM in multiplayer
+- Boss spawn and food scaling use combined player score
+- Boss body now kills the player on contact (only head-on damages the boss)
+- Boss damage sound fixed
+- Boss moves faster and avoids its own body
+
+### 1.5.0
+- **BOSS SNAKE REWORK:** The boss is now a snake that moves toward food, eats it, and grows. Position your snake to make the boss run into you — head-on or body contact damages it. Each hit removes 2 boss segments; when none remain, it dies. Trail drops under its body when teleporting.
+
+### 1.4.4
+- **MANUAL INSTALL REQUIRED:** You must go into your Files app → Downloads to install; auto-install is being worked on
+- New dedicated color picker with HSV sliders and live snake preview
+- Snake color moved to Settings with a 3-segment preview under the button
+- Boss hits now have their own unique damage sound
+- Update download now automatically prompts installation when complete
+
+### 1.4.3
+- In-game sound effects (eating, damage, boss defeat) now play correctly
+- Music no longer resets volume when switching apps
+- Audio no longer cuts out after switching apps
+- Update download now automatically prompts installation when complete
+
 ### 1.4.2
-- MP host screen shows live connection status (advertising, connected, errors)
-- MP join screen lists discovered hosts as tappable buttons; tap to connect
-- Host device name shown in service advertisement: "BSnake - [device model]"
-- GameClient collects resolved hosts via NSD; manual host selection replaces auto-connect
-- Both sides transition to lobby immediately on successful connection
-- Discovered hosts list and multiplayer state fields cleared on disconnect/cancel
-- Fix: P2 score no longer leaks into singleplayer when canceling multiplayer
+- Host screen shows live status updates instead of a static message
+- Join screen lists available games to pick from
+- Each host identified by device name
+- Automatically enter the lobby after connecting
+- Clean disconnect clears all connection data
+- Fix: canceling multiplayer no longer carries fake P2 score into singleplayer
 
 ### 1.4.1
-- NSD multiplayer discovery fix: TCP connect on background thread, fixes NetworkOnMainThreadException
-- MulticastLock acquired on both host and client so mDNS packets reach the WiFi driver
-- Fix: host sends "start" message to client when both players ready up
-- Fix: client parses snake direction data from host state messages
-- Fix: game over message sent once instead of spammed every tick
-- Fix: volatile qualifiers on multiplayer state fields for correct cross-thread visibility
+- Devices can now discover each other in multiplayer
+- Both players see the game start at the same time
+- Snakes face the right direction on the joiners screen
+- Game over message only appears once per game
+- Fixed various connectivity and timing issues
 
 ### 1.4.0
-- LAN Local Multiplayer over WiFi (host/client via TCP + NSD discovery)
-- Host game simulation is authoritative — client renders received STATE snapshots
-- Lobby system with ready/un-ready and force-start for host
-- Multi-snake support: 2 snakes on the same board with head-on/body collision rules
-- "YOU" label on local player's snake, tweens smoothly with the head
-- Color sharing: both players see each other's chosen snake colors
-- Rematch button reuses existing socket connection
-- Pause functionality disabled during multiplayer matches
-- Fix: host sends gameOver message to client at match end
-- Fix: client reads snake alive flags from state messages
-- Fix: client resets game state on rematch (no leftover data)
-- Fix: asymmetric snake-vs-snake body collision (dead bodies still block)
-- Fix: GameClient.running flag not set after connection
-- Fix: client interpolation t cycles 0–1 every tick for smooth rendering
-- Fix: drawColorField uses uiCellSize instead of cellSize
-- Fix: AudioTrack lifecycle safety (regeneration after surface destroy)
-- Fix: menu music rest-index crash and Markov chain corruption from rests
-- Fix: menu music beatPos initialized correctly for accurate chord/bar detection
-- Boss defeat sound: 7 echo repeats at 400ms with exponential decay
-- Code size reduction via dead-code elimination and expression simplification
+- Play against friends over WiFi (LAN multiplayer)
+- Host runs the game, joiner sees everything in real-time
+- Lobby with ready up and force start for the host
+- Two snakes on the same board with proper collision rules
+- "YOU" label follows your snake
+- Both players see each other's chosen colors
+- Rematch without reconnecting
+- Pause disabled during multiplayer
+- Boss defeat sound with echo effect
+- Various stability fixes for multiplayer
+- Code cleanup
 
 ### 1.3.7
-- Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
-- Music and SFX volume sliders in settings with drag-to-adjust
-- Persistent camera mode and volume preferences
-- Default music volume 25%, SFX volume 50% on first-ever startup
-- Fix: pre-allocate AudioTrack objects to eliminate stutter during gameplay
-- Fix: use DownloadManager instead of browser ACTION_VIEW for APK downloads
+- Procedural menu music while browsing menus
+- Volume sliders for music and SFX
+- Camera mode and volume preferences save between sessions
+- Smoother audio during gameplay
+- Uses system download manager for APK updates
 
 ### 1.3.5
-- Added in-app update prompt that checks GitHub for new versions
+- Checks for updates on GitHub and prompts to download
 
 ### 1.3.4
-- Bump to v1.3.4; add in-app update prompt with GitHub version check
+- In-app update checker (checks GitHub for new versions)
 
 ### 1.3.3
-- Score/size decoupling: score and snake length are now independent
-- Boss AI: movement avoids snake tiles; teleport avoids snake only
-- Live color preview: swatch updates immediately as player types hex
-- Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
+- Score and snake length are now independent
+- Boss avoids snake tiles when moving
+- Live color preview while typing hex codes
+- Three camera modes to choose from
 
 ### 1.3.2
 - Live color preview and multiple camera modes
 
 ### 1.3.1
-- Boss AI improvement: movement avoids snake tiles
+- Boss avoids snake tiles when moving
 
 ### 1.3.0
-- Boss Fruit System (2×2 purple boss, 5 HP, trail cells)
-- Developer Mode (triple-tap title, custom starting score)
+- Boss Fruit system (2x2 purple boss with HP and trail cells)
+- Developer mode (triple-tap title for custom starting score)
 
 ### 1.2.0
-- Fixed 32×32 world, grid lines, zoomed camera with smooth following
-- Off-screen food direction arrows, toroidal teleportation
+- Fixed 32x32 grid with zoomed camera and smooth following
+- Food arrows point off-screen, wrap-around edges
 
 ### 1.1.0
-- Settings screen for snake color customization with live hex preview
-- Persistent color preferences via SharedPreferences
+- Settings screen with snake color customization
+- Colors save between sessions
 
 ## AIDE Instructions
 
