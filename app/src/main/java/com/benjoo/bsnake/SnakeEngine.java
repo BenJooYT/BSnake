@@ -1075,7 +1075,7 @@ public class SnakeEngine {
             if (dx > state.cols / 2) dx = state.cols - dx;
             if (dy > state.rows / 2) dy = state.rows - dy;
             // Keep healing fruit clear of the boss head
-            if (dx * dx + dy * dy < 36) continue;
+            if (dx * dx + dy * dy < 256) continue;
             state.foods.add(new GameState.Fruit(GameState.FruitType.HEAL, fx, fy));
             return;
         }
