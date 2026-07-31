@@ -28,8 +28,12 @@ Simple Snake game for Android, AIDE-compatible.
 - **Multiplayer:** game-over screen now reliably appears when both snakes die — host detects client death via empty-body clientState instead of keeping a ghost snake alive
 - **Multiplayer:** client prediction no longer masks its own death as an alive empty-body ghost
 - **Bosses:** client now sends a `bossHit` packet when it lands a boss head-on; host applies the damage authoritatively and credits the client
+- **Bosses:** new HEALER boss — a green gradient snake that stores the normal fruit it eats and releases it as green healing fruit when damaged
+- **Bosses:** green healing fruit is edible by players and bosses, grows the snake +2, and doesn't count toward the normal food cap
 - **Bosses:** boss-defeat score (+25) and growth now credit the snake that landed the killing blow, not always player 1
 - **Bosses:** boss teleport avoids player danger zones (head and body); falls back to a random teleport that avoids the player body
+- **Bosses:** hitting a boss head shrinks the player by 3 segments again (skipped on the killing blow — defeat only rewards +25 score / +5 growth)
+- **Multiplayer:** ready system fixed — host starts the match only when both players are ready; stale opponent readiness is cleared when a client disconnects
 
 ### 1.6.0
 - **Classic game mode** — dynamic screen-filling board with static camera, no bosses or walls
