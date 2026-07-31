@@ -398,12 +398,13 @@ public class SnakeEngine {
                             state.foods.remove(i);
                             if (state.boss.type == GameState.BossType.HEALER
                                     && f.type == GameState.FruitType.NORMAL) {
-                                // HEALER stores normal fruit instead of eating it,
-                                // reducing the on-board food cap until released as
-                                // green healing fruit on damage.
+                                // HEALER stores normal fruit, reducing the on-board
+                                // food cap until released as green healing fruit on
+                                // damage — but still grows one like the other bosses.
                                 if (state.boss.storedFruits < state.boss.healFruitCap) {
                                     state.boss.storedFruits++;
                                 }
+                                state.boss.growthPending++;
                             } else if (f.type == GameState.FruitType.HEAL) {
                                 // Green healing fruit grows the boss too
                                 state.boss.growthPending += 2;
