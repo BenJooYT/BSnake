@@ -146,6 +146,7 @@ class InputHandler {
                     actions.openSettingsScreen();
                 } else if (contains(state.leaderboardBtn, upX, upY)) {
                     actions.playClick();
+                    state.leaderboardMode = state.lastPlayedMode >= 0 ? state.lastPlayedMode : 0;
                     state.currentState = GameState.State.LEADERBOARD;
                 } else if (contains(state.exitBtn, upX, upY)) {
                     actions.playClick();
@@ -176,6 +177,7 @@ class InputHandler {
             case PLAY_MENU:
                 if (contains(state.singleplayerBtn, upX, upY)) {
                     actions.playClick();
+                    state.selectedModeIndex = state.lastPlayedMode >= 0 ? state.lastPlayedMode : 0;
                     state.currentState = GameState.State.MODE_SELECT;
                 } else if (contains(state.multiplayerBtn, upX, upY)) {
                     actions.playClick();
@@ -189,6 +191,14 @@ class InputHandler {
             case MODE_SELECT:
                 if (contains(state.arcadeBtn, upX, upY)) {
                     actions.playClick();
+                    state.selectedModeIndex = 0;
+                } else if (contains(state.classicBtn, upX, upY)) {
+                    actions.playClick();
+                    state.selectedModeIndex = 1;
+                } else if (contains(state.modePlayBtn, upX, upY)) {
+                    actions.playClick();
+                    state.gameMode = state.selectedModeIndex == 0
+                            ? GameState.GameMode.ARCADE : GameState.GameMode.CLASSIC;
                     actions.startNewGame();
                 } else if (contains(state.modeBackBtn, upX, upY)) {
                     actions.playClick();
@@ -255,7 +265,13 @@ class InputHandler {
                 break;
 
             case LEADERBOARD:
-                if (contains(state.lbSortBtn, upX, upY)) {
+                if (contains(state.lbArcadeBtn, upX, upY)) {
+                    actions.playClick();
+                    state.leaderboardMode = 0;
+                } else if (contains(state.lbClassicBtn, upX, upY)) {
+                    actions.playClick();
+                    state.leaderboardMode = 1;
+                } else if (contains(state.lbSortBtn, upX, upY)) {
                     actions.playClick();
                     state.sortMode = (state.sortMode == GameState.SortMode.HIGH_SCORE)
                             ? GameState.SortMode.RECENT : GameState.SortMode.HIGH_SCORE;

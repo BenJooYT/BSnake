@@ -72,17 +72,18 @@ class GameRenderer {
         int savedCellSize = state.cellSize;
         float savedViewportW = state.viewportWidthCells;
         float savedViewportH = state.viewportHeightCells;
-        boolean spectator = state.currentState == GameState.State.MP_PLAYING
-                && !state.snakes[state.playerIndex].alive;
-        if (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM) {
+        boolean spectator = state.currentState == GameState.State.MP_GAME_OVER
+                || (state.currentState == GameState.State.MP_PLAYING
+                && !state.snakes[state.playerIndex].alive);
+        if (!state.isClassicMode() && (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM)) {
             state.cellSize = state.fullAreaCellSize;
             state.viewportWidthCells = state.screenW / (float) state.cellSize;
             state.viewportHeightCells = state.screenH / (float) state.cellSize;
         }
         updateCamera(t);
         drawBoard(canvas);
-        float viewCameraX = state.snakes[state.playerIndex].body.isEmpty() ? state.cols / 2f : state.cameraX;
-        float viewCameraY = state.snakes[state.playerIndex].body.isEmpty() ? state.rows / 2f : state.cameraY;
+        float viewCameraX = state.snakes[state.playerIndex].body.isEmpty() ? state.cols / 2f - 0.5f : state.cameraX;
+        float viewCameraY = state.snakes[state.playerIndex].body.isEmpty() ? state.rows / 2f - 0.5f : state.cameraY;
         canvas.save();
         clipToWorld(canvas, viewCameraX, viewCameraY);
 
@@ -360,8 +361,14 @@ class GameRenderer {
     }
 
     private void updateCamera(float t) {
-        boolean spectator = state.currentState == GameState.State.MP_PLAYING
-                && !state.snakes[state.playerIndex].alive;
+        if (state.isClassicMode()) {
+            state.cameraX = state.cols / 2f - 0.5f;
+            state.cameraY = state.rows / 2f - 0.5f;
+            return;
+        }
+        boolean spectator = state.currentState == GameState.State.MP_GAME_OVER
+                || (state.currentState == GameState.State.MP_PLAYING
+                && !state.snakes[state.playerIndex].alive);
         if (spectator || state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
             state.cameraX = state.cols / 2f - 0.5f;
             state.cameraY = state.rows / 2f - 0.5f;
@@ -454,7 +461,34 @@ class GameRenderer {
 
     private void drawModeSelect(Canvas canvas) {
         drawCenteredText(canvas, "SELECT MODE", state.screenW / 2f, state.screenH * 0.20f, 48, Color.GREEN, true);
-        drawButton(canvas, state.arcadeBtn, "ARCADE");
+
+        // Mode buttons — highlight the selected one
+        int arcadeBg = state.selectedModeIndex == 0 ? Color.GREEN : Color.DKGRAY;
+        int classicBg = state.selectedModeIndex == 1 ? Color.GREEN : Color.DKGRAY;
+        paint.setColor(arcadeBg);
+        if (state.arcadeBtn != null)
+            canvas.drawRect(state.arcadeBtn.left, state.arcadeBtn.top,
+                    state.arcadeBtn.right - 2, state.arcadeBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "ARCADE", state.arcadeBtn.centerX(),
+                state.arcadeBtn.centerY(), 36, Color.BLACK, true);
+        paint.setColor(classicBg);
+        if (state.classicBtn != null)
+            canvas.drawRect(state.classicBtn.left, state.classicBtn.top,
+                    state.classicBtn.right - 2, state.classicBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "CLASSIC", state.classicBtn.centerX(),
+                state.classicBtn.centerY(), 36, Color.BLACK, true);
+
+        // Description for the selected mode
+        String desc;
+        if (state.selectedModeIndex == 0) {
+            desc = "A fixed 32x32 grid.\nBosses, progression, and\npure fun guaranteed!";
+        } else {
+            desc = "The Classic Snake Experience.\nNo bosses, no gimmicks.\nRelive the way Snake was\nmeant to be played.";
+        }
+        float descY = state.classicBtn.bottom + (state.modePlayBtn.top - state.classicBtn.bottom) * 0.35f;
+        drawCenteredText(canvas, desc, state.screenW / 2f, descY, 24, Color.LTGRAY, false);
+
+        drawButton(canvas, state.modePlayBtn, "PLAY");
         drawButton(canvas, state.modeBackBtn, "BACK");
     }
 
@@ -760,8 +794,23 @@ class GameRenderer {
 
     private void drawLeaderboard(Canvas canvas) {
         drawCenteredText(canvas, "LEADERBOARD", state.screenW / 2f, state.screenH * 0.10f, 60, Color.GREEN, true);
+        // Mode tabs
+        int arcadeBg = state.leaderboardMode == 0 ? Color.GREEN : Color.DKGRAY;
+        int classicBg = state.leaderboardMode == 1 ? Color.GREEN : Color.DKGRAY;
+        paint.setColor(arcadeBg);
+        if (state.lbArcadeBtn != null)
+            canvas.drawRect(state.lbArcadeBtn.left, state.lbArcadeBtn.top,
+                    state.lbArcadeBtn.right - 2, state.lbArcadeBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "ARCADE", state.lbArcadeBtn.centerX(),
+                state.lbArcadeBtn.centerY(), 26, Color.BLACK, true);
+        paint.setColor(classicBg);
+        if (state.lbClassicBtn != null)
+            canvas.drawRect(state.lbClassicBtn.left, state.lbClassicBtn.top,
+                    state.lbClassicBtn.right - 2, state.lbClassicBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "CLASSIC", state.lbClassicBtn.centerX(),
+                state.lbClassicBtn.centerY(), 26, Color.BLACK, true);
         drawButton(canvas, state.lbSortBtn, "SORT: " + (state.sortMode == GameState.SortMode.HIGH_SCORE ? "HIGH SCORE" : "RECENT"));
-        ArrayList<GameState.ScoreEntry> list = persistence.loadScores();
+        ArrayList<GameState.ScoreEntry> list = persistence.loadScores(state.leaderboardMode);
         Collections.sort(list, (a, b) -> {
             if (state.sortMode == GameState.SortMode.HIGH_SCORE) {
                 return Integer.compare(b.score, a.score);
@@ -772,7 +821,7 @@ class GameRenderer {
         if (list.isEmpty()) {
             drawCenteredText(canvas, "No scores yet!", state.screenW / 2f, state.screenH * 0.5f, 40, Color.WHITE, false);
         } else {
-            float startY = state.screenH * 0.30f;
+            float startY = state.screenH * 0.38f;
             float rowH = state.cellSize * 1.2f;
             SimpleDateFormat sdf = new SimpleDateFormat("MM/dd HH:mm", Locale.getDefault());
             int maxShow = Math.min(list.size(), 8);

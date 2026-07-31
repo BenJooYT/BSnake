@@ -5,7 +5,9 @@ Simple Snake game for Android, AIDE-compatible.
 ## Features
 
 - Java Android project (minSdk 16, portrait orientation)
-- Fixed 32×32 toroidal grid with red boundary and grid lines
+- Fixed 32×32 toroidal grid with red boundary and grid lines (Arcade mode)
+- Classic mode: dynamic screen-filling board with static camera
+- Two game modes: Arcade (bosses, progression) and Classic (pure snake)
 - Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
 - Swipe controls with 2-item input queue (no dropped inputs or 180° reversals)
 - Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
@@ -19,6 +21,22 @@ Simple Snake game for Android, AIDE-compatible.
 - No external assets or libraries — everything drawn with Canvas shapes and synthesized audio
 
 ## Changelog
+
+### 1.6.1 — The Best Patch So Far
+- **Multiplayer:** client camera now stays in spectator full view on game over — no snap back to the chosen camera mode
+- **Multiplayer:** fixed half-cell grid shift when a snake is dead (dead-snake view camera aligned with the grid)
+- **Multiplayer:** game-over screen now reliably appears when both snakes die — host detects client death via empty-body clientState instead of keeping a ghost snake alive
+- **Multiplayer:** client prediction no longer masks its own death as an alive empty-body ghost
+- **Bosses:** client now sends a `bossHit` packet when it lands a boss head-on; host applies the damage authoritatively and credits the client
+- **Bosses:** boss-defeat score (+25) and growth now credit the snake that landed the killing blow, not always player 1
+- **Bosses:** boss teleport avoids player danger zones (head and body); falls back to a random teleport that avoids the player body
+
+### 1.6.0
+- **Classic game mode** — dynamic screen-filling board with static camera, no bosses or walls
+- Game mode selection screen redesigned — select Arcade or Classic, see a description, then press PLAY
+- Separate Arcade and Classic leaderboards with mode selector tabs
+- Last selected game mode is remembered across sessions
+- Board dimensions computed dynamically in Classic mode based on device screen size
 
 ### 1.5.7
 - Multiplayer network ownership refactor: client sends full clientState (body/dir/score/alive) before each tick; host uses body as-is, no local movement of remote snake

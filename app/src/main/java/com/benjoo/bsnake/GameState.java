@@ -19,6 +19,11 @@ public class GameState {
     enum CameraMode { CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL }
     CameraMode cameraMode = CameraMode.CLASSIC_ZOOM;
 
+    enum GameMode { ARCADE, CLASSIC }
+    volatile GameMode gameMode = GameMode.ARCADE;
+    int lastPlayedMode = -1; // -1 = none, 0 = ARCADE, 1 = CLASSIC
+    int leaderboardMode = 0; // 0 = Arcade, 1 = Classic
+
     static class ScoreEntry {
         int score;
         long timestamp;
@@ -69,12 +74,14 @@ public class GameState {
 
     RectF startBtn, speedBtn, snakeColorBtn, settingsBtn, leaderboardBtn, exitBtn;
     RectF playBtn, singleplayerBtn, multiplayerBtn, playBackBtn;
-    RectF arcadeBtn, modeBackBtn;
+    RectF arcadeBtn, classicBtn, modeBackBtn, modePlayBtn;
+    int selectedModeIndex = 0; // 0 = ARCADE, 1 = CLASSIC (mode select screen)
     RectF settingsBackBtn, cameraModeBtn;
     RectF snakePreviewRect;
     RectF resumeBtn, pauseMenuBtn;
     RectF restartBtn, overMenuBtn;
     RectF lbSortBtn, lbBackBtn;
+    RectF lbArcadeBtn, lbClassicBtn;
     RectF pauseIcon;
 
     // Multiplayer menu buttons
@@ -128,6 +135,7 @@ public class GameState {
     volatile boolean opponentConnected;
     volatile boolean mpLabelVisible;
     volatile boolean mpGameOverSent;
+    volatile boolean clientBossHit;
     int mpWinner = -1;
     int mpLastScore0, mpLastScore1;
     volatile long mpLastStateTime;
@@ -197,12 +205,25 @@ public class GameState {
         tickDelay = speedDelays[speedIndex];
     }
 
+    boolean isClassicMode() {
+        return gameMode == GameMode.CLASSIC;
+    }
+
     void configureBoard() {
         uiCellSize = Math.max(16, screenW / 20);
-        classicCellSize = Math.max(8, screenW / 10);
-        fullAreaCellSize = Math.max(4, Math.min(screenW / cols, screenH / rows));
-        fitVerticalCellSize = Math.max(4, screenH / rows);
-        cellSize = classicCellSize;
+        if (gameMode == GameMode.CLASSIC) {
+            int cellSz = Math.max(8, Math.min(screenW, screenH) / 18);
+            cols = screenW / cellSz;
+            rows = screenH / cellSz;
+            cellSize = cellSz;
+        } else {
+            cols = 32;
+            rows = 32;
+            classicCellSize = Math.max(8, screenW / 10);
+            fullAreaCellSize = Math.max(4, Math.min(screenW / cols, screenH / rows));
+            fitVerticalCellSize = Math.max(4, screenH / rows);
+            cellSize = classicCellSize;
+        }
         viewportWidthCells = screenW / (float) cellSize;
         viewportHeightCells = screenH / (float) cellSize;
         boardLeft = 0;
@@ -230,7 +251,9 @@ public class GameState {
 
         // Mode select
         arcadeBtn = makeBtn(cx, startY, bw, bh);
-        modeBackBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
+        classicBtn = makeBtn(cx, startY + bh + gap, bw, bh);
+        modePlayBtn = makeBtn(cx, screenH * 0.70f, bw, bh);
+        modeBackBtn = makeBtn(cx, screenH * 0.82f, bw, bh);
 
         backBtn = makeBtn(cx, screenH * 0.90f, bw, bh);
         hostBtn = makeBtn(cx, startY, bw, bh);
@@ -267,7 +290,9 @@ public class GameState {
         restartBtn = makeBtn(cx, screenH * 0.56f, bw, bh);
         overMenuBtn = makeBtn(cx, screenH * 0.56f + bh + gap, bw, bh);
 
-        lbSortBtn = makeBtn(cx, screenH * 0.20f, bw, bh * 0.8f);
+        lbSortBtn = makeBtn(cx, screenH * 0.28f, bw, bh * 0.8f);
+        lbArcadeBtn = makeBtn(cx - bw * 0.28f, screenH * 0.18f, bw * 0.45f, bh * 0.8f);
+        lbClassicBtn = makeBtn(cx + bw * 0.28f, screenH * 0.18f, bw * 0.45f, bh * 0.8f);
         lbBackBtn = makeBtn(cx, screenH * 0.88f, bw, bh);
 
         devScoreBtn = makeBtn(cx, startY + (bh + gap) * 5, bw, bh * 0.8f);

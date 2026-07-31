@@ -76,6 +76,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void surfaceCreated(SurfaceHolder holder) {
         state.screenW = getWidth();
         state.screenH = getHeight();
+        state.lastPlayedMode = persistence.loadGameMode();
+        if (state.lastPlayedMode >= 0 && state.lastPlayedMode < GameState.GameMode.values().length) {
+            state.gameMode = GameState.GameMode.values()[state.lastPlayedMode];
+        }
         state.configureBoard();
         state.layoutButtons();
         // Preserve single-player game state across app switches (don't force MENU)
@@ -130,16 +134,26 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 }
                 lastTick = now;
                 now = System.currentTimeMillis();
-            } else if (isMpClient && now - lastTick >= state.tickDelay) {
-                // Client prediction: run simulation locally for responsive input
-                soundEffects.setMuted(true);
-                boolean savedAlive = state.snakes[state.playerIndex].alive;
-                engine.update(true);
-                state.snakes[state.playerIndex].alive = savedAlive;
-                soundEffects.setMuted(false);
-                lastTick = now;
-                now = System.currentTimeMillis();
-            } else if (!isPlaying && !isMpHost && !isMpClient) {
+                    } else if (isMpClient && now - lastTick >= state.tickDelay) {
+                        // Client prediction: run simulation locally for responsive input
+                        soundEffects.setMuted(true);
+                        boolean savedAlive = state.snakes[state.playerIndex].alive;
+                        engine.update(true);
+                        // If prediction cleared the local body the snake died — keep it dead
+                        // so the client reports the death and doesn't get stuck as a ghost.
+                        if (!state.snakes[state.playerIndex].body.isEmpty()) {
+                            state.snakes[state.playerIndex].alive = savedAlive;
+                        }
+                        soundEffects.setMuted(false);
+                        // Prediction detected a boss head-on — notify the host to apply it
+                        if (state.clientBossHit && client != null) {
+                            String bm = NetworkMessage.bossHit();
+                            if (bm != null) client.send(bm);
+                            state.clientBossHit = false;
+                        }
+                        lastTick = now;
+                        now = System.currentTimeMillis();
+                    } else if (!isPlaying && !isMpHost && !isMpClient) {
                 lastTick = now;
             }
 
@@ -198,15 +212,33 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     if (state.currentState == GameState.State.MP_PLAYING) {
                         JSONArray bodyArr = obj.getJSONArray("body");
                         ArrayList<Point> newBody = NetworkMessage.jsonToBody(bodyArr);
-                        if (newBody.isEmpty()) break;
                         GameState.SnakeData sd = state.snakes[1];
+                        boolean clientAlive = obj.optBoolean("alive", true);
+                        // Empty body or reported-dead means the client's snake is gone —
+                        // otherwise the host would keep a ghost body and never reach
+                        // an all-dead game-over state.
+                        if (newBody.isEmpty() || !clientAlive) {
+                            sd.alive = false;
+                            sd.body.clear();
+                            break;
+                        }
+                        // Host already determined the client is dead (e.g. head-on);
+                        // ignore stale clientState that would resurrect it mid-game.
+                        if (!sd.alive) break;
                         sd.prevBody.clear();
                         for (Point p : sd.body) sd.prevBody.add(new Point(p));
                         sd.body = newBody;
                         sd.dirX = obj.getInt("dirX");
                         sd.dirY = obj.getInt("dirY");
                         sd.score = obj.getInt("score");
-                        sd.alive = obj.getBoolean("alive");
+                        sd.alive = true;
+                    }
+                    break;
+                case "bossHit":
+                    // Client hit the boss head in its prediction — damage the boss
+                    // authoritatively and credit the client for the hit.
+                    if (state.currentState == GameState.State.MP_PLAYING && state.snakes[1].alive) {
+                        engine.clientHitBoss();
                     }
                     break;
             }
@@ -411,6 +443,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         }
         state.playerIndex = 0;
         stopNetworking();
+        state.lastPlayedMode = state.gameMode.ordinal();
+        persistence.saveGameMode(state.lastPlayedMode);
+        state.configureBoard();
         engine.resetSinglePlayer();
         state.currentState = GameState.State.PLAYING;
     }

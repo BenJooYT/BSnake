@@ -96,8 +96,13 @@ public class SnakeEngine {
         for (int i = 0; i < 3; i++) {
             state.snakes[0].body.add(new Point(startX - Math.min(i, 2), startY));
         }
-        state.cameraX = startX;
-        state.cameraY = startY;
+        if (state.isClassicMode()) {
+            state.cameraX = state.cols / 2f - 0.5f;
+            state.cameraY = state.rows / 2f - 0.5f;
+        } else {
+            state.cameraX = startX;
+            state.cameraY = startY;
+        }
         state.cameraInitialized = true;
         state.snakes[0].dirX = 1;
         state.snakes[0].dirY = 0;
@@ -284,9 +289,15 @@ public class SnakeEngine {
             if (state.boss.alive) {
                 Point bh = state.boss.body.get(0);
                 if (nx == bh.x && ny == bh.y) {
-                    sd.score += BOSS_HIT_SCORE;
-                    state.score = sd.score;
-                    damageBoss();
+                    if (!predict) {
+                        sd.score += BOSS_HIT_SCORE;
+                        state.score = sd.score;
+                    }
+                    damageBoss(si, !predict);
+                    if (predict && si == state.playerIndex) {
+                        // The client landed the hit locally — ask the host to apply it
+                        state.clientBossHit = true;
+                    }
                 } else {
                     for (int i = 1; i < state.boss.body.size(); i++) {
                         if (nx == state.boss.body.get(i).x && ny == state.boss.body.get(i).y) {
@@ -341,16 +352,16 @@ public class SnakeEngine {
 
                 // After moving, check if boss head overlaps a player snake segment
                 Point bh = state.boss.body.get(0);
-                boolean bossHitPlayer = false;
+                int bossHitIdx = -1;
                 for (int si = 0; si < 2; si++) {
                     if (!state.snakes[si].alive) continue;
                     for (Point p : state.snakes[si].body) {
-                        if (p.x == bh.x && p.y == bh.y) { bossHitPlayer = true; break; }
+                        if (p.x == bh.x && p.y == bh.y) { bossHitIdx = si; break; }
                     }
-                    if (bossHitPlayer) break;
+                    if (bossHitIdx >= 0) break;
                 }
-                if (bossHitPlayer) {
-                    damageBoss();
+                if (bossHitIdx >= 0) {
+                    damageBoss(bossHitIdx, true);
                 }
 
                 // Boss eats food at new head position
@@ -386,7 +397,7 @@ public class SnakeEngine {
 
             // Boss spawn check (uses sum score in multiplayer)
             int progressionScore = state.snakes[0].score + state.snakes[1].score;
-            if (!state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
+            if (!state.isClassicMode() && !state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
                 spawnBoss();
             }
 
@@ -397,10 +408,12 @@ public class SnakeEngine {
             }
         }
 
-        // Trail expiry (both sides)
-        for (int i = state.bossTrail.size() - 1; i >= 0; i--) {
-            if (state.tickCount - state.bossTrail.get(i).createdAtTick >= TRAIL_MAX_AGE) {
-                state.bossTrail.remove(i);
+        // Trail expiry (both sides) — skip in Classic mode
+        if (!state.isClassicMode()) {
+            for (int i = state.bossTrail.size() - 1; i >= 0; i--) {
+                if (state.tickCount - state.bossTrail.get(i).createdAtTick >= TRAIL_MAX_AGE) {
+                    state.bossTrail.remove(i);
+                }
             }
         }
 
@@ -420,7 +433,7 @@ public class SnakeEngine {
                     state.currentState = GameState.State.MP_GAME_OVER;
                 } else {
                     if (!state.devMode)
-                        persistence.saveScore(state.snakes[0].score, state.speedLabels[state.speedIndex]);
+                        persistence.saveScore(state.snakes[0].score, state.speedLabels[state.speedIndex], state.gameMode.ordinal());
                     state.currentState = GameState.State.GAME_OVER;
                 }
             }
@@ -670,7 +683,7 @@ public class SnakeEngine {
         return 0;
     }
 
-    private void damageBoss() {
+    private void damageBoss(int hitterIndex, boolean creditScore) {
         int removed = 0;
         boolean killingBlow = state.boss.body.size() <= 2;
 
@@ -689,8 +702,10 @@ public class SnakeEngine {
             if (state.boss.type == GameState.BossType.WALL_BUILDER) {
                 startWallDeathAnimation();
             }
-            state.snakes[0].score += BOSS_DEFEAT_SCORE;
-            state.score = state.snakes[0].score;
+            if (creditScore) {
+                state.snakes[hitterIndex].score += BOSS_DEFEAT_SCORE;
+                state.score = state.snakes[hitterIndex].score;
+            }
             state.bossGrowthPending += BOSS_DEFEAT_GROWTH;
             state.nextBossSpawnScore += BOSS_SPAWN_INTERVAL;
             if (sound != null) sound.playBossDefeat();
@@ -698,6 +713,14 @@ public class SnakeEngine {
             teleportBoss();
             if (sound != null) sound.playBossDamage();
         }
+    }
+
+    // Called on the host when the client reports it hit the boss head
+    void clientHitBoss() {
+        if (!state.boss.alive) return;
+        state.snakes[1].score += BOSS_HIT_SCORE;
+        state.score = state.snakes[1].score;
+        damageBoss(1, true);
     }
 
     private void spawnBossTrailAtBody() {
@@ -709,18 +732,30 @@ public class SnakeEngine {
     }
 
     private void teleportBoss() {
-        int segs = state.boss.body.size();
-        if (segs == 0) return;
+        if (state.boss.body.isEmpty()) return;
+        // Prefer a spot where neither the head nor any body segment lands inside
+        // a player's danger zone (single and multiplayer alike).
+        if (placeBossBody(400, true)) return;
+        // If no such spot exists, fall back to a random tp that simply avoids
+        // ending up inside the player bodies.
+        if (placeBossBody(400, false)) return;
+        // If can't place, just leave the boss where it is
+    }
 
+    // Attempts to place the boss head + straight-line body such that no segment
+    // overlaps a player body, and (when avoidDangerZone) no segment sits within a
+    // player's danger radius. Returns true if a placement was applied.
+    private boolean placeBossBody(int maxAttempts, boolean avoidDangerZone) {
+        int segs = state.boss.body.size();
         int[] dirsX = {0, 0, -1, 1};
         int[] dirsY = {-1, 1, 0, 0};
 
-        for (int attempts = 0; attempts < 100; attempts++) {
+        for (int attempts = 0; attempts < maxAttempts; attempts++) {
             int hx = rand.nextInt(state.cols);
             int hy = rand.nextInt(state.rows);
             if (overlapsSnake(hx, hy)) continue;
+            if (avoidDangerZone && inPlayerDangerZone(hx, hy)) continue;
 
-            // Try to place remaining segments in a straight line
             int startDir = rand.nextInt(4);
             for (int d = 0; d < 4; d++) {
                 int dir = (startDir + d) % 4;
@@ -734,17 +769,34 @@ public class SnakeEngine {
                     if (sy < 0) sy += state.rows;
                     if (sy >= state.rows) sy -= state.rows;
                     if (overlapsSnake(sx, sy)) { valid = false; break; }
+                    if (avoidDangerZone && inPlayerDangerZone(sx, sy)) { valid = false; break; }
                     newBody.add(new Point(sx, sy));
                 }
                 if (valid && newBody.size() == segs) {
                     state.boss.body = newBody;
                     state.boss.dirX = dirsX[dir];
                     state.boss.dirY = dirsY[dir];
-                    return;
+                    return true;
                 }
             }
         }
-        // If can't place, just leave the boss where it is
+        return false;
+    }
+
+    // True if the cell lies within DANGER_RADIUS of any alive player's head
+    // (toroidal distance, matching the boss evasion logic).
+    private boolean inPlayerDangerZone(int x, int y) {
+        for (int si = 0; si < 2; si++) {
+            GameState.SnakeData sd = state.snakes[si];
+            if (!sd.alive || sd.body.isEmpty()) continue;
+            Point head = sd.body.get(0);
+            int dx = Math.abs(x - head.x);
+            int dy = Math.abs(y - head.y);
+            if (dx > state.cols / 2) dx = state.cols - dx;
+            if (dy > state.rows / 2) dy = state.rows - dy;
+            if (dx * dx + dy * dy < DANGER_RADIUS_SQ) return true;
+        }
+        return false;
     }
 
     private boolean isBossMoveValid(int x, int y) {

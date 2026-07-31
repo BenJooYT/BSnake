@@ -134,6 +134,14 @@ class NetworkMessage {
         } catch (Exception e) { return null; }
     }
 
+    static String bossHit() {
+        try {
+            return new JSONObject()
+                    .put("type", "bossHit")
+                    .toString() + "\n";
+        } catch (Exception e) { return null; }
+    }
+
     static String gameOver(int winner, int[] scores) {
         try {
             JSONObject msg = new JSONObject();

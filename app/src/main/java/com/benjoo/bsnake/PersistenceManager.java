@@ -19,9 +19,26 @@ public class PersistenceManager {
     // Deserialize the CSV-stored leaderboard into ScoreEntry objects.
     // Legacy entries (2-field) receive difficulty "UNKNOWN".
     ArrayList<GameState.ScoreEntry> loadScores() {
+        return loadScores(0); // Default to Arcade for backward compatibility
+    }
+
+    ArrayList<GameState.ScoreEntry> loadScores(int gameModeOrdinal) {
+        String key = gameModeOrdinal == 1 ? "leaderboard_classic" : "leaderboard_arcade";
+        ArrayList<GameState.ScoreEntry> list = loadScoresFromKey(key);
+        // Migration: if Arcade and no scores yet, check legacy key
+        if (gameModeOrdinal == 0 && list.isEmpty()) {
+            list = loadScoresFromKey("leaderboard");
+            if (!list.isEmpty()) {
+                saveScoresList(list, key);
+            }
+        }
+        return list;
+    }
+
+    private ArrayList<GameState.ScoreEntry> loadScoresFromKey(String key) {
         ArrayList<GameState.ScoreEntry> list = new ArrayList<>();
         SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
-        String data = prefs.getString("leaderboard", "");
+        String data = prefs.getString(key, "");
         if (!data.isEmpty()) {
             String[] parts = data.split(",");
             for (String part : parts) {
@@ -40,14 +57,7 @@ public class PersistenceManager {
         return list;
     }
 
-    // Add a new score, sort descending, cap at 20 entries, and serialize back to CSV.
-    void saveScore(int score, String difficulty) {
-        ArrayList<GameState.ScoreEntry> list = loadScores();
-        list.add(new GameState.ScoreEntry(score, System.currentTimeMillis(), difficulty));
-        Collections.sort(list, (a, b) -> Integer.compare(b.score, a.score));
-        if (list.size() > 20) {
-            list = new ArrayList<>(list.subList(0, 20));
-        }
+    private void saveScoresList(ArrayList<GameState.ScoreEntry> list, String key) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < list.size(); i++) {
             if (i > 0) sb.append(",");
@@ -55,7 +65,27 @@ public class PersistenceManager {
                     .append(":").append(list.get(i).difficulty);
         }
         SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
-        prefs.edit().putString("leaderboard", sb.toString()).apply();
+        prefs.edit().putString(key, sb.toString()).apply();
+    }
+
+    // Add a new score, sort descending, cap at 20 entries, and serialize back to CSV.
+    void saveScore(int score, String difficulty) {
+        saveScore(score, difficulty, 0); // Default to Arcade
+    }
+
+    void saveScore(int score, String difficulty, int gameModeOrdinal) {
+        String key = gameModeOrdinal == 1 ? "leaderboard_classic" : "leaderboard_arcade";
+        ArrayList<GameState.ScoreEntry> list = loadScoresFromKey(key);
+        // Migration: if Arcade and no new-key scores yet, merge legacy scores
+        if (gameModeOrdinal == 0 && list.isEmpty()) {
+            list = loadScoresFromKey("leaderboard");
+        }
+        list.add(new GameState.ScoreEntry(score, System.currentTimeMillis(), difficulty));
+        Collections.sort(list, (a, b) -> Integer.compare(b.score, a.score));
+        if (list.size() > 20) {
+            list = new ArrayList<>(list.subList(0, 20));
+        }
+        saveScoresList(list, key);
     }
 
     // Restore previously saved snake head/body colors (defaults to green).
@@ -96,6 +126,18 @@ public class PersistenceManager {
     void saveVolumes(float musicVolume, float sfxVolume) {
         SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
         prefs.edit().putFloat("musicVolume", musicVolume).putFloat("sfxVolume", sfxVolume).apply();
+    }
+
+    // Save the last played game mode ordinal.
+    void saveGameMode(int gameModeOrdinal) {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        prefs.edit().putInt("lastPlayedMode", gameModeOrdinal).apply();
+    }
+
+    // Load the last played game mode ordinal into state. Returns -1 if none saved.
+    int loadGameMode() {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        return prefs.getInt("lastPlayedMode", -1);
     }
 
     // Parse a #RRGGBB (or RRGGBB) hex string to an integer color; returns null on invalid input.
