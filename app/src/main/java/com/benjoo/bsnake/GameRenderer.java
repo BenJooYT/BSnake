@@ -130,8 +130,7 @@ class GameRenderer {
         }
 
         // Food
-        paint.setColor(Color.RED);
-        for (Point f : state.foods) {
+        for (GameState.Fruit f : state.foods) {
             float foodDx = f.x - viewCameraX;
             float foodDy = f.y - viewCameraY;
             if (Math.abs(foodDx) >= state.viewportWidthCells / 2f
@@ -141,12 +140,22 @@ class GameRenderer {
             }
             float cx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + foodDx);
             float cy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f + foodDy);
-            canvas.drawCircle(cx, cy, Math.max(4, state.cellSize / 2f - 4), paint);
+            if (f.type == GameState.FruitType.HEAL) {
+                // Green healing fruit — drawn slightly larger with a glow ring
+                paint.setColor(Color.rgb(0, 220, 90));
+                canvas.drawCircle(cx, cy, Math.max(5, state.cellSize / 2f - 3), paint);
+                paint.setColor(Color.argb(120, 0, 255, 120));
+                canvas.drawCircle(cx, cy, Math.max(7, state.cellSize / 2f), paint);
+            } else {
+                paint.setColor(Color.RED);
+                canvas.drawCircle(cx, cy, Math.max(4, state.cellSize / 2f - 4), paint);
+            }
         }
 
         // Boss — drawn as a snake with type-specific colors
         if (state.boss.alive && !state.boss.body.isEmpty()) {
             boolean isWallBuilder = state.boss.type == GameState.BossType.WALL_BUILDER;
+            boolean isHealer = state.boss.type == GameState.BossType.HEALER;
             for (int i = 0; i < state.boss.body.size(); i++) {
                 Point seg = state.boss.body.get(i);
                 float bDx = seg.x - viewCameraX;
@@ -156,11 +165,15 @@ class GameRenderer {
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
                 float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
                 if (i == 0) {
-                    paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255) : Color.rgb(200, 60, 220));
+                    paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255)
+                            : isHealer ? Color.rgb(0, 200, 90) : Color.rgb(200, 60, 220));
                 } else {
                     if (isWallBuilder) {
                         int dim = Math.max(120, 255 - i * 20);
                         paint.setColor(Color.rgb(255, dim / 2, 0));
+                    } else if (isHealer) {
+                        int dim = Math.max(70, 190 - i * 15);
+                        paint.setColor(Color.rgb(dim / 2, dim, dim / 2));
                     } else {
                         int dim = Math.max(80, 180 - i * 15);
                         paint.setColor(Color.rgb(dim, dim / 3, dim));
@@ -446,7 +459,7 @@ class GameRenderer {
         if (state.devMode) {
             drawCenteredText(canvas, "DEV MODE", state.screenW / 2f, state.screenH * 0.17f, 28, Color.RED, true);
             drawButton(canvas, state.devScoreBtn, "START SCORE: " + state.devScoreText);
-            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL"};
+            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER"};
             drawButton(canvas, state.devBossBtn, bossLabels[state.devForcedBossType]);
             drawButton(canvas, state.devPathBtn, "PATH: " + (state.showBossPathfinding ? "ON" : "OFF"));
         }

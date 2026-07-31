@@ -35,6 +35,20 @@ public class GameState {
         }
     }
 
+    // Fruit types — add new special fruit types here and handle them in the
+    // engine (eating effects) and renderer (appearance).
+    enum FruitType { NORMAL, HEAL }
+
+    static class Fruit {
+        FruitType type;
+        int x, y;
+        Fruit(FruitType type, int x, int y) {
+            this.type = type;
+            this.x = x;
+            this.y = y;
+        }
+    }
+
     // A single snake's mutable state
     static class SnakeData {
         ArrayList<Point> body = new ArrayList<>();
@@ -43,6 +57,7 @@ public class GameState {
         int dirX = 1, dirY = 0;
         ArrayList<Point> inputQueue = new ArrayList<>();
         int score = 0;
+        int growthPending = 0; // ticks the tail stays attached (e.g. +2 from HEAL fruit)
         int headColor = Color.GREEN;
         int bodyColor = Color.GREEN;
         boolean alive = true;
@@ -52,7 +67,7 @@ public class GameState {
     SnakeData[] snakes = new SnakeData[]{ new SnakeData(), new SnakeData() };
     int playerIndex = 0; // 0 or 1
 
-    ArrayList<Point> foods = new ArrayList<>();
+    ArrayList<Fruit> foods = new ArrayList<>();
     int cellSize = 40;
     int uiCellSize = 40;
     int cols = 32, rows = 32;
@@ -150,9 +165,11 @@ public class GameState {
         int evasionCooldown = 0;
         boolean isEvading = false;
         int hesitationTicks = 0;
+        int storedFruits = 0; // HEALER: normal fruits eaten but not respawned
+        int healFruitCap = 6; // HEALER: max green healing fruits on the board
     }
 
-    enum BossType { CHASER, WALL_BUILDER }
+    enum BossType { CHASER, WALL_BUILDER, HEALER }
 
     static class WallCell {
         int x, y;

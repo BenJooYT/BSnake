@@ -204,9 +204,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     break;
                 case "ready":
                     state.opponentReady = obj.optBoolean("ready", false);
-                    if (state.localReady && state.opponentReady) {
-                        startMpGame();
-                    }
+                    tryHostStart();
                     break;
                 case "clientState":
                     if (state.currentState == GameState.State.MP_PLAYING) {
@@ -324,7 +322,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             state.foods.clear();
             for (int i = 0; i < fdArr.length(); i++) {
                 JSONArray pt = fdArr.getJSONArray(i);
-                state.foods.add(new Point(pt.getInt(0), pt.getInt(1)));
+                GameState.FruitType ft = GameState.FruitType.values()[pt.optInt(2, 0)];
+                state.foods.add(new GameState.Fruit(ft, pt.getInt(0), pt.getInt(1)));
             }
             if (obj.has("boss")) {
                 JSONObject bj = obj.getJSONObject("boss");
@@ -334,6 +333,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.boss.lastMoveTick = bj.getInt("lastMoveTick");
                 state.boss.growthPending = bj.getInt("growthPending");
                 state.boss.type = GameState.BossType.values()[bj.optInt("type", 0)];
+                state.boss.storedFruits = bj.optInt("storedFruits", 0);
                 state.boss.alive = true;
             } else {
                 state.boss.alive = false;
@@ -584,7 +584,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void cycleDevBossType() {
-        state.devForcedBossType = (state.devForcedBossType + 1) % 3;
+        state.devForcedBossType = (state.devForcedBossType + 1) % 4;
     }
 
     @Override
@@ -661,7 +661,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             public void onMessage(String msg) { }
             @Override
             public void onClientDisconnected() {
+                // A fresh lobby must not inherit stale readiness from the old client
                 state.opponentConnected = false;
+                state.opponentReady = false;
+                state.localReady = false;
                 state.currentState = GameState.State.MENU;
             }
         });
@@ -739,12 +742,20 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void toggleReady() {
         state.localReady = !state.localReady;
+        // Always tell the other party about our readiness change
         String msg = NetworkMessage.ready(state.localReady);
         if (msg != null) {
             if (state.isHost && server != null) server.send(msg);
             else if (client != null) client.send(msg);
         }
-        if (state.isHost && state.localReady && state.opponentReady) {
+        tryHostStart();
+    }
+
+    // The host is the only one who starts the game, and only once both players
+    // have confirmed they are ready.
+    private void tryHostStart() {
+        if (state.isHost && state.currentState == GameState.State.MP_LOBBY
+                && state.localReady && state.opponentReady) {
             startMpGame();
         }
     }
