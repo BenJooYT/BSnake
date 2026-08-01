@@ -40,6 +40,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     EditText keyboardInput;
 
+    // TEMPORARY: debug autoplayer
+    static final boolean BOT_ENABLED = true;
+    GameBot bot;
+
     public GameView(Context context) {
         super(context);
         initComponents(context);
@@ -123,6 +127,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
             if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
+                if (BOT_ENABLED) {
+                    if (bot == null) bot = new GameBot(state, this);
+                    bot.step();
+                }
                 if (state.isHost) {
                     if (state.currentState == GameState.State.MP_PLAYING) {
                         sendHostState();
@@ -156,6 +164,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                         now = System.currentTimeMillis();
                     } else if (!isPlaying && !isMpHost && !isMpClient) {
                 lastTick = now;
+            }
+
+            // TEMPORARY: keep the autoplayer running across deaths
+            if (BOT_ENABLED && state.currentState == GameState.State.GAME_OVER) {
+                android.util.Log.i("BOT", "died at score=" + state.lastScore + " — restarting");
+                startNewGame();
             }
 
             // Music
