@@ -2,6 +2,8 @@
 
 Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your friends on the LAN.
 
+> Want to learn every feature in depth? Check out the **[feature index](index.md)** to get acquainted with the game.
+
 ## Features
 
 - Java Android project (minSdk 16, portrait orientation)
@@ -11,9 +13,12 @@ Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your fr
 - Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
 - Swipe controls with 2-item input queue (no dropped inputs or 180° reversals)
 - Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
-- **Boss Fruit System** — 2×2 purple boss with 5 HP spawns every 125 score; drops golden trail cells on hit; grants +25 score and +5 growth on defeat
+- **Boss Fruit System** — a purple 5-segment boss spawns every 100 score; head-on hits deal 2 damage and drop golden trail cells (+1 score, no growth); defeating it grants +25 score and +5 growth
+- **Three boss types** — CHASER (the purple boss above), WALL_BUILDER (orange, places destructible walls), and HEALER (green, stores food and releases healing fruit on damage)
+- **Wall capture** — fully surround a Wall Builder wall group with a closed loop to destroy it (8-directional connectivity, toroidal edges supported)
 - **Multi-food scaling** — up to 6 food items active simultaneously
 - **Score/size decoupling** — normal food (+1/+1 growth), trail fruit (+1/+0), boss hit (+5/−3 shrink), boss defeat (+25/+5)
+- **Arcade challenges** — every run starts with 3 random objectives from a pool of 20; completing one pays bonus points instantly
 - **Leaderboard** — top 20 entries with score, timestamp, and difficulty; sortable by score or date
 - **Live color preview** — hex head/body color input updates swatch in real time
 - **Developer mode** — triple-tap the SNAKE title to set a custom starting score (scores not saved)
@@ -21,6 +26,13 @@ Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your fr
 - No external assets or libraries — everything drawn with Canvas shapes and synthesized audio
 
 ## Changelog
+
+### 1.7.0 — Challenge Objectives
+- **Arcade challenges:** every run starts with 3 randomly selected objectives drawn from a pool of 20 — score goals, length goals, food collection, boss fights, and wall capture
+- **Challenge HUD:** objectives appear in the top-right corner with name, description, live progress, and point reward — red when untouched, yellow while in progress, green when completed
+- **Rewards:** completing an objective grants its points immediately and plays a chime plus a floating "+X" notification above the middle of the screen
+- **Boss Rush:** requires 5 consecutive boss defeats — dying resets the streak
+- **Extensible:** all challenge definitions live in a single data file (`ChallengeDefinitions.java`), so new objectives can be added with zero gameplay code changes
 
 ### 1.6.2 — Smash Through the Walls
 - **Wall Builder counterplay:** a player snake that completely surrounds a connected wall group with a closed loop destroys the whole group

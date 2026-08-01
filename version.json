@@ -1,7 +1,7 @@
 {
-  "versionCode": 21,
-  "versionName": "1.6.2",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.6.2/BSnake-v1.6.2.apk",
-  "changelog": "1.6.2 — Smash Through the Walls\n  ADDED: Wall capture — a player snake that completely surrounds a connected wall group with a closed loop destroys it\n  ADDED: Wall groups are 8-directionally connected across toroidal edges; every tile must be fully enclosed before the whole group is removed\n  ADDED: Wall destruction triggers the existing wall crumble animation and a new wall-shatter sound effect\n  ADDED: Destroyed walls stop blocking movement, boss pathing, and food spawning immediately\n  FIXED: All boss types (CHASER, WALL_BUILDER, HEALER) consistently play the default boss damage and boss defeat sounds",
+  "versionCode": 22,
+  "versionName": "1.7.0",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.7.0/BSnake-v1.7.0.apk",
+  "changelog": "1.7.0 — Challenge Objectives\n  ADDED: Arcade mode challenges — every run starts with 3 randomly selected objectives from a pool of 20\n  ADDED: Challenge HUD in the top-right corner shows each objective, its progress, and its point reward (red = not started, yellow = in progress, green = completed)\n  ADDED: Completing an objective awards its points instantly and shows a floating +X notification above the middle of the screen\n  ADDED: Objectives span score, length, food, boss, and wall gameplay — from Perfect Timing and Fruit Collector to Boss Rush (5 consecutive boss defeats; dying resets the streak)\n  ADDED: All 20 challenge definitions live in a single data file, so new objectives can be added without any gameplay code changes\n1.6.2 — Smash Through the Walls\n  ADDED: Wall capture — a player snake that completely surrounds a connected wall group with a closed loop destroys it\n  ADDED: Wall groups are 8-directionally connected across toroidal edges; every tile must be fully enclosed before the whole group is removed\n  ADDED: Wall destruction triggers the existing wall crumble animation and a new wall-shatter sound effect\n  ADDED: Destroyed walls stop blocking movement, boss pathing, and food spawning immediately\n  FIXED: All boss types (CHASER, WALL_BUILDER, HEALER) consistently play the default boss damage and boss defeat sounds",
   "needsReinstall": false
 }

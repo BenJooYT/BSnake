@@ -16,13 +16,15 @@ public class SoundEffects {
     private static final int BOSS_DAMAGE_MS = 500;
     private static final int BOSS_DEFEAT_MS = 3200;
     private static final int WALL_DESTROY_MS = 300;
+    private static final int CHALLENGE_MS = 350;
 
     private short[] clickBuffer;
     private short[] crunchBuffer;
     private short[] bossDamageBuffer;
     private short[] bossDefeatBuffer;
     private short[] wallDestroyBuffer;
-    private AudioTrack clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack;
+    private short[] challengeBuffer;
+    private AudioTrack clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack, challengeTrack;
     private float volume = 1.0f;
     private boolean muted;
 
@@ -32,6 +34,7 @@ public class SoundEffects {
         generateBossDamage();
         generateBossDefeat();
         generateWallDestroyed();
+        generateChallengeComplete();
         initTracks();
     }
 
@@ -58,6 +61,8 @@ public class SoundEffects {
         bossDefeatTrack.write(bossDefeatBuffer, 0, bossDefeatBuffer.length);
         wallDestroyTrack = createTrack(wallDestroyBuffer.length * 2);
         wallDestroyTrack.write(wallDestroyBuffer, 0, wallDestroyBuffer.length);
+        challengeTrack = createTrack(challengeBuffer.length * 2);
+        challengeTrack.write(challengeBuffer, 0, challengeBuffer.length);
     }
 
     // ----- sound generation -----
@@ -170,6 +175,20 @@ public class SoundEffects {
         }
     }
 
+    // Challenge complete: a bright two-tone chime.
+    private void generateChallengeComplete() {
+        int n = SAMPLE_RATE * CHALLENGE_MS / 1000;
+        challengeBuffer = new short[n];
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double envelope = Math.min(1.0, t * 60.0) * Math.exp(-t * 9.0);
+            double first = Math.sin(2 * Math.PI * 880.0 * t);
+            double second = Math.sin(2 * Math.PI * 1174.66 * t);
+            double s = (first + second) * envelope * 0.28;
+            challengeBuffer[i] = (short) (s * Short.MAX_VALUE);
+        }
+    }
+
     // ----- shared play helper -----
 
     private void playTrack(AudioTrack track) {
@@ -193,6 +212,7 @@ public class SoundEffects {
     public void playBossDamage() { if (!muted) playTrack(bossDamageTrack); }
     public void playBossDefeat() { if (!muted) playTrack(bossDefeatTrack); }
     public void playWallDestroyed() { if (!muted) playTrack(wallDestroyTrack); }
+    public void playChallengeComplete() { if (!muted) playTrack(challengeTrack); }
     public void setMuted(boolean m) { muted = m; }
 
     public void setVolume(float vol) {
@@ -200,7 +220,7 @@ public class SoundEffects {
     }
 
     public void stopAll() {
-        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack };
+        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack, challengeTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); } catch (Exception e) { }
@@ -209,7 +229,7 @@ public class SoundEffects {
     }
 
     public void release() {
-        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack };
+        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack, challengeTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); t.release(); } catch (Exception e) { }
@@ -217,6 +237,6 @@ public class SoundEffects {
         }
         clickTrack = null; crunchTrack = null;
         bossDamageTrack = null; bossDefeatTrack = null;
-        wallDestroyTrack = null;
+        wallDestroyTrack = null; challengeTrack = null;
     }
 }

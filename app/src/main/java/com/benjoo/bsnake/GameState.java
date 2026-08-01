@@ -68,6 +68,25 @@ public class GameState {
     int playerIndex = 0; // 0 or 1
 
     ArrayList<Fruit> foods = new ArrayList<>();
+    // Challenge objectives active in the current Arcade run (empty otherwise).
+    // Populated by ChallengeManager; read by the renderer for the HUD.
+    ArrayList<ActiveChallenge> activeChallenges = new ArrayList<>();
+    // Short-lived floating reward notifications (e.g. "+30").
+    ArrayList<ChallengePopup> challengePopups = new ArrayList<>();
+
+    static class ChallengePopup {
+        String text;
+        long startMs;
+        int durationMs;
+        float x, y;
+        ChallengePopup(String text, long startMs, int durationMs, float x, float y) {
+            this.text = text;
+            this.startMs = startMs;
+            this.durationMs = durationMs;
+            this.x = x;
+            this.y = y;
+        }
+    }
     int cellSize = 40;
     int uiCellSize = 40;
     int cols = 32, rows = 32;

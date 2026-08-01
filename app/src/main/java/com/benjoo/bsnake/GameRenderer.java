@@ -325,9 +325,87 @@ class GameRenderer {
         }
         canvas.drawText(scoreLabel, 10, 40, paint);
 
+        drawChallenges(canvas);
+        drawChallengePopups(canvas);
+
         state.cellSize = savedCellSize;
         state.viewportWidthCells = savedViewportW;
         state.viewportHeightCells = savedViewportH;
+    }
+
+    // Arcade challenge objectives panel, top-right. Each objective shows its
+    // name + reward on the first line and description + progress on the second.
+    // Color reflects status: red = no progress, yellow = in progress,
+    // green = completed, grey = failed.
+    private void drawChallenges(Canvas canvas) {
+        if (state.isClassicMode() || state.activeChallenges.isEmpty()) return;
+        paint.setTextAlign(Paint.Align.RIGHT);
+        float xRight = state.screenW - 12;
+        float y = 58;
+        float nameSize = 16;
+        float descSize = 13;
+        float panelWidth = 0;
+        for (ActiveChallenge ac : state.activeChallenges) {
+            paint.setTextSize(nameSize);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            float w = paint.measureText(ac.def.name + "  +" + ac.def.reward);
+            paint.setTextSize(descSize);
+            paint.setTypeface(Typeface.DEFAULT);
+            float w2 = paint.measureText(ac.def.description + "  " + ac.progress + "/" + ac.def.requiredProgress);
+            if (w > panelWidth) panelWidth = w;
+            if (w2 > panelWidth) panelWidth = w2;
+        }
+        float panelHeight = state.activeChallenges.size() * 40 + 8;
+        paint.setColor(Color.argb(120, 0, 0, 0));
+        canvas.drawRect(xRight - panelWidth - 10, y - 18, xRight + 10, y + panelHeight - 10, paint);
+
+        for (ActiveChallenge ac : state.activeChallenges) {
+            int color;
+            if (ac.completed) {
+                color = Color.rgb(90, 230, 120);
+            } else if (ac.failed) {
+                color = Color.rgb(150, 150, 150);
+            } else if (ac.progress > 0) {
+                color = Color.rgb(255, 215, 70);
+            } else {
+                color = Color.rgb(235, 90, 80);
+            }
+            paint.setColor(color);
+            paint.setTextSize(nameSize);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            canvas.drawText(ac.def.name + "  +" + ac.def.reward, xRight, y, paint);
+            y += 18;
+            paint.setColor(Color.argb(230, 255, 255, 255));
+            paint.setTextSize(descSize);
+            paint.setTypeface(Typeface.DEFAULT);
+            canvas.drawText(ac.def.description + "  " + ac.progress + "/" + ac.def.requiredProgress, xRight, y, paint);
+            y += 24;
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setColor(Color.WHITE);
+        paint.setTypeface(Typeface.DEFAULT);
+    }
+
+    // Floating reward notifications (e.g. "+30") that rise above the middle of
+    // the screen and fade out over their duration.
+    private void drawChallengePopups(Canvas canvas) {
+        if (state.challengePopups.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(34);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        for (GameState.ChallengePopup p : state.challengePopups) {
+            float progress = (float) (now - p.startMs) / p.durationMs;
+            if (progress < 0 || progress > 1) continue;
+            int alpha = progress < 0.7f ? 255 : (int) (255 * (1 - progress) / 0.3f);
+            float rise = progress * 46;
+            paint.setColor(Color.argb(alpha, 0, 0, 0));
+            canvas.drawText(p.text, p.x + 2, p.y - rise + 2, paint);
+            paint.setColor(Color.argb(alpha, 255, 215, 80));
+            canvas.drawText(p.text, p.x, p.y - rise, paint);
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTypeface(Typeface.DEFAULT);
     }
 
     private void drawBoard(Canvas canvas) {

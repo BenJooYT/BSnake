@@ -2,6 +2,8 @@
 
 A complete overview of how every feature in BSnake works.
 
+> **What's new in 1.7.0 — Challenge Objectives:** Arcade runs now start with 3 randomly selected objectives from a pool of 20. Each objective tracks score, length, food, boss, or wall gameplay and pays out bonus points when completed — see the [Arcade challenges](#arcade-challenges) section below.
+
 ---
 
 # 🎮 Game Modes
@@ -18,8 +20,33 @@ Features:
 - Score progression
 - Camera movement
 - Special mechanics
+- Challenge objectives
 
 This is the mode where the game gets harder over time and introduces new challenges.
+
+---
+
+## Arcade Challenges
+
+Added in 1.7.0. Every Arcade run starts with **3 randomly selected objectives** drawn from a pool of 20. Each objective pays bonus points on completion.
+
+Features:
+
+- **Selection** — objectives are picked at random at the start of every run and re-rolled each time
+- **Challenge HUD** — objectives render in the top-right corner of the game field with name, description, live progress, and point reward
+- **Status colors** — red = no progress, yellow = in progress, green = completed, grey = failed
+- **Rewards** — completing an objective adds its points to the run score instantly, plays a chime, and shows a floating "+X" notification above the middle of the screen
+- **Boss Rush** — requires 5 consecutive boss defeats; dying resets the streak
+- **Extensible** — all definitions live in `ChallengeDefinitions.java`, so new objectives can be added without gameplay code changes
+
+Objective types:
+
+- **Score goals** — High Roller (1000), Speedrunner (250 in 10 min), Direction Lock, No Mistakes, Tiny Snake (500)
+- **Length goals** — Long Run (50), Giant Snake (512)
+- **Food collection** — Fruit Collector (100), Perfect Timing
+- **Boss fights** — Multi Boss (3), Boss Rush (5), Boss Slayer, Speed Kill, Minimalist, No Safety Net, Healer Denial, Hungry Boss
+- **Wall capture** — Counter Attack, Territory Control
+- **Movement** — Edge Walker
 
 ---
 
@@ -274,7 +301,7 @@ Features:
 - **Wall capture** — a player snake that completely surrounds a connected wall group with a closed loop destroys it (8-directional connectivity, toroidal edges supported)
 - Captured walls stop blocking movement, boss pathing, and food spawning immediately
 
-Walls otherwise remain until the boss is defeated.
+Walls otherwise remain until the boss is defeated — except the oldest walls are evicted when the board hits its wall cap (which scales with difficulty).
 
 ---
 
@@ -433,6 +460,17 @@ Everything is created using:
 ---
 
 # 📜 Version Overview
+
+## 1.7.x
+
+Major updates:
+
+- Challenge objectives in Arcade mode (3 random per run, pool of 20)
+- Challenge HUD with red / yellow / green status and point rewards
+- Boss Rush streak resets on death
+- All challenge definitions in one data file for easy extension
+
+---
 
 ## 1.6.x
 
