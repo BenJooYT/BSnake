@@ -4,6 +4,7 @@ import android.graphics.Point;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 /**
  * TEMPORARY debug autoplayer. Feeds directions through the same
@@ -18,6 +19,14 @@ class GameBot {
     private int cols, rows;
     private int[] cycle;          // Hamiltonian cycle index per cell (fallback route)
     private int lastLoggedScore = -1;
+
+    // ----- challenge completion task state -----
+    private final HashMap<GameState.Fruit, Long> foodSpawnMs = new HashMap<>();
+    private boolean perfectTimingActive = false;
+    private int perfectTimingMaxAgeMs = 0;
+    private boolean edgeWalkerActive = false;
+    private int forbiddenDir = -1;
+    private int lastChallengesDone = -1;
 
     GameBot(GameState state, GameView view) {
         this.state = state;
@@ -109,9 +118,44 @@ class GameBot {
 
     private GameState.Fruit pickFood() {
         GameState.Fruit best = null;
-        for (GameState.Fruit f : state.foods) {
-            if (f.type == GameState.FruitType.HEAL) continue;   // no score, skip
-            if (best == null) best = f;
+        if (perfectTimingActive) {
+            // PERFECT_TIMING: hunt only fruit we can still reach inside its
+            // freshness window (spawn + max age). Among those, take the one
+            // that can be caught soonest, breaking ties toward the freshest.
+            GameState.SnakeData sd = state.snakes[0];
+            if (!sd.body.isEmpty()) {
+                Point head = sd.body.get(0);
+                long now = System.currentTimeMillis();
+                long bestTravel = Long.MAX_VALUE, bestAge = Long.MAX_VALUE;
+                for (GameState.Fruit f : state.foods) {
+                    if (f.type == GameState.FruitType.HEAL) continue;
+                    Long spawn = foodSpawnMs.get(f);
+                    long age = spawn == null ? 0 : now - spawn;
+                    long remaining = perfectTimingMaxAgeMs - age;
+                    if (remaining <= 0) continue;                 // already too old
+                    int dist = distTo(head, new Point(f.x, f.y));
+                    if (dist < 0) continue;                       // not reachable
+                    long travel = dist * state.tickDelay;
+                    if (travel >= remaining) continue;            // can't make it in time
+                    if (travel < bestTravel || (travel == bestTravel && age < bestAge)) {
+                        bestTravel = travel;
+                        bestAge = age;
+                        best = f;
+                    }
+                }
+            }
+            if (best == null) {
+                // Nothing catchable in time — fall back to any normal fruit.
+                for (GameState.Fruit f : state.foods) {
+                    if (f.type == GameState.FruitType.HEAL) continue;
+                    if (best == null) best = f;
+                }
+            }
+        } else {
+            for (GameState.Fruit f : state.foods) {
+                if (f.type == GameState.FruitType.HEAL) continue;   // no score, skip
+                if (best == null) best = f;
+            }
         }
         if (best == null && !state.foods.isEmpty()) best = state.foods.get(0);
         return best;
@@ -185,12 +229,83 @@ class GameBot {
         return null;
     }
 
+    // ----- challenge completion task -----
+    //
+    // Steers the autoplayer toward finishing the Arcade run's active
+    // objectives: avoids the DIRECTION_LOCK direction, hugs the border for
+    // EDGE_WALKER, and times fruit chases for PERFECT_TIMING.
+
+    private void challengeTask() {
+        perfectTimingActive = false;
+        perfectTimingMaxAgeMs = 0;
+        edgeWalkerActive = false;
+        forbiddenDir = -1;
+        long now = System.currentTimeMillis();
+        int done = 0;
+        for (ActiveChallenge ac : state.activeChallenges) {
+            if (ac.completed) done++;
+            if (ac.completed || ac.failed) continue;
+            switch (ac.def.type) {
+                case PERFECT_TIMING:
+                    perfectTimingActive = true;
+                    perfectTimingMaxAgeMs = ac.def.params[0];
+                    break;
+                case EDGE_WALKER:
+                    edgeWalkerActive = true;
+                    break;
+                case DIRECTION_LOCK:
+                    forbiddenDir = ac.forbiddenDir;
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (done != lastChallengesDone) {
+            lastChallengesDone = done;
+            android.util.Log.i("BOT", "challenges done=" + done + " of " + state.activeChallenges.size());
+        }
+        // Remember when each fruit first appeared so PERFECT_TIMING can judge
+        // freshness; drop anything that has been eaten.
+        for (GameState.Fruit f : state.foods) {
+            if (!foodSpawnMs.containsKey(f)) foodSpawnMs.put(f, now);
+        }
+        if (!foodSpawnMs.isEmpty()) {
+            ArrayList<GameState.Fruit> gone = new ArrayList<>();
+            for (GameState.Fruit f : foodSpawnMs.keySet()) {
+                if (!state.foods.contains(f)) gone.add(f);
+            }
+            for (GameState.Fruit f : gone) foodSpawnMs.remove(f);
+        }
+    }
+
+    /** Cells from a point to another through free cells; -1 when unreachable. */
+    private int distTo(Point from, Point to) {
+        boolean[] blocked = occupancy(state.snakes[0].body, true);
+        blocked[id(from.x, from.y)] = false;
+        return bfs(id(from.x, from.y), blocked)[id(to.x, to.y)];
+    }
+
+    /** How many steps from the nearest board edge. */
+    private int distToBorder(int x, int y) {
+        return Math.min(Math.min(x, cols - 1 - x), Math.min(y, rows - 1 - y));
+    }
+
+    /** 0=up 1=right 2=down 3=left, matching DIRECTION_LOCK. */
+    private int dirToIndex(int dx, int dy) {
+        if (dx == 0 && dy == -1) return 0;
+        if (dx == 1 && dy == 0) return 1;
+        if (dx == 0 && dy == 1) return 2;
+        if (dx == -1 && dy == 0) return 3;
+        return -1;
+    }
+
     // ----- called once per engine tick -----
 
     void step() {
         GameState.SnakeData sd = state.snakes[0];
         if (!sd.alive || sd.body.isEmpty()) return;
         if (cycle == null || cols != state.cols || rows != state.rows) buildCycle();
+        challengeTask();
 
         if (state.score != lastLoggedScore) {
             lastLoggedScore = state.score;
@@ -207,6 +322,7 @@ class GameBot {
         for (int d = 0; d < 4; d++) {
             int dx = DX[d], dy = DY[d];
             if (body.size() > 1 && dx == -sd.dirX && dy == -sd.dirY) continue;
+            if (forbiddenDir >= 0 && dirToIndex(dx, dy) == forbiddenDir) continue;
             int nx = wrapX(head.x + dx), ny = wrapY(head.y + dy);
             boolean grows = growsInto(nx, ny, sd);
             boolean[] occ = occupancy(body, !grows);
@@ -231,10 +347,11 @@ class GameBot {
         }
 
         // Not worth chasing: stay alive and keep the board open by taking the
-        // safe move with the most reachable space, breaking ties toward the tail.
+        // safe move with the most reachable space, breaking ties toward the
+        // tail (and toward the border when EDGE_WALKER is active).
         if (chosen == null && !safe.isEmpty()) {
             Point tail = body.get(body.size() - 1);
-            int bestRoom = -1, bestTailDist = Integer.MAX_VALUE;
+            int bestRoom = -1, bestBorder = Integer.MAX_VALUE, bestTailDist = Integer.MAX_VALUE;
             for (int[] c : safe) {
                 boolean[] blocked = occupancy(body, true);
                 int[] dist = bfs(id(c[2], c[3]), blocked);
@@ -242,8 +359,14 @@ class GameBot {
                 for (int v : dist) if (v >= 0) room++;
                 int td = dist[id(tail.x, tail.y)];
                 if (td < 0) td = Integer.MAX_VALUE;
-                if (room > bestRoom || (room == bestRoom && td < bestTailDist)) {
-                    bestRoom = room; bestTailDist = td; chosen = c;
+                int border = edgeWalkerActive ? distToBorder(c[2], c[3]) : 0;
+                boolean better;
+                if (room != bestRoom) better = room > bestRoom;
+                else if (edgeWalkerActive) better = border < bestBorder
+                        || (border == bestBorder && td < bestTailDist);
+                else better = td < bestTailDist;
+                if (better) {
+                    bestRoom = room; bestBorder = border; bestTailDist = td; chosen = c;
                 }
             }
         }
