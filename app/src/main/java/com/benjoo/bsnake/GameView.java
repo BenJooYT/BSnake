@@ -11,6 +11,7 @@ import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.inputmethod.InputMethodManager;
 import android.view.MotionEvent;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.EditText;
@@ -169,10 +170,22 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
 
             float t = Math.min(1f, (now - lastTick) / (float) state.tickDelay);
-            Canvas canvas = holder.getSurface().isValid() ? holder.lockCanvas() : null;
+            Surface surface = holder.getSurface();
+            boolean hardware = false;
+            Canvas canvas = null;
+            if (surface != null && surface.isValid()) {
+                // Some devices/emulators never present buffers locked through the
+                // software path, leaving a black screen — prefer the hardware canvas.
+                if (android.os.Build.VERSION.SDK_INT >= 23) {
+                    canvas = surface.lockHardwareCanvas();
+                    hardware = canvas != null;
+                }
+                if (canvas == null) canvas = holder.lockCanvas();
+            }
             renderer.draw(canvas, t);
             if (canvas != null) {
-                holder.unlockCanvasAndPost(canvas);
+                if (hardware) surface.unlockCanvasAndPost(canvas);
+                else holder.unlockCanvasAndPost(canvas);
             }
             try { Thread.sleep(8); } catch (InterruptedException e) { }
         }
