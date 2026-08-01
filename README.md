@@ -1,17 +1,24 @@
 # BSnake
 
-Simple Snake game for Android, AIDE-compatible.
+Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your friends on the LAN.
+
+> Want to learn every feature in depth? Check out the **[feature index](index.md)** to get acquainted with the game.
 
 ## Features
 
 - Java Android project (minSdk 16, portrait orientation)
-- Fixed 32×32 toroidal grid with red boundary and grid lines
+- Fixed 32×32 toroidal grid with red boundary and grid lines (Arcade mode)
+- Classic mode: dynamic screen-filling board with static camera
+- Two game modes: Arcade (bosses, progression) and Classic (pure snake)
 - Three camera modes: CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL
 - Swipe controls with 2-item input queue (no dropped inputs or 180° reversals)
 - Procedural menu music (Markov chain, C major, 120 BPM) and synthesized SFX
-- **Boss Fruit System** — 2×2 purple boss with 5 HP spawns every 125 score; drops golden trail cells on hit; grants +25 score and +5 growth on defeat
+- **Boss Fruit System** — a purple 5-segment boss spawns every 100 score; head-on hits deal 2 damage and drop golden trail cells (+1 score, no growth); defeating it grants +25 score and +5 growth
+- **Three boss types** — CHASER (the purple boss above), WALL_BUILDER (orange, places destructible walls), and HEALER (green, stores food and releases healing fruit on damage)
+- **Wall capture** — fully surround a Wall Builder wall group with a closed loop to destroy it (8-directional connectivity, toroidal edges supported)
 - **Multi-food scaling** — up to 6 food items active simultaneously
 - **Score/size decoupling** — normal food (+1/+1 growth), trail fruit (+1/+0), boss hit (+5/−3 shrink), boss defeat (+25/+5)
+- **Arcade challenges** — every run starts with 3 random objectives from a pool of 20; completing one pays bonus points instantly
 - **Leaderboard** — top 20 entries with score, timestamp, and difficulty; sortable by score or date
 - **Live color preview** — hex head/body color input updates swatch in real time
 - **Developer mode** — triple-tap the SNAKE title to set a custom starting score (scores not saved)
@@ -19,6 +26,39 @@ Simple Snake game for Android, AIDE-compatible.
 - No external assets or libraries — everything drawn with Canvas shapes and synthesized audio
 
 ## Changelog
+
+### 1.7.0 — Challenge Objectives
+- **Arcade challenges:** every run starts with 3 randomly selected objectives drawn from a pool of 20 — score goals, length goals, food collection, boss fights, and wall capture
+- **Challenge HUD:** objectives appear in the top-right corner with name, description, live progress, and point reward — red when untouched, yellow while in progress, green when completed
+- **Rewards:** completing an objective grants its points immediately and plays a chime plus a floating "+X" notification above the middle of the screen
+- **Boss Rush:** requires 5 consecutive boss defeats — dying resets the streak
+- **Extensible:** all challenge definitions live in a single data file (`ChallengeDefinitions.java`), so new objectives can be added with zero gameplay code changes
+
+### 1.6.2 — Smash Through the Walls
+- **Wall Builder counterplay:** a player snake that completely surrounds a connected wall group with a closed loop destroys the whole group
+- **Bosses:** wall groups are 8-directionally connected, including across toroidal map edges — every tile must be enclosed before the group is removed (touching, partial surround, and incomplete loops never trigger)
+- **Bosses:** destroyed walls trigger the existing wall crumble animation plus a new wall-shatter sound, and stop blocking movement, boss pathing, and food spawning immediately
+- **Audio:** verified all boss types (CHASER, WALL_BUILDER, HEALER) consistently play the default boss damage and boss defeat sounds
+
+### 1.6.1 — The Best Patch So Far
+- **Multiplayer:** client camera now stays in spectator full view on game over — no snap back to the chosen camera mode
+- **Multiplayer:** fixed half-cell grid shift when a snake is dead (dead-snake view camera aligned with the grid)
+- **Multiplayer:** game-over screen now reliably appears when both snakes die — host detects client death via empty-body clientState instead of keeping a ghost snake alive
+- **Multiplayer:** client prediction no longer masks its own death as an alive empty-body ghost
+- **Bosses:** client now sends a `bossHit` packet when it lands a boss head-on; host applies the damage authoritatively and credits the client
+- **Bosses:** new HEALER boss — a green gradient snake that stores the normal fruit it eats and releases it as green healing fruit when damaged
+- **Bosses:** green healing fruit is edible by players and bosses, grows the snake +2, and doesn't count toward the normal food cap
+- **Bosses:** boss-defeat score (+25) and growth now credit the snake that landed the killing blow, not always player 1
+- **Bosses:** boss teleport avoids player danger zones (head and body); falls back to a random teleport that avoids the player body
+- **Bosses:** hitting a boss head shrinks the player by 3 segments again (skipped on the killing blow — defeat only rewards +25 score / +5 growth)
+- **Multiplayer:** ready system fixed — host starts the match only when both players are ready; stale opponent readiness is cleared when a client disconnects
+
+### 1.6.0
+- **Classic game mode** — dynamic screen-filling board with static camera, no bosses or walls
+- Game mode selection screen redesigned — select Arcade or Classic, see a description, then press PLAY
+- Separate Arcade and Classic leaderboards with mode selector tabs
+- Last selected game mode is remembered across sessions
+- Board dimensions computed dynamically in Classic mode based on device screen size
 
 ### 1.5.7
 - Multiplayer network ownership refactor: client sends full clientState (body/dir/score/alive) before each tick; host uses body as-is, no local movement of remote snake

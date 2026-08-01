@@ -72,17 +72,18 @@ class GameRenderer {
         int savedCellSize = state.cellSize;
         float savedViewportW = state.viewportWidthCells;
         float savedViewportH = state.viewportHeightCells;
-        boolean spectator = state.currentState == GameState.State.MP_PLAYING
-                && !state.snakes[state.playerIndex].alive;
-        if (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM) {
+        boolean spectator = state.currentState == GameState.State.MP_GAME_OVER
+                || (state.currentState == GameState.State.MP_PLAYING
+                && !state.snakes[state.playerIndex].alive);
+        if (!state.isClassicMode() && (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM)) {
             state.cellSize = state.fullAreaCellSize;
             state.viewportWidthCells = state.screenW / (float) state.cellSize;
             state.viewportHeightCells = state.screenH / (float) state.cellSize;
         }
         updateCamera(t);
         drawBoard(canvas);
-        float viewCameraX = state.snakes[state.playerIndex].body.isEmpty() ? state.cols / 2f : state.cameraX;
-        float viewCameraY = state.snakes[state.playerIndex].body.isEmpty() ? state.rows / 2f : state.cameraY;
+        float viewCameraX = state.snakes[state.playerIndex].body.isEmpty() ? state.cols / 2f - 0.5f : state.cameraX;
+        float viewCameraY = state.snakes[state.playerIndex].body.isEmpty() ? state.rows / 2f - 0.5f : state.cameraY;
         canvas.save();
         clipToWorld(canvas, viewCameraX, viewCameraY);
 
@@ -129,8 +130,7 @@ class GameRenderer {
         }
 
         // Food
-        paint.setColor(Color.RED);
-        for (Point f : state.foods) {
+        for (GameState.Fruit f : state.foods) {
             float foodDx = f.x - viewCameraX;
             float foodDy = f.y - viewCameraY;
             if (Math.abs(foodDx) >= state.viewportWidthCells / 2f
@@ -140,12 +140,22 @@ class GameRenderer {
             }
             float cx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + foodDx);
             float cy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f + foodDy);
-            canvas.drawCircle(cx, cy, Math.max(4, state.cellSize / 2f - 4), paint);
+            if (f.type == GameState.FruitType.HEAL) {
+                // Green healing fruit — drawn slightly larger with a glow ring
+                paint.setColor(Color.rgb(0, 220, 90));
+                canvas.drawCircle(cx, cy, Math.max(5, state.cellSize / 2f - 3), paint);
+                paint.setColor(Color.argb(120, 0, 255, 120));
+                canvas.drawCircle(cx, cy, Math.max(7, state.cellSize / 2f), paint);
+            } else {
+                paint.setColor(Color.RED);
+                canvas.drawCircle(cx, cy, Math.max(4, state.cellSize / 2f - 4), paint);
+            }
         }
 
         // Boss — drawn as a snake with type-specific colors
         if (state.boss.alive && !state.boss.body.isEmpty()) {
             boolean isWallBuilder = state.boss.type == GameState.BossType.WALL_BUILDER;
+            boolean isHealer = state.boss.type == GameState.BossType.HEALER;
             for (int i = 0; i < state.boss.body.size(); i++) {
                 Point seg = state.boss.body.get(i);
                 float bDx = seg.x - viewCameraX;
@@ -155,11 +165,15 @@ class GameRenderer {
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
                 float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
                 if (i == 0) {
-                    paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255) : Color.rgb(200, 60, 220));
+                    paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255)
+                            : isHealer ? Color.rgb(0, 200, 90) : Color.rgb(200, 60, 220));
                 } else {
                     if (isWallBuilder) {
                         int dim = Math.max(120, 255 - i * 20);
                         paint.setColor(Color.rgb(255, dim / 2, 0));
+                    } else if (isHealer) {
+                        int dim = Math.max(70, 190 - i * 15);
+                        paint.setColor(Color.rgb(dim / 2, dim, dim / 2));
                     } else {
                         int dim = Math.max(80, 180 - i * 15);
                         paint.setColor(Color.rgb(dim, dim / 3, dim));
@@ -311,9 +325,87 @@ class GameRenderer {
         }
         canvas.drawText(scoreLabel, 10, 40, paint);
 
+        drawChallenges(canvas);
+        drawChallengePopups(canvas);
+
         state.cellSize = savedCellSize;
         state.viewportWidthCells = savedViewportW;
         state.viewportHeightCells = savedViewportH;
+    }
+
+    // Arcade challenge objectives panel, top-right. Each objective shows its
+    // name + reward on the first line and description + progress on the second.
+    // Color reflects status: red = no progress, yellow = in progress,
+    // green = completed, grey = failed.
+    private void drawChallenges(Canvas canvas) {
+        if (state.isClassicMode() || state.activeChallenges.isEmpty()) return;
+        paint.setTextAlign(Paint.Align.RIGHT);
+        float xRight = state.screenW - 12;
+        float y = 58;
+        float nameSize = 16;
+        float descSize = 13;
+        float panelWidth = 0;
+        for (ActiveChallenge ac : state.activeChallenges) {
+            paint.setTextSize(nameSize);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            float w = paint.measureText(ac.def.name + "  +" + ac.def.reward);
+            paint.setTextSize(descSize);
+            paint.setTypeface(Typeface.DEFAULT);
+            float w2 = paint.measureText(ac.def.description + "  " + ac.progress + "/" + ac.def.requiredProgress);
+            if (w > panelWidth) panelWidth = w;
+            if (w2 > panelWidth) panelWidth = w2;
+        }
+        float panelHeight = state.activeChallenges.size() * 40 + 8;
+        paint.setColor(Color.argb(120, 0, 0, 0));
+        canvas.drawRect(xRight - panelWidth - 10, y - 18, xRight + 10, y + panelHeight - 10, paint);
+
+        for (ActiveChallenge ac : state.activeChallenges) {
+            int color;
+            if (ac.completed) {
+                color = Color.rgb(90, 230, 120);
+            } else if (ac.failed) {
+                color = Color.rgb(150, 150, 150);
+            } else if (ac.progress > 0) {
+                color = Color.rgb(255, 215, 70);
+            } else {
+                color = Color.rgb(235, 90, 80);
+            }
+            paint.setColor(color);
+            paint.setTextSize(nameSize);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            canvas.drawText(ac.def.name + "  +" + ac.def.reward, xRight, y, paint);
+            y += 18;
+            paint.setColor(Color.argb(230, 255, 255, 255));
+            paint.setTextSize(descSize);
+            paint.setTypeface(Typeface.DEFAULT);
+            canvas.drawText(ac.def.description + "  " + ac.progress + "/" + ac.def.requiredProgress, xRight, y, paint);
+            y += 24;
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setColor(Color.WHITE);
+        paint.setTypeface(Typeface.DEFAULT);
+    }
+
+    // Floating reward notifications (e.g. "+30") that rise above the middle of
+    // the screen and fade out over their duration.
+    private void drawChallengePopups(Canvas canvas) {
+        if (state.challengePopups.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(34);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        for (GameState.ChallengePopup p : state.challengePopups) {
+            float progress = (float) (now - p.startMs) / p.durationMs;
+            if (progress < 0 || progress > 1) continue;
+            int alpha = progress < 0.7f ? 255 : (int) (255 * (1 - progress) / 0.3f);
+            float rise = progress * 46;
+            paint.setColor(Color.argb(alpha, 0, 0, 0));
+            canvas.drawText(p.text, p.x + 2, p.y - rise + 2, paint);
+            paint.setColor(Color.argb(alpha, 255, 215, 80));
+            canvas.drawText(p.text, p.x, p.y - rise, paint);
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTypeface(Typeface.DEFAULT);
     }
 
     private void drawBoard(Canvas canvas) {
@@ -360,8 +452,14 @@ class GameRenderer {
     }
 
     private void updateCamera(float t) {
-        boolean spectator = state.currentState == GameState.State.MP_PLAYING
-                && !state.snakes[state.playerIndex].alive;
+        if (state.isClassicMode()) {
+            state.cameraX = state.cols / 2f - 0.5f;
+            state.cameraY = state.rows / 2f - 0.5f;
+            return;
+        }
+        boolean spectator = state.currentState == GameState.State.MP_GAME_OVER
+                || (state.currentState == GameState.State.MP_PLAYING
+                && !state.snakes[state.playerIndex].alive);
         if (spectator || state.cameraMode == GameState.CameraMode.FULL_PLAY_AREA) {
             state.cameraX = state.cols / 2f - 0.5f;
             state.cameraY = state.rows / 2f - 0.5f;
@@ -439,7 +537,7 @@ class GameRenderer {
         if (state.devMode) {
             drawCenteredText(canvas, "DEV MODE", state.screenW / 2f, state.screenH * 0.17f, 28, Color.RED, true);
             drawButton(canvas, state.devScoreBtn, "START SCORE: " + state.devScoreText);
-            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL"};
+            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER"};
             drawButton(canvas, state.devBossBtn, bossLabels[state.devForcedBossType]);
             drawButton(canvas, state.devPathBtn, "PATH: " + (state.showBossPathfinding ? "ON" : "OFF"));
         }
@@ -454,7 +552,34 @@ class GameRenderer {
 
     private void drawModeSelect(Canvas canvas) {
         drawCenteredText(canvas, "SELECT MODE", state.screenW / 2f, state.screenH * 0.20f, 48, Color.GREEN, true);
-        drawButton(canvas, state.arcadeBtn, "ARCADE");
+
+        // Mode buttons — highlight the selected one
+        int arcadeBg = state.selectedModeIndex == 0 ? Color.GREEN : Color.DKGRAY;
+        int classicBg = state.selectedModeIndex == 1 ? Color.GREEN : Color.DKGRAY;
+        paint.setColor(arcadeBg);
+        if (state.arcadeBtn != null)
+            canvas.drawRect(state.arcadeBtn.left, state.arcadeBtn.top,
+                    state.arcadeBtn.right - 2, state.arcadeBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "ARCADE", state.arcadeBtn.centerX(),
+                state.arcadeBtn.centerY(), 36, Color.BLACK, true);
+        paint.setColor(classicBg);
+        if (state.classicBtn != null)
+            canvas.drawRect(state.classicBtn.left, state.classicBtn.top,
+                    state.classicBtn.right - 2, state.classicBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "CLASSIC", state.classicBtn.centerX(),
+                state.classicBtn.centerY(), 36, Color.BLACK, true);
+
+        // Description for the selected mode
+        String desc;
+        if (state.selectedModeIndex == 0) {
+            desc = "A fixed 32x32 grid.\nBosses, progression, and\npure fun guaranteed!";
+        } else {
+            desc = "The Classic Snake Experience.\nNo bosses, no gimmicks.\nRelive the way Snake was\nmeant to be played.";
+        }
+        float descY = state.classicBtn.bottom + (state.modePlayBtn.top - state.classicBtn.bottom) * 0.35f;
+        drawCenteredText(canvas, desc, state.screenW / 2f, descY, 24, Color.LTGRAY, false);
+
+        drawButton(canvas, state.modePlayBtn, "PLAY");
         drawButton(canvas, state.modeBackBtn, "BACK");
     }
 
@@ -760,8 +885,23 @@ class GameRenderer {
 
     private void drawLeaderboard(Canvas canvas) {
         drawCenteredText(canvas, "LEADERBOARD", state.screenW / 2f, state.screenH * 0.10f, 60, Color.GREEN, true);
+        // Mode tabs
+        int arcadeBg = state.leaderboardMode == 0 ? Color.GREEN : Color.DKGRAY;
+        int classicBg = state.leaderboardMode == 1 ? Color.GREEN : Color.DKGRAY;
+        paint.setColor(arcadeBg);
+        if (state.lbArcadeBtn != null)
+            canvas.drawRect(state.lbArcadeBtn.left, state.lbArcadeBtn.top,
+                    state.lbArcadeBtn.right - 2, state.lbArcadeBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "ARCADE", state.lbArcadeBtn.centerX(),
+                state.lbArcadeBtn.centerY(), 26, Color.BLACK, true);
+        paint.setColor(classicBg);
+        if (state.lbClassicBtn != null)
+            canvas.drawRect(state.lbClassicBtn.left, state.lbClassicBtn.top,
+                    state.lbClassicBtn.right - 2, state.lbClassicBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "CLASSIC", state.lbClassicBtn.centerX(),
+                state.lbClassicBtn.centerY(), 26, Color.BLACK, true);
         drawButton(canvas, state.lbSortBtn, "SORT: " + (state.sortMode == GameState.SortMode.HIGH_SCORE ? "HIGH SCORE" : "RECENT"));
-        ArrayList<GameState.ScoreEntry> list = persistence.loadScores();
+        ArrayList<GameState.ScoreEntry> list = persistence.loadScores(state.leaderboardMode);
         Collections.sort(list, (a, b) -> {
             if (state.sortMode == GameState.SortMode.HIGH_SCORE) {
                 return Integer.compare(b.score, a.score);
@@ -772,7 +912,7 @@ class GameRenderer {
         if (list.isEmpty()) {
             drawCenteredText(canvas, "No scores yet!", state.screenW / 2f, state.screenH * 0.5f, 40, Color.WHITE, false);
         } else {
-            float startY = state.screenH * 0.30f;
+            float startY = state.screenH * 0.38f;
             float rowH = state.cellSize * 1.2f;
             SimpleDateFormat sdf = new SimpleDateFormat("MM/dd HH:mm", Locale.getDefault());
             int maxShow = Math.min(list.size(), 8);

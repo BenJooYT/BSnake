@@ -76,6 +76,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void surfaceCreated(SurfaceHolder holder) {
         state.screenW = getWidth();
         state.screenH = getHeight();
+        state.lastPlayedMode = persistence.loadGameMode();
+        if (state.lastPlayedMode >= 0 && state.lastPlayedMode < GameState.GameMode.values().length) {
+            state.gameMode = GameState.GameMode.values()[state.lastPlayedMode];
+        }
         state.configureBoard();
         state.layoutButtons();
         // Preserve single-player game state across app switches (don't force MENU)
@@ -130,16 +134,26 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 }
                 lastTick = now;
                 now = System.currentTimeMillis();
-            } else if (isMpClient && now - lastTick >= state.tickDelay) {
-                // Client prediction: run simulation locally for responsive input
-                soundEffects.setMuted(true);
-                boolean savedAlive = state.snakes[state.playerIndex].alive;
-                engine.update(true);
-                state.snakes[state.playerIndex].alive = savedAlive;
-                soundEffects.setMuted(false);
-                lastTick = now;
-                now = System.currentTimeMillis();
-            } else if (!isPlaying && !isMpHost && !isMpClient) {
+                    } else if (isMpClient && now - lastTick >= state.tickDelay) {
+                        // Client prediction: run simulation locally for responsive input
+                        soundEffects.setMuted(true);
+                        boolean savedAlive = state.snakes[state.playerIndex].alive;
+                        engine.update(true);
+                        // If prediction cleared the local body the snake died — keep it dead
+                        // so the client reports the death and doesn't get stuck as a ghost.
+                        if (!state.snakes[state.playerIndex].body.isEmpty()) {
+                            state.snakes[state.playerIndex].alive = savedAlive;
+                        }
+                        soundEffects.setMuted(false);
+                        // Prediction detected a boss head-on — notify the host to apply it
+                        if (state.clientBossHit && client != null) {
+                            String bm = NetworkMessage.bossHit();
+                            if (bm != null) client.send(bm);
+                            state.clientBossHit = false;
+                        }
+                        lastTick = now;
+                        now = System.currentTimeMillis();
+                    } else if (!isPlaying && !isMpHost && !isMpClient) {
                 lastTick = now;
             }
 
@@ -190,23 +204,39 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     break;
                 case "ready":
                     state.opponentReady = obj.optBoolean("ready", false);
-                    if (state.localReady && state.opponentReady) {
-                        startMpGame();
-                    }
+                    tryHostStart();
                     break;
                 case "clientState":
                     if (state.currentState == GameState.State.MP_PLAYING) {
                         JSONArray bodyArr = obj.getJSONArray("body");
                         ArrayList<Point> newBody = NetworkMessage.jsonToBody(bodyArr);
-                        if (newBody.isEmpty()) break;
                         GameState.SnakeData sd = state.snakes[1];
+                        boolean clientAlive = obj.optBoolean("alive", true);
+                        // Empty body or reported-dead means the client's snake is gone —
+                        // otherwise the host would keep a ghost body and never reach
+                        // an all-dead game-over state.
+                        if (newBody.isEmpty() || !clientAlive) {
+                            sd.alive = false;
+                            sd.body.clear();
+                            break;
+                        }
+                        // Host already determined the client is dead (e.g. head-on);
+                        // ignore stale clientState that would resurrect it mid-game.
+                        if (!sd.alive) break;
                         sd.prevBody.clear();
                         for (Point p : sd.body) sd.prevBody.add(new Point(p));
                         sd.body = newBody;
                         sd.dirX = obj.getInt("dirX");
                         sd.dirY = obj.getInt("dirY");
                         sd.score = obj.getInt("score");
-                        sd.alive = obj.getBoolean("alive");
+                        sd.alive = true;
+                    }
+                    break;
+                case "bossHit":
+                    // Client hit the boss head in its prediction — damage the boss
+                    // authoritatively and credit the client for the hit.
+                    if (state.currentState == GameState.State.MP_PLAYING && state.snakes[1].alive) {
+                        engine.clientHitBoss();
                     }
                     break;
             }
@@ -292,7 +322,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             state.foods.clear();
             for (int i = 0; i < fdArr.length(); i++) {
                 JSONArray pt = fdArr.getJSONArray(i);
-                state.foods.add(new Point(pt.getInt(0), pt.getInt(1)));
+                GameState.FruitType ft = GameState.FruitType.values()[pt.optInt(2, 0)];
+                state.foods.add(new GameState.Fruit(ft, pt.getInt(0), pt.getInt(1)));
             }
             if (obj.has("boss")) {
                 JSONObject bj = obj.getJSONObject("boss");
@@ -302,6 +333,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.boss.lastMoveTick = bj.getInt("lastMoveTick");
                 state.boss.growthPending = bj.getInt("growthPending");
                 state.boss.type = GameState.BossType.values()[bj.optInt("type", 0)];
+                state.boss.storedFruits = bj.optInt("storedFruits", 0);
                 state.boss.alive = true;
             } else {
                 state.boss.alive = false;
@@ -411,6 +443,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         }
         state.playerIndex = 0;
         stopNetworking();
+        state.lastPlayedMode = state.gameMode.ordinal();
+        persistence.saveGameMode(state.lastPlayedMode);
+        state.configureBoard();
         engine.resetSinglePlayer();
         state.currentState = GameState.State.PLAYING;
     }
@@ -549,7 +584,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void cycleDevBossType() {
-        state.devForcedBossType = (state.devForcedBossType + 1) % 3;
+        state.devForcedBossType = (state.devForcedBossType + 1) % 4;
     }
 
     @Override
@@ -626,7 +661,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             public void onMessage(String msg) { }
             @Override
             public void onClientDisconnected() {
+                // A fresh lobby must not inherit stale readiness from the old client
                 state.opponentConnected = false;
+                state.opponentReady = false;
+                state.localReady = false;
                 state.currentState = GameState.State.MENU;
             }
         });
@@ -704,12 +742,20 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void toggleReady() {
         state.localReady = !state.localReady;
+        // Always tell the other party about our readiness change
         String msg = NetworkMessage.ready(state.localReady);
         if (msg != null) {
             if (state.isHost && server != null) server.send(msg);
             else if (client != null) client.send(msg);
         }
-        if (state.isHost && state.localReady && state.opponentReady) {
+        tryHostStart();
+    }
+
+    // The host is the only one who starts the game, and only once both players
+    // have confirmed they are ready.
+    private void tryHostStart() {
+        if (state.isHost && state.currentState == GameState.State.MP_LOBBY
+                && state.localReady && state.opponentReady) {
             startMpGame();
         }
     }

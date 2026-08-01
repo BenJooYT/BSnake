@@ -63,7 +63,7 @@ class NetworkMessage {
     static String state(ArrayList<Point> snakes0,
                         int score0, int score1, int dirX0, int dirY0,
                         boolean alive0, boolean alive1,
-                        ArrayList<Point> foods, GameState.BossSnake boss,
+                        ArrayList<GameState.Fruit> foods, GameState.BossSnake boss,
                         ArrayList<GameState.BossTrailCell> trail, int tick,
                         ArrayList<GameState.WallCell> walls,
                         ArrayList<Point> wallPreviewPositions, int wallPreviewStartTick,
@@ -94,7 +94,9 @@ class NetworkMessage {
             bcArr.put(bodyColor1);
             msg.put("bodyColors", bcArr);
             JSONArray fdArr = new JSONArray();
-            for (Point f : foods) fdArr.put(new JSONArray().put(f.x).put(f.y));
+            for (GameState.Fruit f : foods) {
+                fdArr.put(new JSONArray().put(f.x).put(f.y).put(f.type.ordinal()));
+            }
             msg.put("foods", fdArr);
             if (boss != null && boss.alive) {
                 JSONObject bj = new JSONObject();
@@ -104,6 +106,7 @@ class NetworkMessage {
                 bj.put("lastMoveTick", boss.lastMoveTick);
                 bj.put("growthPending", boss.growthPending);
                 bj.put("type", boss.type.ordinal());
+                bj.put("storedFruits", boss.storedFruits);
                 msg.put("boss", bj);
             }
             JSONArray trArr = new JSONArray();
@@ -131,6 +134,14 @@ class NetworkMessage {
             msg.put("wallPA", wallPreviewActive);
             msg.put("nextWT", nextWallTick);
             return msg.toString() + "\n";
+        } catch (Exception e) { return null; }
+    }
+
+    static String bossHit() {
+        try {
+            return new JSONObject()
+                    .put("type", "bossHit")
+                    .toString() + "\n";
         } catch (Exception e) { return null; }
     }
 

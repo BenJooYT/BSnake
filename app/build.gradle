@@ -1,15 +1,15 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace 'com.benjoo.bsnake'
-    compileSdk 33
+    namespace = 'com.benjoo.bsnake'
+    compileSdk = 34
 
     defaultConfig {
         applicationId "com.benjoo.bsnake"
-        minSdk 16
-        targetSdk 33
-        versionCode 18
-        versionName "1.5.7"
+        minSdk = 16
+        targetSdk = 34
+        versionCode 22
+        versionName "1.7.0"
     }
 
     compileOptions {

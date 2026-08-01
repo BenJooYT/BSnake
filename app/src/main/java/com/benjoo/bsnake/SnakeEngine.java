@@ -3,12 +3,14 @@ package com.benjoo.bsnake;
 import android.graphics.Point;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Random;
 
 public class SnakeEngine {
 
     private final GameState state;
     private final PersistenceManager persistence;
+    private final ChallengeManager challenges;
     private final Random rand = new Random();
     private SoundEffects sound;
     private static final int BOSS_MOVE_INTERVAL = 3;
@@ -17,6 +19,7 @@ public class SnakeEngine {
     private static final int BOSS_DEFEAT_SCORE = 25;
     private static final int BOSS_DEFEAT_GROWTH = 5;
     private static final int BOSS_HIT_SCORE = 5;
+    private static final int BOSS_HIT_SHRINK = 3;
     private static final int BOSS_INITIAL_SEGMENTS = 5;
 
     // Wall builder constants
@@ -33,10 +36,12 @@ public class SnakeEngine {
     SnakeEngine(GameState state, PersistenceManager persistence) {
         this.state = state;
         this.persistence = persistence;
+        this.challenges = new ChallengeManager(state);
     }
 
     void setSoundEffects(SoundEffects sound) {
         this.sound = sound;
+        challenges.setSoundEffects(sound);
     }
 
     void resetGame() {
@@ -65,6 +70,7 @@ public class SnakeEngine {
         state.snakes[1].inputQueue.clear();
         state.boss.alive = false;
         state.bossGrowthPending = 0;
+        state.boss.storedFruits = 0;
         state.bossTrail.clear();
         state.walls.clear();
         state.wallPreviewPositions.clear();
@@ -73,6 +79,7 @@ public class SnakeEngine {
         state.nextWallTick = 0;
         state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
         state.tickCount = 0;
+        challenges.reset();
         placeFood();
         for (int i = 0; i < 2; i++) {
             state.snakes[i].prevBody.clear();
@@ -96,14 +103,20 @@ public class SnakeEngine {
         for (int i = 0; i < 3; i++) {
             state.snakes[0].body.add(new Point(startX - Math.min(i, 2), startY));
         }
-        state.cameraX = startX;
-        state.cameraY = startY;
+        if (state.isClassicMode()) {
+            state.cameraX = state.cols / 2f - 0.5f;
+            state.cameraY = state.rows / 2f - 0.5f;
+        } else {
+            state.cameraX = startX;
+            state.cameraY = startY;
+        }
         state.cameraInitialized = true;
         state.snakes[0].dirX = 1;
         state.snakes[0].dirY = 0;
         state.snakes[0].inputQueue.clear();
         state.boss.alive = false;
         state.bossGrowthPending = 0;
+        state.boss.storedFruits = 0;
         state.bossTrail.clear();
         state.walls.clear();
         state.wallPreviewPositions.clear();
@@ -112,6 +125,11 @@ public class SnakeEngine {
         state.nextWallTick = 0;
         state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
         state.tickCount = 0;
+        if (state.isClassicMode()) {
+            challenges.reset();
+        } else {
+            challenges.startRun();
+        }
         placeFood();
         state.snakes[0].prevBody.clear();
         for (Point p : state.snakes[0].body)
@@ -189,7 +207,7 @@ public class SnakeEngine {
                 if (!predict) {
                     Point h = sd.body.get(0);
                     for (int fi = 0; fi < state.foods.size(); fi++) {
-                        Point f = state.foods.get(fi);
+                        GameState.Fruit f = state.foods.get(fi);
                         if (f.x == h.x && f.y == h.y) { state.foods.remove(fi); break; }
                     }
                 }
@@ -265,28 +283,45 @@ public class SnakeEngine {
 
             // Prepend new head
             sd.body.add(0, new Point(nx, ny));
+            if (si == 0) challenges.onPlayerMoved(sd.dirX, sd.dirY);
 
             // Food eating (only snake[0] gets score for now; snake[1]'s score comes from host)
             boolean ateFood = false;
-            Point eatenFood = null;
-            for (Point f : state.foods) {
+            GameState.Fruit eatenFood = null;
+            for (GameState.Fruit f : state.foods) {
                 if (nx == f.x && ny == f.y) { eatenFood = f; break; }
             }
-            if (eatenFood != null) {
-                state.foods.remove(eatenFood);
-                ateFood = true;
-                sd.score++;
-                state.score = sd.score;
-                if (sound != null && si == 0) sound.playCrunch();
-            }
+                if (eatenFood != null) {
+                    state.foods.remove(eatenFood);
+                    if (eatenFood.type == GameState.FruitType.HEAL) {
+                        // Green healing fruit: grows the snake, gives no score
+                        sd.growthPending += 2;
+                    } else {
+                        ateFood = true;
+                        sd.score++;
+                        state.score = sd.score;
+                    }
+                    if (si == 0) challenges.onFoodEaten(eatenFood, true);
+                    if (sound != null && si == 0) sound.playCrunch();
+                }
 
             // Boss collision — head-on damages boss, body kills player
+            boolean hitBoss = false;
+            boolean bossKillingBlow = false;
             if (state.boss.alive) {
                 Point bh = state.boss.body.get(0);
                 if (nx == bh.x && ny == bh.y) {
-                    sd.score += BOSS_HIT_SCORE;
-                    state.score = sd.score;
-                    damageBoss();
+                    hitBoss = true;
+                    bossKillingBlow = state.boss.body.size() <= 2;
+                    if (!predict) {
+                        sd.score += BOSS_HIT_SCORE;
+                        state.score = sd.score;
+                    }
+                    damageBoss(si, !predict);
+                    if (predict && si == state.playerIndex) {
+                        // The client landed the hit locally — ask the host to apply it
+                        state.clientBossHit = true;
+                    }
                 } else {
                     for (int i = 1; i < state.boss.body.size(); i++) {
                         if (nx == state.boss.body.get(i).x && ny == state.boss.body.get(i).y) {
@@ -322,7 +357,19 @@ public class SnakeEngine {
             }
 
             // Growth / shrink / detach
-            if (state.bossGrowthPending > 0 && si == 0) {
+            if (hitBoss && !bossKillingBlow) {
+                // Boss hit shrinks the player by BOSS_HIT_SHRINK, but never below
+                // 1 head + 2 body. Skipped on the killing blow: boss defeat only
+                // rewards +25 score / +5 growth.
+                int shrink = BOSS_HIT_SHRINK;
+                while (shrink > 0 && sd.body.size() > 3) {
+                    sd.body.remove(sd.body.size() - 1);
+                    shrink--;
+                }
+                if (si == 0 && shrink < BOSS_HIT_SHRINK) challenges.onSegmentLost();
+            } else if (sd.growthPending > 0) {
+                sd.growthPending--;
+            } else if (state.bossGrowthPending > 0 && si == 0) {
                 state.bossGrowthPending--;
             } else if (!ateFood) {
                 sd.body.remove(sd.body.size() - 1);
@@ -331,9 +378,12 @@ public class SnakeEngine {
 
         // Boss auto-movement, spawn, and food refill: host only
         if (!predict) {
+            challenges.update();
             if (state.boss.alive && state.tickCount - state.boss.lastMoveTick >= BOSS_MOVE_INTERVAL) {
                 if (state.boss.type == GameState.BossType.WALL_BUILDER) {
                     moveWallBuilder();
+                } else if (state.boss.type == GameState.BossType.HEALER) {
+                    moveHealer();
                 } else {
                     moveBoss();
                 }
@@ -341,25 +391,41 @@ public class SnakeEngine {
 
                 // After moving, check if boss head overlaps a player snake segment
                 Point bh = state.boss.body.get(0);
-                boolean bossHitPlayer = false;
+                int bossHitIdx = -1;
                 for (int si = 0; si < 2; si++) {
                     if (!state.snakes[si].alive) continue;
                     for (Point p : state.snakes[si].body) {
-                        if (p.x == bh.x && p.y == bh.y) { bossHitPlayer = true; break; }
+                        if (p.x == bh.x && p.y == bh.y) { bossHitIdx = si; break; }
                     }
-                    if (bossHitPlayer) break;
+                    if (bossHitIdx >= 0) break;
                 }
-                if (bossHitPlayer) {
-                    damageBoss();
+                if (bossHitIdx >= 0) {
+                    damageBoss(bossHitIdx, true);
                 }
 
                 // Boss eats food at new head position
                 if (state.boss.alive) {
                     Point head = state.boss.body.get(0);
                     for (int i = state.foods.size() - 1; i >= 0; i--) {
-                        if (state.foods.get(i).x == head.x && state.foods.get(i).y == head.y) {
+                        GameState.Fruit f = state.foods.get(i);
+                        if (f.x == head.x && f.y == head.y) {
                             state.foods.remove(i);
-                            state.boss.growthPending++;
+                            if (state.boss.type == GameState.BossType.HEALER
+                                    && f.type == GameState.FruitType.NORMAL) {
+                                // HEALER stores normal fruit, reducing the on-board
+                                // food cap until released as green healing fruit on
+                                // damage — but still grows one like the other bosses.
+                                if (state.boss.storedFruits < state.boss.healFruitCap) {
+                                    state.boss.storedFruits++;
+                                }
+                                state.boss.growthPending++;
+                            } else if (f.type == GameState.FruitType.HEAL) {
+                                // Green healing fruit grows the boss too
+                                state.boss.growthPending += 2;
+                            } else {
+                                state.boss.growthPending++;
+                            }
+                            challenges.onBossAteFood();
                             break;
                         }
                     }
@@ -384,23 +450,28 @@ public class SnakeEngine {
                 }
             }
 
+            // Wall capture: any player snake that fully surrounds a connected
+            // wall group destroys it. Runs after player movement and wall
+            // creation so the freshest layout is evaluated.
+            checkWallCaptures();
+
             // Boss spawn check (uses sum score in multiplayer)
             int progressionScore = state.snakes[0].score + state.snakes[1].score;
-            if (!state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
+            if (!state.isClassicMode() && !state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
                 spawnBoss();
             }
 
             // Refill food
             int targetFoodCount = getTargetFoodCount(progressionScore);
-            while (state.foods.size() < targetFoodCount) {
-                spawnFood();
-            }
+            refillFood(targetFoodCount);
         }
 
-        // Trail expiry (both sides)
-        for (int i = state.bossTrail.size() - 1; i >= 0; i--) {
-            if (state.tickCount - state.bossTrail.get(i).createdAtTick >= TRAIL_MAX_AGE) {
-                state.bossTrail.remove(i);
+        // Trail expiry (both sides) — skip in Classic mode
+        if (!state.isClassicMode()) {
+            for (int i = state.bossTrail.size() - 1; i >= 0; i--) {
+                if (state.tickCount - state.bossTrail.get(i).createdAtTick >= TRAIL_MAX_AGE) {
+                    state.bossTrail.remove(i);
+                }
             }
         }
 
@@ -411,6 +482,7 @@ public class SnakeEngine {
                 if (state.snakes[i].alive) { allDead = false; break; }
             }
             if (allDead) {
+                challenges.onPlayerDied();
                 state.lastScore = state.snakes[0].score;
                 if (state.isHost) {
                     state.mpWinner = state.snakes[0].score > state.snakes[1].score ? 0 :
@@ -420,7 +492,7 @@ public class SnakeEngine {
                     state.currentState = GameState.State.MP_GAME_OVER;
                 } else {
                     if (!state.devMode)
-                        persistence.saveScore(state.snakes[0].score, state.speedLabels[state.speedIndex]);
+                        persistence.saveScore(state.snakes[0].score, state.speedLabels[state.speedIndex], state.gameMode.ordinal());
                     state.currentState = GameState.State.GAME_OVER;
                 }
             }
@@ -460,6 +532,7 @@ public class SnakeEngine {
                 state.boss.lastMoveTick = state.tickCount;
                 state.boss.growthPending = 0;
                 selectBossType();
+                challenges.onBossSpawned(state.boss.type, state.snakes[0].body.size());
                 return;
             }
         }
@@ -476,6 +549,7 @@ public class SnakeEngine {
                 state.boss.lastMoveTick = state.tickCount;
                 state.boss.growthPending = 0;
                 selectBossType();
+                challenges.onBossSpawned(state.boss.type, state.snakes[0].body.size());
                 return;
             }
         }
@@ -483,16 +557,39 @@ public class SnakeEngine {
 
     private void moveBoss() {
         Point head = state.boss.body.get(0);
-        Point target = findNearestFood(head.x, head.y);
+        Point target = getBossTarget(head);
         if (target != null) { state.bossTargetX = target.x; state.bossTargetY = target.y; }
         moveBossWithAI(head, target);
     }
 
     private void moveWallBuilder() {
         Point head = state.boss.body.get(0);
-        Point target = findBestTarget(head.x, head.y);
+        Point target = getBossTarget(head);
         if (target != null) { state.bossTargetX = target.x; state.bossTargetY = target.y; }
         moveBossWithAI(head, target);
+    }
+
+    // HEALER AI: nearest reachable green healing fruit always wins; otherwise it
+    // behaves like the wall builder (chase food/players) to stock up on stores.
+    private void moveHealer() {
+        Point head = state.boss.body.get(0);
+        Point target = getBossTarget(head);
+        if (target != null) { state.bossTargetX = target.x; state.bossTargetY = target.y; }
+        moveBossWithAI(head, target);
+    }
+
+    // Type-aware boss objective. For the HEALER, a reachable green fruit
+    // overrides every other objective.
+    private Point getBossTarget(Point head) {
+        if (state.boss.type == GameState.BossType.HEALER) {
+            GameState.Fruit green = findNearestReachableGreen(head.x, head.y);
+            if (green != null) return new Point(green.x, green.y);
+            return findBestTarget(head.x, head.y);
+        }
+        if (state.boss.type == GameState.BossType.WALL_BUILDER) {
+            return findBestTarget(head.x, head.y);
+        }
+        return findNearestFood(head.x, head.y);
     }
 
     // ----- Boss AI: evasion, turn limits, hesitation -----
@@ -625,8 +722,7 @@ public class SnakeEngine {
         int distSq = wrappedDistSq(head.x, head.y, player.x, player.y);
 
         // Check if task is nearly complete (within 2 cells)
-        Point target = state.boss.type == GameState.BossType.WALL_BUILDER
-                ? findBestTarget(head.x, head.y) : findNearestFood(head.x, head.y);
+        Point target = getBossTarget(head);
         boolean taskNearlyComplete = target != null && wrappedDistSq(head.x, head.y, target.x, target.y) <= 2;
 
         // Enter evasion if player is within danger radius
@@ -670,7 +766,7 @@ public class SnakeEngine {
         return 0;
     }
 
-    private void damageBoss() {
+    private void damageBoss(int hitterIndex, boolean creditScore) {
         int removed = 0;
         boolean killingBlow = state.boss.body.size() <= 2;
 
@@ -686,18 +782,36 @@ public class SnakeEngine {
             state.boss.alive = false;
             state.bossTargetX = -1;
             state.bossTargetY = -1;
+            // Stored fruit is lost when the HEALER is destroyed, so the food cap
+            // recovers for the next boss cycle
+            state.boss.storedFruits = 0;
             if (state.boss.type == GameState.BossType.WALL_BUILDER) {
                 startWallDeathAnimation();
             }
-            state.snakes[0].score += BOSS_DEFEAT_SCORE;
-            state.score = state.snakes[0].score;
+            if (creditScore) {
+                state.snakes[hitterIndex].score += BOSS_DEFEAT_SCORE;
+                state.score = state.snakes[hitterIndex].score;
+            }
             state.bossGrowthPending += BOSS_DEFEAT_GROWTH;
             state.nextBossSpawnScore += BOSS_SPAWN_INTERVAL;
+            challenges.onBossDefeated(state.boss.type, state.snakes[hitterIndex].body.size());
             if (sound != null) sound.playBossDefeat();
         } else {
             teleportBoss();
+            // HEALER releases its stored fruit as green healing fruit after damage
+            if (state.boss.type == GameState.BossType.HEALER) {
+                spawnHealerFruits();
+            }
             if (sound != null) sound.playBossDamage();
         }
+    }
+
+    // Called on the host when the client reports it hit the boss head
+    void clientHitBoss() {
+        if (!state.boss.alive) return;
+        state.snakes[1].score += BOSS_HIT_SCORE;
+        state.score = state.snakes[1].score;
+        damageBoss(1, true);
     }
 
     private void spawnBossTrailAtBody() {
@@ -709,18 +823,30 @@ public class SnakeEngine {
     }
 
     private void teleportBoss() {
-        int segs = state.boss.body.size();
-        if (segs == 0) return;
+        if (state.boss.body.isEmpty()) return;
+        // Prefer a spot where neither the head nor any body segment lands inside
+        // a player's danger zone (single and multiplayer alike).
+        if (placeBossBody(400, true)) return;
+        // If no such spot exists, fall back to a random tp that simply avoids
+        // ending up inside the player bodies.
+        if (placeBossBody(400, false)) return;
+        // If can't place, just leave the boss where it is
+    }
 
+    // Attempts to place the boss head + straight-line body such that no segment
+    // overlaps a player body, and (when avoidDangerZone) no segment sits within a
+    // player's danger radius. Returns true if a placement was applied.
+    private boolean placeBossBody(int maxAttempts, boolean avoidDangerZone) {
+        int segs = state.boss.body.size();
         int[] dirsX = {0, 0, -1, 1};
         int[] dirsY = {-1, 1, 0, 0};
 
-        for (int attempts = 0; attempts < 100; attempts++) {
+        for (int attempts = 0; attempts < maxAttempts; attempts++) {
             int hx = rand.nextInt(state.cols);
             int hy = rand.nextInt(state.rows);
             if (overlapsSnake(hx, hy)) continue;
+            if (avoidDangerZone && inPlayerDangerZone(hx, hy)) continue;
 
-            // Try to place remaining segments in a straight line
             int startDir = rand.nextInt(4);
             for (int d = 0; d < 4; d++) {
                 int dir = (startDir + d) % 4;
@@ -734,17 +860,34 @@ public class SnakeEngine {
                     if (sy < 0) sy += state.rows;
                     if (sy >= state.rows) sy -= state.rows;
                     if (overlapsSnake(sx, sy)) { valid = false; break; }
+                    if (avoidDangerZone && inPlayerDangerZone(sx, sy)) { valid = false; break; }
                     newBody.add(new Point(sx, sy));
                 }
                 if (valid && newBody.size() == segs) {
                     state.boss.body = newBody;
                     state.boss.dirX = dirsX[dir];
                     state.boss.dirY = dirsY[dir];
-                    return;
+                    return true;
                 }
             }
         }
-        // If can't place, just leave the boss where it is
+        return false;
+    }
+
+    // True if the cell lies within DANGER_RADIUS of any alive player's head
+    // (toroidal distance, matching the boss evasion logic).
+    private boolean inPlayerDangerZone(int x, int y) {
+        for (int si = 0; si < 2; si++) {
+            GameState.SnakeData sd = state.snakes[si];
+            if (!sd.alive || sd.body.isEmpty()) continue;
+            Point head = sd.body.get(0);
+            int dx = Math.abs(x - head.x);
+            int dy = Math.abs(y - head.y);
+            if (dx > state.cols / 2) dx = state.cols - dx;
+            if (dy > state.rows / 2) dy = state.rows - dy;
+            if (dx * dx + dy * dy < DANGER_RADIUS_SQ) return true;
+        }
+        return false;
     }
 
     private boolean isBossMoveValid(int x, int y) {
@@ -776,9 +919,14 @@ public class SnakeEngine {
     }
 
     private Point findNearestFood(int bx, int by) {
+        return findNearestFood(bx, by, null);
+    }
+
+    private Point findNearestFood(int bx, int by, GameState.FruitType type) {
         Point nearest = null;
         int bestDist = Integer.MAX_VALUE;
-        for (Point f : state.foods) {
+        for (GameState.Fruit f : state.foods) {
+            if (type != null && f.type != type) continue;
             int dx = Math.abs(f.x - bx);
             int dy = Math.abs(f.y - by);
             if (dx > state.cols / 2) dx = state.cols - dx;
@@ -786,10 +934,54 @@ public class SnakeEngine {
             int dist = dx * dx + dy * dy;
             if (dist < bestDist) {
                 bestDist = dist;
-                nearest = f;
+                nearest = new Point(f.x, f.y);
             }
         }
         return nearest;
+    }
+
+    // BFS from the boss head over cells the boss could actually move through,
+    // returning the nearest green healing fruit (or null if none is reachable).
+    private GameState.Fruit findNearestReachableGreen(int bx, int by) {
+        boolean anyGreen = false;
+        for (GameState.Fruit f : state.foods) {
+            if (f.type == GameState.FruitType.HEAL) { anyGreen = true; break; }
+        }
+        if (!anyGreen) return null;
+        boolean[] visited = new boolean[state.cols * state.rows];
+        int[] qx = new int[state.cols * state.rows];
+        int[] qy = new int[state.cols * state.rows];
+        int qh = 0, qt = 0;
+        qx[qt] = bx;
+        qy[qt] = by;
+        qt++;
+        visited[by * state.cols + bx] = true;
+        int[] dx = {1, -1, 0, 0};
+        int[] dy = {0, 0, 1, -1};
+        while (qh < qt) {
+            int cx = qx[qh];
+            int cy = qy[qh];
+            qh++;
+            for (GameState.Fruit f : state.foods) {
+                if (f.type == GameState.FruitType.HEAL && f.x == cx && f.y == cy) return f;
+            }
+            for (int d = 0; d < 4; d++) {
+                int nx = cx + dx[d];
+                int ny = cy + dy[d];
+                if (nx < 0) nx = state.cols - 1;
+                if (nx >= state.cols) nx = 0;
+                if (ny < 0) ny = state.rows - 1;
+                if (ny >= state.rows) ny = 0;
+                if (visited[ny * state.cols + nx]) continue;
+                if (nx == bx && ny == by) continue;
+                if (!isBossMoveValid(nx, ny)) continue;
+                visited[ny * state.cols + nx] = true;
+                qx[qt] = nx;
+                qy[qt] = ny;
+                qt++;
+            }
+        }
+        return null;
     }
 
     private int wrappedDir(int from, int to, int size) {
@@ -809,7 +1001,7 @@ public class SnakeEngine {
     }
 
     private boolean overlapsFood(int x, int y) {
-        for (Point f : state.foods) if (f.x == x && f.y == y) return true;
+        for (GameState.Fruit f : state.foods) if (f.x == x && f.y == y) return true;
         return false;
     }
 
@@ -830,19 +1022,42 @@ public class SnakeEngine {
 
     private void placeFood() {
         state.foods.clear();
-        int target = getTargetFoodCount(state.snakes[0].score);
-        while (state.foods.size() < target) spawnFood();
+        refillFood(getTargetFoodCount(state.snakes[0].score));
     }
 
-    private void spawnFood() {
+    // Keeps the board stocked: normal food is limited by the base cap minus any
+    // fruit the HEALER is storing and any green healing fruit currently on the
+    // board, so the fruit economy stays consistent.
+    private void refillFood(int targetFoodCount) {
+        int normalCount = 0;
+        int greenCount = 0;
+        for (GameState.Fruit f : state.foods) {
+            if (f.type == GameState.FruitType.HEAL) greenCount++;
+            else normalCount++;
+        }
+        int allowedNormal = targetFoodCount - state.boss.storedFruits - greenCount;
+        if (allowedNormal < 0) allowedNormal = 0;
+        while (normalCount < allowedNormal) {
+            spawnFood(GameState.FruitType.NORMAL);
+            normalCount++;
+        }
+    }
+
+    private void spawnFood(GameState.FruitType type) {
         int fx, fy;
         boolean coll;
+        int attempts = 0;
         do {
             fx = rand.nextInt(state.cols);
             fy = rand.nextInt(state.rows);
             coll = overlapsSnake(fx, fy) || overlapsFood(fx, fy) || overlapsTrail(fx, fy) || overlapsBoss(fx, fy) || overlapsWall(fx, fy);
-        } while (coll);
-        state.foods.add(new Point(fx, fy));
+            attempts++;
+        } while (coll && attempts < 300);
+        if (!coll) {
+            GameState.Fruit f = new GameState.Fruit(type, fx, fy);
+            state.foods.add(f);
+            challenges.onFoodSpawned(f);
+        }
     }
 
     private boolean overlapsBoss(int x, int y) {
@@ -858,20 +1073,63 @@ public class SnakeEngine {
         return false;
     }
 
+    // ----- HEALER helpers -----
+
+    // Releases stored fruit as green healing fruit after the boss takes damage.
+    // Spawned well away from the boss head (the fresh teleport position) and
+    // capped so the board never floods with special fruit.
+    private void spawnHealerFruits() {
+        if (state.boss.storedFruits <= 0) return;
+        int greenCount = 0;
+        for (GameState.Fruit f : state.foods) {
+            if (f.type == GameState.FruitType.HEAL) greenCount++;
+        }
+        int toSpawn = Math.min(state.boss.storedFruits, state.boss.healFruitCap - greenCount);
+        if (toSpawn < 0) toSpawn = 0;
+        Point head = state.boss.body.get(0);
+        for (int i = 0; i < toSpawn; i++) {
+            spawnHealFruit(head.x, head.y);
+        }
+        state.boss.storedFruits = 0;
+    }
+
+    private void spawnHealFruit(int bx, int by) {
+        for (int attempts = 0; attempts < 300; attempts++) {
+            int fx = rand.nextInt(state.cols);
+            int fy = rand.nextInt(state.rows);
+            if (overlapsSnake(fx, fy) || overlapsFood(fx, fy) || overlapsTrail(fx, fy)
+                    || overlapsBoss(fx, fy) || overlapsWall(fx, fy)) continue;
+            int dx = Math.abs(fx - bx);
+            int dy = Math.abs(fy - by);
+            if (dx > state.cols / 2) dx = state.cols - dx;
+            if (dy > state.rows / 2) dy = state.rows - dy;
+            // Keep healing fruit clear of the boss head
+            if (dx * dx + dy * dy < 256) continue;
+            GameState.Fruit healFruit = new GameState.Fruit(GameState.FruitType.HEAL, fx, fy);
+            state.foods.add(healFruit);
+            challenges.onFoodSpawned(healFruit);
+            return;
+        }
+    }
+
     // ----- Wall builder methods -----
 
     private void selectBossType() {
         state.boss.isEvading = false;
         state.boss.evasionCooldown = 0;
         state.boss.hesitationTicks = 0;
+        state.boss.storedFruits = 0;
         if (state.devForcedBossType == 1) {
             state.boss.type = GameState.BossType.CHASER;
         } else if (state.devForcedBossType == 2) {
             state.boss.type = GameState.BossType.WALL_BUILDER;
+        } else if (state.devForcedBossType == 3) {
+            state.boss.type = GameState.BossType.HEALER;
         } else {
-            state.boss.type = rand.nextInt(100) < 40
-                    ? GameState.BossType.WALL_BUILDER
-                    : GameState.BossType.CHASER;
+            int r = rand.nextInt(100);
+            if (r < 30) state.boss.type = GameState.BossType.WALL_BUILDER;
+            else if (r < 55) state.boss.type = GameState.BossType.HEALER;
+            else state.boss.type = GameState.BossType.CHASER;
         }
         if (state.boss.type == GameState.BossType.WALL_BUILDER) {
             initWallDifficulty();
@@ -897,8 +1155,10 @@ public class SnakeEngine {
     }
 
     private Point findBestTarget(int bx, int by) {
-        // Find nearest food
-        Point nearestFood = findNearestFood(bx, by);
+        // Find nearest food (HEALER hunts normal fruit to stock its stores)
+        Point nearestFood = state.boss.type == GameState.BossType.HEALER
+                ? findNearestFood(bx, by, GameState.FruitType.NORMAL)
+                : findNearestFood(bx, by);
         // Find nearest alive player head
         Point nearestPlayer = null;
         int bestPlayerDist = Integer.MAX_VALUE;
@@ -1009,6 +1269,145 @@ public class SnakeEngine {
             w.dying = true;
             w.deathStartTick = state.tickCount;
         }
+    }
+
+    // ----- Wall capture (players destroy fully surrounded wall groups) -----
+
+    // A wall group is captured when every tile of the group is sealed inside a
+    // complete snake loop: there is no path from the group to the outside that
+    // does not cross a snake body. The world is toroidal, so the check runs on
+    // a 3x3 unwrapped copy of the board, letting loops that cross map edges and
+    // reconnect still count. Walls themselves are passable for the test (only
+    // snake bodies form the barrier), so touching or partial surround never
+    // triggers.
+    private void checkWallCaptures() {
+        int wallCount = 0;
+        for (GameState.WallCell w : state.walls) {
+            if (!w.dying) wallCount++;
+        }
+        if (wallCount == 0) return;
+
+        int gw = state.cols * 3;
+        int gh = state.rows * 3;
+
+        // Snake bodies are the only barrier. Mark every copy of each body cell.
+        boolean[] blocked = new boolean[gw * gh];
+        int snakeCells = 0;
+        for (int si = 0; si < 2; si++) {
+            GameState.SnakeData sd = state.snakes[si];
+            if (!sd.alive) continue;
+            for (Point p : sd.body) {
+                snakeCells++;
+                int baseX = p.x;
+                int baseY = p.y;
+                for (int i = 0; i < 3; i++) {
+                    int gx = baseX + i * state.cols;
+                    for (int j = 0; j < 3; j++) {
+                        blocked[(baseY + j * state.rows) * gw + gx] = true;
+                    }
+                }
+            }
+        }
+        // A loop needs at least a 3x3 ring of body cells to enclose anything.
+        if (snakeCells < 8) return;
+
+        // Flood the "outside" region in from the boundary of the unwrapped
+        // board over every non-snake cell (walls are passable here).
+        boolean[] reached = new boolean[gw * gh];
+        int[] qx = new int[gw * gh];
+        int[] qy = new int[gw * gh];
+        int qHead = 0, qTail = 0;
+        for (int gx = 0; gx < gw; gx++) {
+            qTail = pushFloodCell(gx, 0, gw, gh, blocked, reached, qx, qy, qTail);
+            qTail = pushFloodCell(gx, gh - 1, gw, gh, blocked, reached, qx, qy, qTail);
+        }
+        for (int gy = 0; gy < gh; gy++) {
+            qTail = pushFloodCell(0, gy, gw, gh, blocked, reached, qx, qy, qTail);
+            qTail = pushFloodCell(gw - 1, gy, gw, gh, blocked, reached, qx, qy, qTail);
+        }
+        while (qHead < qTail) {
+            int x = qx[qHead];
+            int y = qy[qHead];
+            qHead++;
+            if (x > 0) qTail = pushFloodCell(x - 1, y, gw, gh, blocked, reached, qx, qy, qTail);
+            if (x < gw - 1) qTail = pushFloodCell(x + 1, y, gw, gh, blocked, reached, qx, qy, qTail);
+            if (y > 0) qTail = pushFloodCell(x, y - 1, gw, gh, blocked, reached, qx, qy, qTail);
+            if (y < gh - 1) qTail = pushFloodCell(x, y + 1, gw, gh, blocked, reached, qx, qy, qTail);
+        }
+
+        // Index every live wall by its board position for fast grouping.
+        int boardCells = state.cols * state.rows;
+        int[] wallIndex = new int[boardCells];
+        Arrays.fill(wallIndex, -1);
+        for (int i = 0; i < state.walls.size(); i++) {
+            GameState.WallCell w = state.walls.get(i);
+            if (!w.dying) wallIndex[w.y * state.cols + w.x] = i;
+        }
+
+        // Collect 8-connected wall groups; a group is captured only if every
+        // member tile is unreachable by the outside flood (its central copy).
+        boolean[] groupVisited = new boolean[state.walls.size()];
+        int[] stack = new int[state.walls.size()];
+        for (int i = 0; i < state.walls.size(); i++) {
+            if (state.walls.get(i).dying || groupVisited[i]) continue;
+            ArrayList<GameState.WallCell> group = new ArrayList<>();
+            int sp = 0;
+            stack[sp++] = i;
+            groupVisited[i] = true;
+            while (sp > 0) {
+                GameState.WallCell cw = state.walls.get(stack[--sp]);
+                group.add(cw);
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = cw.x + dx;
+                        int ny = cw.y + dy;
+                        if (nx < 0) nx += state.cols;
+                        if (nx >= state.cols) nx -= state.cols;
+                        if (ny < 0) ny += state.rows;
+                        if (ny >= state.rows) ny -= state.rows;
+                        int gi = wallIndex[ny * state.cols + nx];
+                        if (gi >= 0 && !groupVisited[gi]) {
+                            groupVisited[gi] = true;
+                            stack[sp++] = gi;
+                        }
+                    }
+                }
+            }
+            boolean captured = true;
+            for (GameState.WallCell cw : group) {
+                // Central copy (1,1) of the 3x3 unwrapped board.
+                if (reached[(cw.y + state.rows) * gw + (cw.x + state.cols)]) {
+                    captured = false;
+                    break;
+                }
+            }
+            if (captured) {
+                destroyWallGroup(group);
+            }
+        }
+    }
+
+    // Returns the next queue tail index. Marks a flood cell reached if it is
+    // inside the board, free (not a snake body), and not already reached.
+    private int pushFloodCell(int x, int y, int gw, int gh, boolean[] blocked,
+                              boolean[] reached, int[] qx, int[] qy, int qTail) {
+        int idx = y * gw + x;
+        if (blocked[idx] || reached[idx]) return qTail;
+        reached[idx] = true;
+        qx[qTail] = x;
+        qy[qTail] = y;
+        return qTail + 1;
+    }
+
+    private void destroyWallGroup(ArrayList<GameState.WallCell> group) {
+        for (GameState.WallCell w : group) {
+            if (w.dying) continue;
+            w.dying = true;
+            w.deathStartTick = state.tickCount;
+        }
+        if (sound != null) sound.playWallDestroyed();
+        challenges.onWallGroupCaptured(group.size());
     }
 
     private boolean isValidWallPosition(int x, int y) {
