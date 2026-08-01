@@ -271,8 +271,10 @@ Features:
 - Placement preview
 - Collision detection
 - Destruction effects
+- **Wall capture** — a player snake that completely surrounds a connected wall group with a closed loop destroys it (8-directional connectivity, toroidal edges supported)
+- Captured walls stop blocking movement, boss pathing, and food spawning immediately
 
-Walls remain until the boss is defeated.
+Walls otherwise remain until the boss is defeated.
 
 ---
 
@@ -436,6 +438,7 @@ Everything is created using:
 
 Major updates:
 
+- Wall capture — destroy Wall Builder walls by fully surrounding them
 - HEALER boss
 - Multiplayer improvements
 - Better boss synchronization

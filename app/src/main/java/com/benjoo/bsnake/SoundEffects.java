@@ -15,12 +15,14 @@ public class SoundEffects {
     private static final int DAMAGE_MS = 120;
     private static final int BOSS_DAMAGE_MS = 500;
     private static final int BOSS_DEFEAT_MS = 3200;
+    private static final int WALL_DESTROY_MS = 300;
 
     private short[] clickBuffer;
     private short[] crunchBuffer;
     private short[] bossDamageBuffer;
     private short[] bossDefeatBuffer;
-    private AudioTrack clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack;
+    private short[] wallDestroyBuffer;
+    private AudioTrack clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack;
     private float volume = 1.0f;
     private boolean muted;
 
@@ -29,6 +31,7 @@ public class SoundEffects {
         generateCrunch();
         generateBossDamage();
         generateBossDefeat();
+        generateWallDestroyed();
         initTracks();
     }
 
@@ -53,6 +56,8 @@ public class SoundEffects {
         bossDamageTrack.write(bossDamageBuffer, 0, bossDamageBuffer.length);
         bossDefeatTrack = createTrack(bossDefeatBuffer.length * 2);
         bossDefeatTrack.write(bossDefeatBuffer, 0, bossDefeatBuffer.length);
+        wallDestroyTrack = createTrack(wallDestroyBuffer.length * 2);
+        wallDestroyTrack.write(wallDestroyBuffer, 0, wallDestroyBuffer.length);
     }
 
     // ----- sound generation -----
@@ -150,6 +155,21 @@ public class SoundEffects {
         }
     }
 
+    // Wall shatter: short burst of noise with a descending tone.
+    private void generateWallDestroyed() {
+        int n = SAMPLE_RATE * WALL_DESTROY_MS / 1000;
+        wallDestroyBuffer = new short[n];
+        Random rng = new Random(7);
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double envelope = Math.exp(-t * 20.0);
+            double thud = Math.sin(2 * Math.PI * (130.0 - 55.0 * t) * t) * 0.45;
+            double noise = (rng.nextDouble() - 0.5) * 0.5;
+            double s = (thud + noise) * envelope * 0.6;
+            wallDestroyBuffer[i] = (short) (s * Short.MAX_VALUE);
+        }
+    }
+
     // ----- shared play helper -----
 
     private void playTrack(AudioTrack track) {
@@ -172,6 +192,7 @@ public class SoundEffects {
     public void playCrunch()     { if (!muted) playTrack(crunchTrack); }
     public void playBossDamage() { if (!muted) playTrack(bossDamageTrack); }
     public void playBossDefeat() { if (!muted) playTrack(bossDefeatTrack); }
+    public void playWallDestroyed() { if (!muted) playTrack(wallDestroyTrack); }
     public void setMuted(boolean m) { muted = m; }
 
     public void setVolume(float vol) {
@@ -179,7 +200,7 @@ public class SoundEffects {
     }
 
     public void stopAll() {
-        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack };
+        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); } catch (Exception e) { }
@@ -188,7 +209,7 @@ public class SoundEffects {
     }
 
     public void release() {
-        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack };
+        AudioTrack[] tracks = { clickTrack, crunchTrack, bossDamageTrack, bossDefeatTrack, wallDestroyTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); t.release(); } catch (Exception e) { }
@@ -196,5 +217,6 @@ public class SoundEffects {
         }
         clickTrack = null; crunchTrack = null;
         bossDamageTrack = null; bossDefeatTrack = null;
+        wallDestroyTrack = null;
     }
 }

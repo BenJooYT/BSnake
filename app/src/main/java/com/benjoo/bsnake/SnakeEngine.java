@@ -3,6 +3,7 @@ package com.benjoo.bsnake;
 import android.graphics.Point;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Random;
 
 public class SnakeEngine {
@@ -434,6 +435,11 @@ public class SnakeEngine {
                     state.walls.remove(i);
                 }
             }
+
+            // Wall capture: any player snake that fully surrounds a connected
+            // wall group destroys it. Runs after player movement and wall
+            // creation so the freshest layout is evaluated.
+            checkWallCaptures();
 
             // Boss spawn check (uses sum score in multiplayer)
             int progressionScore = state.snakes[0].score + state.snakes[1].score;
@@ -1239,6 +1245,144 @@ public class SnakeEngine {
             w.dying = true;
             w.deathStartTick = state.tickCount;
         }
+    }
+
+    // ----- Wall capture (players destroy fully surrounded wall groups) -----
+
+    // A wall group is captured when every tile of the group is sealed inside a
+    // complete snake loop: there is no path from the group to the outside that
+    // does not cross a snake body. The world is toroidal, so the check runs on
+    // a 3x3 unwrapped copy of the board, letting loops that cross map edges and
+    // reconnect still count. Walls themselves are passable for the test (only
+    // snake bodies form the barrier), so touching or partial surround never
+    // triggers.
+    private void checkWallCaptures() {
+        int wallCount = 0;
+        for (GameState.WallCell w : state.walls) {
+            if (!w.dying) wallCount++;
+        }
+        if (wallCount == 0) return;
+
+        int gw = state.cols * 3;
+        int gh = state.rows * 3;
+
+        // Snake bodies are the only barrier. Mark every copy of each body cell.
+        boolean[] blocked = new boolean[gw * gh];
+        int snakeCells = 0;
+        for (int si = 0; si < 2; si++) {
+            GameState.SnakeData sd = state.snakes[si];
+            if (!sd.alive) continue;
+            for (Point p : sd.body) {
+                snakeCells++;
+                int baseX = p.x;
+                int baseY = p.y;
+                for (int i = 0; i < 3; i++) {
+                    int gx = baseX + i * state.cols;
+                    for (int j = 0; j < 3; j++) {
+                        blocked[(baseY + j * state.rows) * gw + gx] = true;
+                    }
+                }
+            }
+        }
+        // A loop needs at least a 3x3 ring of body cells to enclose anything.
+        if (snakeCells < 8) return;
+
+        // Flood the "outside" region in from the boundary of the unwrapped
+        // board over every non-snake cell (walls are passable here).
+        boolean[] reached = new boolean[gw * gh];
+        int[] qx = new int[gw * gh];
+        int[] qy = new int[gw * gh];
+        int qHead = 0, qTail = 0;
+        for (int gx = 0; gx < gw; gx++) {
+            qTail = pushFloodCell(gx, 0, gw, gh, blocked, reached, qx, qy, qTail);
+            qTail = pushFloodCell(gx, gh - 1, gw, gh, blocked, reached, qx, qy, qTail);
+        }
+        for (int gy = 0; gy < gh; gy++) {
+            qTail = pushFloodCell(0, gy, gw, gh, blocked, reached, qx, qy, qTail);
+            qTail = pushFloodCell(gw - 1, gy, gw, gh, blocked, reached, qx, qy, qTail);
+        }
+        while (qHead < qTail) {
+            int x = qx[qHead];
+            int y = qy[qHead];
+            qHead++;
+            if (x > 0) qTail = pushFloodCell(x - 1, y, gw, gh, blocked, reached, qx, qy, qTail);
+            if (x < gw - 1) qTail = pushFloodCell(x + 1, y, gw, gh, blocked, reached, qx, qy, qTail);
+            if (y > 0) qTail = pushFloodCell(x, y - 1, gw, gh, blocked, reached, qx, qy, qTail);
+            if (y < gh - 1) qTail = pushFloodCell(x, y + 1, gw, gh, blocked, reached, qx, qy, qTail);
+        }
+
+        // Index every live wall by its board position for fast grouping.
+        int boardCells = state.cols * state.rows;
+        int[] wallIndex = new int[boardCells];
+        Arrays.fill(wallIndex, -1);
+        for (int i = 0; i < state.walls.size(); i++) {
+            GameState.WallCell w = state.walls.get(i);
+            if (!w.dying) wallIndex[w.y * state.cols + w.x] = i;
+        }
+
+        // Collect 8-connected wall groups; a group is captured only if every
+        // member tile is unreachable by the outside flood (its central copy).
+        boolean[] groupVisited = new boolean[state.walls.size()];
+        int[] stack = new int[state.walls.size()];
+        for (int i = 0; i < state.walls.size(); i++) {
+            if (state.walls.get(i).dying || groupVisited[i]) continue;
+            ArrayList<GameState.WallCell> group = new ArrayList<>();
+            int sp = 0;
+            stack[sp++] = i;
+            groupVisited[i] = true;
+            while (sp > 0) {
+                GameState.WallCell cw = state.walls.get(stack[--sp]);
+                group.add(cw);
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = cw.x + dx;
+                        int ny = cw.y + dy;
+                        if (nx < 0) nx += state.cols;
+                        if (nx >= state.cols) nx -= state.cols;
+                        if (ny < 0) ny += state.rows;
+                        if (ny >= state.rows) ny -= state.rows;
+                        int gi = wallIndex[ny * state.cols + nx];
+                        if (gi >= 0 && !groupVisited[gi]) {
+                            groupVisited[gi] = true;
+                            stack[sp++] = gi;
+                        }
+                    }
+                }
+            }
+            boolean captured = true;
+            for (GameState.WallCell cw : group) {
+                // Central copy (1,1) of the 3x3 unwrapped board.
+                if (reached[(cw.y + state.rows) * gw + (cw.x + state.cols)]) {
+                    captured = false;
+                    break;
+                }
+            }
+            if (captured) {
+                destroyWallGroup(group);
+            }
+        }
+    }
+
+    // Returns the next queue tail index. Marks a flood cell reached if it is
+    // inside the board, free (not a snake body), and not already reached.
+    private int pushFloodCell(int x, int y, int gw, int gh, boolean[] blocked,
+                              boolean[] reached, int[] qx, int[] qy, int qTail) {
+        int idx = y * gw + x;
+        if (blocked[idx] || reached[idx]) return qTail;
+        reached[idx] = true;
+        qx[qTail] = x;
+        qy[qTail] = y;
+        return qTail + 1;
+    }
+
+    private void destroyWallGroup(ArrayList<GameState.WallCell> group) {
+        for (GameState.WallCell w : group) {
+            if (w.dying) continue;
+            w.dying = true;
+            w.deathStartTick = state.tickCount;
+        }
+        if (sound != null) sound.playWallDestroyed();
     }
 
     private boolean isValidWallPosition(int x, int y) {

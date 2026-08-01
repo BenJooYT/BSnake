@@ -22,6 +22,12 @@ Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your fr
 
 ## Changelog
 
+### 1.6.2 — Smash Through the Walls
+- **Wall Builder counterplay:** a player snake that completely surrounds a connected wall group with a closed loop destroys the whole group
+- **Bosses:** wall groups are 8-directionally connected, including across toroidal map edges — every tile must be enclosed before the group is removed (touching, partial surround, and incomplete loops never trigger)
+- **Bosses:** destroyed walls trigger the existing wall crumble animation plus a new wall-shatter sound, and stop blocking movement, boss pathing, and food spawning immediately
+- **Audio:** verified all boss types (CHASER, WALL_BUILDER, HEALER) consistently play the default boss damage and boss defeat sounds
+
 ### 1.6.1 — The Best Patch So Far
 - **Multiplayer:** client camera now stays in spectator full view on game over — no snap back to the chosen camera mode
 - **Multiplayer:** fixed half-cell grid shift when a snake is dead (dead-snake view camera aligned with the grid)
