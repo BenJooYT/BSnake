@@ -11,6 +11,7 @@ import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.inputmethod.InputMethodManager;
 import android.view.MotionEvent;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.EditText;
@@ -38,6 +39,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     GameClient client;
 
     EditText keyboardInput;
+
+    // TEMPORARY: debug autoplayer
+    static final boolean BOT_ENABLED = true;
+    GameBot bot;
 
     public GameView(Context context) {
         super(context);
@@ -122,6 +127,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
             if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
+                if (BOT_ENABLED) {
+                    if (bot == null) bot = new GameBot(state, this);
+                    bot.step();
+                }
                 if (state.isHost) {
                     if (state.currentState == GameState.State.MP_PLAYING) {
                         sendHostState();
@@ -157,6 +166,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 lastTick = now;
             }
 
+            // TEMPORARY: keep the autoplayer running across deaths
+            if (BOT_ENABLED && state.currentState == GameState.State.GAME_OVER) {
+                android.util.Log.i("BOT", "died at score=" + state.lastScore + " — restarting");
+                startNewGame();
+            }
+
             // Music
             if (state.currentState == GameState.State.MENU || state.currentState == GameState.State.PLAY_MENU
                     || state.currentState == GameState.State.MODE_SELECT
@@ -169,10 +184,22 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
 
             float t = Math.min(1f, (now - lastTick) / (float) state.tickDelay);
-            Canvas canvas = holder.getSurface().isValid() ? holder.lockCanvas() : null;
+            Surface surface = holder.getSurface();
+            boolean hardware = false;
+            Canvas canvas = null;
+            if (surface != null && surface.isValid()) {
+                // Some devices/emulators never present buffers locked through the
+                // software path, leaving a black screen — prefer the hardware canvas.
+                if (android.os.Build.VERSION.SDK_INT >= 23) {
+                    canvas = surface.lockHardwareCanvas();
+                    hardware = canvas != null;
+                }
+                if (canvas == null) canvas = holder.lockCanvas();
+            }
             renderer.draw(canvas, t);
             if (canvas != null) {
-                holder.unlockCanvasAndPost(canvas);
+                if (hardware) surface.unlockCanvasAndPost(canvas);
+                else holder.unlockCanvasAndPost(canvas);
             }
             try { Thread.sleep(8); } catch (InterruptedException e) { }
         }
