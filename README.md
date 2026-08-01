@@ -1,6 +1,6 @@
 # BSnake
 
-Simple Snake game for Android, AIDE-compatible.
+Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your friends on the LAN.
 
 ## Features
 
