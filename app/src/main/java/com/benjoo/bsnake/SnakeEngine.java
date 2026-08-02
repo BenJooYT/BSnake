@@ -80,8 +80,14 @@ public class SnakeEngine {
         state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
         state.tickCount = 0;
         challenges.reset();
-        placeFood();
-        for (int i = 0; i < 2; i++) {
+        state.bossWarningStartMs = 0;
+        state.bossSpawnRingStartMs = 0;
+        state.shakeUntilMs = 0;
+        state.bossFlashTicks = 0;
+        state.death.body.clear();
+        state.deathPending = false;
+        state.particles.clear();
+        placeFood();        for (int i = 0; i < 2; i++) {
             state.snakes[i].prevBody.clear();
             for (Point p : state.snakes[i].body)
                 state.snakes[i].prevBody.add(new Point(p));
@@ -130,6 +136,13 @@ public class SnakeEngine {
         } else {
             challenges.startRun();
         }
+        state.bossWarningStartMs = 0;
+        state.bossSpawnRingStartMs = 0;
+        state.shakeUntilMs = 0;
+        state.bossFlashTicks = 0;
+        state.death.body.clear();
+        state.deathPending = false;
+        state.particles.clear();
         placeFood();
         state.snakes[0].prevBody.clear();
         for (Point p : state.snakes[0].body)
@@ -142,8 +155,70 @@ public class SnakeEngine {
         update(false);
     }
 
+    // Marks a snake dead, snapshots its body for the dissolve animation, then
+    // clears the live body. All death paths go through here so the renderer can
+    // play the death effect before the game-over panel appears.
+    private void killSnake(GameState.SnakeData sd) {
+        sd.alive = false;
+        if (!sd.body.isEmpty()) state.recordDeath(sd);
+        sd.body.clear();
+    }
+
+    // Small visual burst when food is eaten: a ring expanding from the fruit
+    // plus a spray of dots. Purely cosmetic.
+    private void spawnFoodBurst(int x, int y, boolean heal) {
+        int color = heal ? android.graphics.Color.rgb(0, 220, 90)
+                         : android.graphics.Color.rgb(255, 70, 50);
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < 10; i++) {
+            double a = rand.nextDouble() * Math.PI * 2;
+            float speed = 0.8f + rand.nextFloat() * 1.6f;
+            state.particles.add(new GameState.Particle(
+                    x, y,
+                    (float) Math.cos(a) * speed, (float) Math.sin(a) * speed,
+                    now, 500 + rand.nextInt(300), color,
+                    0.12f + rand.nextFloat() * 0.1f, false));
+        }
+        state.particles.add(new GameState.Particle(
+                x, y, 0, 0, now, 450, color, 0.4f, true));
+    }
+
+    // Boss-specific particle burst. Big (defeat) versions throw more dots and
+    // an extra ring.
+    private void spawnBossBurst(int x, int y, int color, boolean big) {
+        long now = System.currentTimeMillis();
+        int count = big ? 28 : 12;
+        for (int i = 0; i < count; i++) {
+            double a = rand.nextDouble() * Math.PI * 2;
+            float speed = (big ? 1.5f : 1.0f) + rand.nextFloat() * (big ? 2.5f : 1.6f);
+            state.particles.add(new GameState.Particle(
+                    x, y,
+                    (float) Math.cos(a) * speed, (float) Math.sin(a) * speed,
+                    now, 500 + rand.nextInt(400), color,
+                    0.14f + rand.nextFloat() * 0.12f, false));
+        }
+        state.particles.add(new GameState.Particle(x, y, 0, 0, now, 500, color, 0.4f, true));
+        if (big) state.particles.add(new GameState.Particle(x, y, 0, 0, now + 80, 650, color, 0.7f, true));
+    }
+
+    private int bossColor() {
+        switch (state.boss.type) {
+            case WALL_BUILDER: return android.graphics.Color.rgb(0, 140, 255);
+            case HEALER: return android.graphics.Color.rgb(0, 200, 90);
+            default: return android.graphics.Color.rgb(200, 60, 220);
+        }
+    }
+
     void update(boolean predict) {
         state.tickCount++;
+
+        // Prune expired visual particles.
+        long nowMs = System.currentTimeMillis();
+        for (int i = state.particles.size() - 1; i >= 0; i--) {
+            GameState.Particle p = state.particles.get(i);
+            if (nowMs - p.startMs >= p.lifeMs) state.particles.remove(i);
+        }
+        if (state.bossFlashTicks > 0) state.bossFlashTicks--;
 
         // Process each alive snake
         for (int si = 0; si < 2; si++) {
@@ -163,7 +238,7 @@ public class SnakeEngine {
                 sd.prevBody.clear();
                 for (Point p : sd.body) sd.prevBody.add(new Point(p));
                 // Sanity check
-                if (sd.body.isEmpty()) { sd.alive = false; continue; }
+                if (sd.body.isEmpty()) { killSnake(sd); continue; }
                 // Collision: other snake (the locally-controlled one) hits this body
                 int li = 1 - si;
                 GameState.SnakeData local = state.snakes[li];
@@ -177,7 +252,7 @@ public class SnakeEngine {
                 if (lny >= state.rows) lny = 0;
                 // Local hits remote body
                 for (Point p : sd.body) {
-                    if (p.x == lnx && p.y == lny) { local.alive = false; local.body.clear(); break; }
+                    if (p.x == lnx && p.y == lny) { killSnake(local); break; }
                 }
                 // Head-on: compare local new head with remote new head
                 if (local.alive && !sd.body.isEmpty()) {
@@ -190,16 +265,12 @@ public class SnakeEngine {
                     if (rny >= state.rows) rny = 0;
                     if (lnx == rnx && lny == rny) {
                         if (local.body.size() > sd.body.size()) {
-                            sd.alive = false;
-                            sd.body.clear();
+                            killSnake(sd);
                         } else if (sd.body.size() > local.body.size()) {
-                            local.alive = false;
-                            local.body.clear();
+                            killSnake(local);
                         } else {
-                            local.alive = false;
-                            local.body.clear();
-                            sd.alive = false;
-                            sd.body.clear();
+                            killSnake(local);
+                            killSnake(sd);
                         }
                     }
                 }
@@ -226,7 +297,7 @@ public class SnakeEngine {
             for (Point p : sd.body) sd.prevBody.add(new Point(p));
 
             // Compute new head position with toroidal wrap
-            if (sd.body.isEmpty()) { sd.alive = false; continue; }
+            if (sd.body.isEmpty()) { killSnake(sd); continue; }
             Point head = sd.body.get(0);
             int nx = head.x + sd.dirX;
             int ny = head.y + sd.dirY;
@@ -242,7 +313,7 @@ public class SnakeEngine {
                     break;
                 }
             }
-            if (!sd.alive) { sd.body.clear(); continue; }
+            if (!sd.alive) { killSnake(sd); continue; }
 
             // Snake-vs-snake body collision
             int oi = 1 - si;
@@ -253,7 +324,7 @@ public class SnakeEngine {
                     break;
                 }
             }
-            if (!sd.alive) { sd.body.clear(); continue; }
+            if (!sd.alive) { killSnake(sd); continue; }
 
             // Head-on: only if both are alive
             if (other.alive && !other.body.isEmpty()) {
@@ -266,16 +337,12 @@ public class SnakeEngine {
                 if (ony >= state.rows) ony = 0;
                 if (nx == onx && ny == ony) {
                     if (sd.body.size() > other.body.size()) {
-                        other.alive = false;
-                        other.body.clear();
+                        killSnake(other);
                     } else if (other.body.size() > sd.body.size()) {
-                        sd.alive = false;
-                        sd.body.clear();
+                        killSnake(sd);
                     } else {
-                        sd.alive = false;
-                        sd.body.clear();
-                        other.alive = false;
-                        other.body.clear();
+                        killSnake(sd);
+                        killSnake(other);
                     }
                     if (!sd.alive) continue;
                 }
@@ -293,6 +360,7 @@ public class SnakeEngine {
             }
                 if (eatenFood != null) {
                     state.foods.remove(eatenFood);
+                    spawnFoodBurst(nx, ny, eatenFood.type == GameState.FruitType.HEAL);
                     if (eatenFood.type == GameState.FruitType.HEAL) {
                         // Green healing fruit: grows the snake, gives no score
                         sd.growthPending += 2;
@@ -300,9 +368,14 @@ public class SnakeEngine {
                         ateFood = true;
                         sd.score++;
                         state.score = sd.score;
+                        state.scorePulseMs = System.currentTimeMillis();
+                        state.scorePopMs = state.scorePulseMs;
                     }
                     if (si == 0) challenges.onFoodEaten(eatenFood, true);
-                    if (sound != null && si == 0) sound.playCrunch();
+                    if (sound != null && si == 0) {
+                        if (eatenFood.type == GameState.FruitType.HEAL) sound.playHeal();
+                        else sound.playCrunch();
+                    }
                 }
 
             // Boss collision — head-on damages boss, body kills player
@@ -331,13 +404,12 @@ public class SnakeEngine {
                     }
                 }
             }
-            if (!sd.alive) { sd.body.clear(); continue; }
+            if (!sd.alive) { killSnake(sd); continue; }
 
             // Wall collision — touching walls kills player
             for (GameState.WallCell w : state.walls) {
                 if (!w.dying && nx == w.x && ny == w.y) {
-                    sd.alive = false;
-                    sd.body.clear();
+                    killSnake(sd);
                     break;
                 }
             }
@@ -366,7 +438,10 @@ public class SnakeEngine {
                     sd.body.remove(sd.body.size() - 1);
                     shrink--;
                 }
-                if (si == 0 && shrink < BOSS_HIT_SHRINK) challenges.onSegmentLost();
+                if (si == 0 && shrink < BOSS_HIT_SHRINK) {
+                    challenges.onSegmentLost();
+                    if (sound != null) sound.playSegmentLost();
+                }
             } else if (sd.growthPending > 0) {
                 sd.growthPending--;
             } else if (state.bossGrowthPending > 0 && si == 0) {
@@ -455,9 +530,18 @@ public class SnakeEngine {
             // creation so the freshest layout is evaluated.
             checkWallCaptures();
 
-            // Boss spawn check (uses sum score in multiplayer)
+            // Boss spawn check (uses sum score in multiplayer). A red telegraph
+            // plays first, then the boss actually spawns after BOSS_WARNING_MS.
             int progressionScore = state.snakes[0].score + state.snakes[1].score;
             if (!state.isClassicMode() && !state.boss.alive && progressionScore >= state.nextBossSpawnScore) {
+                if (state.bossWarningStartMs == 0) {
+                    state.bossWarningStartMs = System.currentTimeMillis();
+                    if (sound != null) sound.playBossWarning();
+                }
+            }
+            if (state.bossWarningStartMs > 0
+                    && System.currentTimeMillis() - state.bossWarningStartMs >= GameState.BOSS_WARNING_MS) {
+                state.bossWarningStartMs = 0;
                 spawnBoss();
             }
 
@@ -481,20 +565,15 @@ public class SnakeEngine {
             for (int i = 0; i < 2; i++) {
                 if (state.snakes[i].alive) { allDead = false; break; }
             }
-            if (allDead) {
+            if (allDead && !state.deathPending) {
+                // Start the death dissolve; GameView switches to the game-over
+                // panel once DEATH_ANIM_MS has elapsed.
+                state.deathPending = true;
                 challenges.onPlayerDied();
+                if (sound != null) sound.playDeath();
                 state.lastScore = state.snakes[0].score;
-                if (state.isHost) {
-                    state.mpWinner = state.snakes[0].score > state.snakes[1].score ? 0 :
-                                     state.snakes[1].score > state.snakes[0].score ? 1 : -1;
-                    state.mpLastScore0 = state.snakes[0].score;
-                    state.mpLastScore1 = state.snakes[1].score;
-                    state.currentState = GameState.State.MP_GAME_OVER;
-                } else {
-                    if (!state.devMode)
-                        persistence.saveScore(state.snakes[0].score, state.speedLabels[state.speedIndex], state.gameMode.ordinal());
-                    state.currentState = GameState.State.GAME_OVER;
-                }
+                state.mpLastScore0 = state.snakes[0].score;
+                state.mpLastScore1 = state.snakes[1].score;
             }
         }
     }
@@ -533,6 +612,7 @@ public class SnakeEngine {
                 state.boss.growthPending = 0;
                 selectBossType();
                 challenges.onBossSpawned(state.boss.type, state.snakes[0].body.size());
+                bossSpawnedEffects();
                 return;
             }
         }
@@ -550,9 +630,24 @@ public class SnakeEngine {
                 state.boss.growthPending = 0;
                 selectBossType();
                 challenges.onBossSpawned(state.boss.type, state.snakes[0].body.size());
+                bossSpawnedEffects();
                 return;
             }
         }
+    }
+
+    // Flash/ring/shake when the boss materializes.
+    private void bossSpawnedEffects() {
+        state.boss.maxSegments = state.boss.body.size();
+        state.bossSpawnRingStartMs = System.currentTimeMillis();
+        state.bossFlashTicks = 8;
+        startBossShake();
+        if (sound != null) sound.playBossSpawn();
+    }
+
+    private void startBossShake() {
+        state.shakeMagnitude = 14f;
+        state.shakeUntilMs = System.currentTimeMillis() + 280;
     }
 
     private void moveBoss() {
@@ -703,6 +798,7 @@ public class SnakeEngine {
         state.boss.body.add(0, new Point(nx, ny));
         state.boss.dirX = bestDx;
         state.boss.dirY = bestDy;
+        if (state.boss.body.size() > state.boss.maxSegments) state.boss.maxSegments = state.boss.body.size();
         if (state.boss.growthPending > 0) {
             state.boss.growthPending--;
         } else {
@@ -769,6 +865,10 @@ public class SnakeEngine {
     private void damageBoss(int hitterIndex, boolean creditScore) {
         int removed = 0;
         boolean killingBlow = state.boss.body.size() <= 2;
+        state.bossFlashTicks = 4;
+        Point head = state.boss.body.isEmpty() ? null : state.boss.body.get(0);
+        int color = bossColor();
+        if (head != null) spawnBossBurst(head.x, head.y, color, killingBlow);
 
         // Spawn trail at pre-damage body positions before removing segments
         spawnBossTrailAtBody();
@@ -796,6 +896,14 @@ public class SnakeEngine {
             state.nextBossSpawnScore += BOSS_SPAWN_INTERVAL;
             challenges.onBossDefeated(state.boss.type, state.snakes[hitterIndex].body.size());
             if (sound != null) sound.playBossDefeat();
+            // Defeat explosion: extra burst at the boss head + a banner popup.
+            if (head != null) spawnBossBurst(head.x, head.y, color, true);
+            startBossShake();
+            if (state.screenW > 0) {
+                state.challengePopups.add(new GameState.ChallengePopup(
+                        "BOSS DEFEATED +" + BOSS_DEFEAT_SCORE, System.currentTimeMillis(),
+                        2200, state.screenW / 2f, state.screenH * 0.35f));
+            }
         } else {
             teleportBoss();
             // HEALER releases its stored fruit as green healing fruit after damage

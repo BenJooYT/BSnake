@@ -128,6 +128,18 @@ public class PersistenceManager {
         prefs.edit().putFloat("musicVolume", musicVolume).putFloat("sfxVolume", sfxVolume).apply();
     }
 
+    // Restore whether on-screen direction buttons are enabled (defaults to off).
+    void loadDirectionButtons(GameState state) {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        state.directionButtons = prefs.getBoolean("directionButtons", false);
+    }
+
+    // Persist the on-screen direction buttons setting.
+    void saveDirectionButtons(boolean enabled) {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        prefs.edit().putBoolean("directionButtons", enabled).apply();
+    }
+
     // Save the last played game mode ordinal.
     void saveGameMode(int gameModeOrdinal) {
         SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);

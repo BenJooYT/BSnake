@@ -42,12 +42,48 @@ public class GameState {
     static class Fruit {
         FruitType type;
         int x, y;
+        // Wall-clock time the fruit appeared, used for spawn scale-in + pulse.
+        long bornMs = 0;
         Fruit(FruitType type, int x, int y) {
             this.type = type;
             this.x = x;
             this.y = y;
+            this.bornMs = System.currentTimeMillis();
         }
     }
+
+    // Small visual-only particles (eat bursts, expanding rings). Position is in
+    // world-cell coordinates; velocity is in cells/second.
+    static class Particle {
+        float x, y, vx, vy;
+        long startMs, lifeMs;
+        int color;
+        float size;
+        boolean ring;
+        Particle(float x, float y, float vx, float vy, long startMs, long lifeMs,
+                 int color, float size, boolean ring) {
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.startMs = startMs;
+            this.lifeMs = lifeMs;
+            this.color = color;
+            this.size = size;
+            this.ring = ring;
+        }
+    }
+
+    // Body of a snake that just died, kept for the dissolve animation. The
+    // renderer draws it fading out cell-by-cell while deathPending is set.
+    static class DeathSnake {
+        ArrayList<Point> body = new ArrayList<>();
+        int headColor = Color.GREEN;
+        int bodyColor = Color.GREEN;
+    }
+
+    // How long the death dissolve plays before the game-over panel appears.
+    static final long DEATH_ANIM_MS = 1400;
 
     // A single snake's mutable state
     static class SnakeData {
@@ -67,12 +103,43 @@ public class GameState {
     SnakeData[] snakes = new SnakeData[]{ new SnakeData(), new SnakeData() };
     int playerIndex = 0; // 0 or 1
 
+    // Copies a dying snake's body so the renderer can play the dissolve
+    // animation after the live body is cleared.
+    void recordDeath(SnakeData sd) {
+        death.body.clear();
+        for (Point p : sd.body) death.body.add(new Point(p));
+        death.headColor = sd.headColor;
+        death.bodyColor = sd.bodyColor;
+        deathStartMs = System.currentTimeMillis();
+    }
+
     ArrayList<Fruit> foods = new ArrayList<>();
+    // Visual-only particles spawned by eating food / boss hits.
+    ArrayList<Particle> particles = new ArrayList<>();
+    // Snapshot of the most recently killed snake for the dissolve animation.
+    DeathSnake death = new DeathSnake();
+    long deathStartMs = 0;
+    volatile boolean deathPending = false;
+    // Full-screen fade-in after a state change (0..1, decays in the run loop).
+    float transitionFade = 0f;
+    // Red tint flashed when a challenge fails (0..1, decays in the run loop).
+    float flashAlpha = 0f;
+    int flashColor = Color.argb(140, 255, 50, 40);
     // Challenge objectives active in the current Arcade run (empty otherwise).
     // Populated by ChallengeManager; read by the renderer for the HUD.
     ArrayList<ActiveChallenge> activeChallenges = new ArrayList<>();
     // Short-lived floating reward notifications (e.g. "+30").
     ArrayList<ChallengePopup> challengePopups = new ArrayList<>();
+    // Challenge HUD: collapsed to a dot strip by default; a tap toggles the full
+    // list, and challengeAutoHideUntil auto-collapses it again after a few sec.
+    boolean challengePanelOpen = false;
+    long challengeAutoHideUntil = 0;
+    RectF challengeStripRect = new RectF();
+    RectF challengePanelRect = new RectF();
+    // Coin-meter animations: scorePulseMs drives a scale "pop" on the score
+    // badge, scorePopMs drives a "+1" rising off the badge when food is eaten.
+    long scorePulseMs = 0;
+    long scorePopMs = 0;
 
     static class ChallengePopup {
         String text;
@@ -111,12 +178,23 @@ public class GameState {
     RectF arcadeBtn, classicBtn, modeBackBtn, modePlayBtn;
     int selectedModeIndex = 0; // 0 = ARCADE, 1 = CLASSIC (mode select screen)
     RectF settingsBackBtn, cameraModeBtn;
+    RectF directionButtonsBtn;
     RectF snakePreviewRect;
     RectF resumeBtn, pauseMenuBtn;
     RectF restartBtn, overMenuBtn;
     RectF lbSortBtn, lbBackBtn;
     RectF lbArcadeBtn, lbClassicBtn;
     RectF pauseIcon;
+    // Larger hit target around the pause icon so it's easier to tap.
+    RectF pauseHitRect;
+
+    // On-screen direction buttons (bottom-middle row) — the button opposite to
+    // the snake's current direction is hidden to reinforce the no-180° rule.
+    boolean directionButtons = false;
+    RectF dpadLeftBtn, dpadUpBtn, dpadDownBtn, dpadRightBtn;
+    // Height (px) of the system navigation bar reported via window insets.
+    // Used to keep on-screen controls above the nav bar / gesture pill.
+    int navBarBottom = 0;
 
     // Multiplayer menu buttons
     RectF backBtn;
@@ -186,6 +264,8 @@ public class GameState {
         int hesitationTicks = 0;
         int storedFruits = 0; // HEALER: normal fruits eaten but not respawned
         int healFruitCap = 6; // HEALER: max green healing fruits on the board
+        // Highest length reached this fight — used for the health bar fraction.
+        int maxSegments = 5;
     }
 
     enum BossType { CHASER, WALL_BUILDER, HEALER }
@@ -212,6 +292,14 @@ public class GameState {
     ArrayList<BossTrailCell> bossTrail = new ArrayList<>();
     int nextBossSpawnScore = 125;
     int tickCount = 0;
+
+    // Boss fight visuals
+    static final long BOSS_WARNING_MS = 1000;   // red telegraph before a spawn
+    long bossWarningStartMs = 0;                // >0 while "BOSS INCOMING" shows
+    long bossSpawnRingStartMs = 0;              // expanding shockwave right at spawn
+    float shakeMagnitude = 0f;                  // screen shake intensity (px)
+    long shakeUntilMs = 0;                      // when the shake stops
+    int bossFlashTicks = 0;                     // frames the boss renders white after a hit
 
     // Wall builder state
     ArrayList<WallCell> walls = new ArrayList<>();
@@ -319,6 +407,7 @@ public class GameState {
                                    cx + sliderW / 2f, screenH * 0.57f + sliderH / 2f);
 
         settingsBackBtn = makeBtn(cx, screenH * 0.70f, bw, bh);
+        directionButtonsBtn = makeBtn(cx, screenH * 0.64f, bw, bh * 0.8f);
 
         resumeBtn = makeBtn(cx, screenH * 0.5f, bw, bh);
         pauseMenuBtn = makeBtn(cx, screenH * 0.5f + bh + gap, bw, bh);
@@ -337,6 +426,23 @@ public class GameState {
 
         float iconSize = uiCellSize * 1.1f;
         pauseIcon = new RectF(screenW - iconSize - 16, 16, screenW - 16, 16 + iconSize);
+        pauseHitRect = new RectF(
+                pauseIcon.left - 16, pauseIcon.top - 12,
+                pauseIcon.right + 16, pauseIcon.bottom + 12);
+
+        // On-screen direction buttons — a 4-way cross in the bottom-middle.
+        float dSize = Math.max(96, uiCellSize * 2.4f);
+        float dGap = Math.max(18, uiCellSize * 0.45f);
+        float dCx = screenW / 2f;
+        float dCy = screenH - navBarBottom - Math.max(64, uiCellSize * 1.6f) - dSize / 2f - 110;
+        dpadUpBtn = new RectF(dCx - dSize / 2f, dCy - dSize - dGap - dSize / 2f,
+                              dCx + dSize / 2f, dCy - dSize - dGap + dSize / 2f);
+        dpadDownBtn = new RectF(dCx - dSize / 2f, dCy + dSize + dGap - dSize / 2f,
+                                dCx + dSize / 2f, dCy + dSize + dGap + dSize / 2f);
+        dpadLeftBtn = new RectF(dCx - dSize - dGap - dSize / 2f, dCy - dSize / 2f,
+                                dCx - dSize - dGap + dSize / 2f, dCy + dSize / 2f);
+        dpadRightBtn = new RectF(dCx + dSize + dGap - dSize / 2f, dCy - dSize / 2f,
+                                 dCx + dSize + dGap + dSize / 2f, dCy + dSize / 2f);
 
         // Color picker layout
         float pbw = Math.min(screenW * 0.85f, 420);

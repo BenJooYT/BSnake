@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+// Release signing is injected via environment variables (GitHub Actions
+// secrets) so no keystore or password is ever committed. When the variables
+// are absent the release build falls back to the debug keystore.
+def ksPath = System.getenv("KEYSTORE_PATH")
+def ksPassword = System.getenv("KEYSTORE_PASSWORD")
+def ksAlias = System.getenv("KEY_ALIAS")
+def ksKeyPassword = System.getenv("KEY_PASSWORD")
+def hasReleaseSigning = ksPath && ksPassword && ksAlias && ksKeyPassword
+
 android {
     namespace = 'com.benjoo.bsnake'
     compileSdk = 34
@@ -10,6 +19,26 @@ android {
         targetSdk = 34
         versionCode 22
         versionName "1.7.0"
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(ksPath)
+                storePassword ksPassword
+                keyAlias ksAlias
+                keyPassword ksKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
 
     compileOptions {

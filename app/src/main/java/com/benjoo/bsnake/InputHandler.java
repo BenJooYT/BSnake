@@ -17,8 +17,10 @@ class InputHandler {
         void cycleDevBossType();
         void toggleDevPathfinding();
         void toggleCameraMode();
+        void toggleDirectionButtons();
         void playClick();
         void playBossDamage();
+        void playPause();
         void setMusicVolume(float volume);
         void setSfxVolume(float volume);
         void openMpMenu();
@@ -46,6 +48,9 @@ class InputHandler {
     private final long[] titleTapTimes = new long[3];
     private int titleTapIndex = 0;
     private int draggingSlider = 0;
+    // True when the current touch gesture started inside a direction-pad
+    // button, so a swipe from the pad is ignored (only taps count there).
+    private boolean touchStartedOnDpad = false;
 
     InputHandler(GameState state, SnakeEngine engine, GameActions actions) {
         this.state = state;
@@ -58,6 +63,10 @@ class InputHandler {
             case MotionEvent.ACTION_DOWN:
                 state.downX = event.getX();
                 state.downY = event.getY();
+                touchStartedOnDpad = state.directionButtons
+                        && (state.currentState == GameState.State.PLAYING
+                            || state.currentState == GameState.State.MP_PLAYING)
+                        && inDpadRegion(event.getX(), event.getY());
                 if (state.currentState == GameState.State.SETTINGS) {
                     checkSliderDown(event.getX(), event.getY());
                 } else if (state.currentState == GameState.State.COLOR_PICKER) {
@@ -285,6 +294,9 @@ class InputHandler {
                 if (contains(state.cameraModeBtn, upX, upY)) {
                     actions.playClick();
                     actions.toggleCameraMode();
+                } else if (contains(state.directionButtonsBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.toggleDirectionButtons();
                 } else if (contains(state.snakeColorBtn, upX, upY)) {
                     actions.playClick();
                     actions.openColorPicker();
@@ -297,7 +309,7 @@ class InputHandler {
 
             case PAUSED:
                 if (contains(state.resumeBtn, upX, upY)) {
-                    actions.playClick();
+                    actions.playPause();
                     state.currentState = GameState.State.PLAYING;
                 } else if (contains(state.pauseMenuBtn, upX, upY)) {
                     actions.playClick();
@@ -321,19 +333,73 @@ class InputHandler {
                 float dy = upY - state.downY;
                 boolean smallMove = Math.abs(dx) < 20 && Math.abs(dy) < 20;
                 if (state.currentState == GameState.State.PLAYING
-                        && smallMove && contains(state.pauseIcon, upX, upY)) {
-                    actions.playClick();
+                        && smallMove && contains(state.pauseHitRect, upX, upY)) {
+                    actions.playPause();
                     state.currentState = GameState.State.PAUSED;
                     return;
                 }
 
+                // Challenge HUD: tapping the collapsed dot strip opens the full
+                // list; tapping the open panel collapses it. Swipes still pass
+                // through as movement input.
+                if (smallMove && !state.activeChallenges.isEmpty()) {
+                    if (state.challengePanelOpen && contains(state.challengePanelRect, upX, upY)) {
+                        state.challengePanelOpen = false;
+                        state.challengeAutoHideUntil = 0;
+                        actions.playClick();
+                        return;
+                    } else if (!state.challengePanelOpen && contains(state.challengeStripRect, upX, upY)) {
+                        state.challengePanelOpen = true;
+                        state.challengeAutoHideUntil = 0;
+                        actions.playClick();
+                        return;
+                    }
+                }
+
+                // On-screen direction buttons: a tap on a visible button is a
+                // direction input. The button opposite to the snake's current
+                // direction is not drawn, so it can't be tapped here.
+                // Swipes that start on the pad are ignored entirely. A press
+                // that began on the pad counts as a tap unless the finger
+                // travels a clear distance, and is hit-tested at the press-down
+                // point so a small wobble can't miss the button.
                 int ndx = 0, ndy = 0;
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    if (dx > 0) ndx = 1;
-                    else if (dx < 0) ndx = -1;
-                } else {
-                    if (dy > 0) ndy = 1;
-                    else if (dy < 0) ndy = -1;
+                if (state.directionButtons) {
+                    if (touchStartedOnDpad) {
+                        boolean padSwipe = Math.abs(dx) > 90 || Math.abs(dy) > 90;
+                        if (padSwipe) return;
+                        if (contains(state.dpadUpBtn, state.downX, state.downY)) {
+                            ndy = -1;
+                        } else if (contains(state.dpadDownBtn, state.downX, state.downY)) {
+                            ndy = 1;
+                        } else if (contains(state.dpadLeftBtn, state.downX, state.downY)) {
+                            ndx = -1;
+                        } else if (contains(state.dpadRightBtn, state.downX, state.downY)) {
+                            ndx = 1;
+                        }
+                        if (ndx == 0 && ndy == 0) return;
+                        actions.playClick();
+                    } else if (smallMove) {
+                        if (contains(state.dpadUpBtn, upX, upY)) {
+                            ndy = -1;
+                        } else if (contains(state.dpadDownBtn, upX, upY)) {
+                            ndy = 1;
+                        } else if (contains(state.dpadLeftBtn, upX, upY)) {
+                            ndx = -1;
+                        } else if (contains(state.dpadRightBtn, upX, upY)) {
+                            ndx = 1;
+                        }
+                        if (ndx != 0 || ndy != 0) actions.playClick();
+                    }
+                }
+                if (ndx == 0 && ndy == 0) {
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        if (dx > 0) ndx = 1;
+                        else if (dx < 0) ndx = -1;
+                    } else {
+                        if (dy > 0) ndy = 1;
+                        else if (dy < 0) ndy = -1;
+                    }
                 }
                 if (ndx == 0 && ndy == 0) return;
 
@@ -402,5 +468,12 @@ class InputHandler {
 
     private boolean contains(RectF r, float x, float y) {
         return r != null && r.contains(x, y);
+    }
+
+    private boolean inDpadRegion(float x, float y) {
+        return contains(state.dpadLeftBtn, x, y)
+                || contains(state.dpadUpBtn, x, y)
+                || contains(state.dpadDownBtn, x, y)
+                || contains(state.dpadRightBtn, x, y);
     }
 }
