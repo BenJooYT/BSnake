@@ -4,6 +4,8 @@ Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your fr
 
 > Want to learn every feature in depth? Check out the **[feature index](index.md)** to get acquainted with the game.
 
+![Icon](BSnake-icon.jpg)
+
 ## Features
 
 - Java Android project (minSdk 16, portrait orientation)
