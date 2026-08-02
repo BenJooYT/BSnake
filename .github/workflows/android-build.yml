@@ -70,7 +70,11 @@ jobs:
           tag="${GITHUB_REF#refs/tags/}"
           cp apk/*.apk "BSnake-${tag}.apk"
 
+      - name: Build release notes from version.json
+        run: python .github/scripts/release-notes.py > notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: BSnake-*.apk
+          body_path: notes.md
