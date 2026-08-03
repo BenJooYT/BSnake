@@ -53,6 +53,11 @@ class GameRenderer {
                 drawDim(canvas);
                 drawPausedOverlay(canvas);
                 break;
+            case BOSS_UPGRADE:
+                drawGameField(canvas, 1f, false);
+                drawDim(canvas);
+                drawUpgradeScreen(canvas);
+                break;
             case GAME_OVER:
                 drawGameField(canvas, 1f, false);
                 drawDim(canvas);
@@ -1118,6 +1123,121 @@ class GameRenderer {
         drawCenteredText(canvas, "PAUSED", state.screenW / 2f, state.screenH * 0.36f, 64, Color.GREEN, true);
         drawButton(canvas, state.resumeBtn, "RESUME");
         drawButton(canvas, state.pauseMenuBtn, "MENU");
+    }
+
+    // Post-boss upgrade selection: up to 3 cards plus a Discard option. Cards
+    // slide up in sequence with a rarity-colored frame so a fresh pick reads
+    // instantly. Rects are stored on state for touch hit-testing.
+    private void drawUpgradeScreen(Canvas canvas) {
+        long now = System.currentTimeMillis();
+        int n = state.upgradeOffers.size();
+        float titleSize = 40;
+        float titleY = state.screenH * 0.13f;
+        drawCenteredText(canvas, "CHOOSE AN UPGRADE", state.screenW / 2f, titleY, titleSize,
+                Color.rgb(255, 215, 90), true);
+
+        float margin = state.uiCellSize * 0.9f;
+        float top = state.screenH * 0.22f;
+        float bottom = state.screenH * 0.84f;
+        float gap = state.screenH * 0.02f;
+        float cardH = n > 0 ? (bottom - top - gap * (n - 1)) / n : 0;
+        float left = margin;
+        float right = state.screenW - margin;
+        float cardW = right - left;
+
+        // Discard button — always present as the fourth option.
+        float dH = state.uiCellSize * 1.3f;
+        float dTop = bottom + state.screenH * 0.025f;
+        state.upgradeDiscardRect = new RectF(
+                state.screenW / 2f - cardW * 0.45f, dTop,
+                state.screenW / 2f + cardW * 0.45f, dTop + dH);
+        drawDiscardButton(canvas, state.upgradeDiscardRect);
+
+        for (int i = 0; i < n; i++) {
+            float cy = top + cardH * i + gap * i + cardH / 2f;
+            RectF r = new RectF(left, cy - cardH / 2f, right, cy + cardH / 2f);
+            state.upgradeCardRects[i] = r;
+            // Staggered entry: cards rise and fade in after each other.
+            float p = (now - state.upgradeOpenAt - i * 90) / 320f;
+            if (p < 0) p = 0;
+            if (p > 1) p = 1;
+            float ease = 1f - (1f - p) * (1f - p);
+            canvas.save();
+            float scale = 0.88f + 0.12f * ease;
+            canvas.scale(scale, scale, r.centerX(), r.centerY());
+            drawUpgradeCard(canvas, r, state.upgradeOffers.get(i));
+            canvas.restore();
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTypeface(Typeface.DEFAULT);
+        paint.setColor(Color.WHITE);
+    }
+
+    private int rarityColor(GameState.UpgradeRarity rarity) {
+        switch (rarity) {
+            case EPIC: return Color.rgb(200, 90, 255);
+            case RARE: return Color.rgb(80, 150, 255);
+            default:   return Color.rgb(175, 185, 195);
+        }
+    }
+
+    private void drawUpgradeCard(Canvas canvas, RectF r, GameState.UpgradeCard card) {
+        int rc = rarityColor(card.rarity);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(26, 28, 34));
+        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 16, 16, paint);
+
+        // Rarity-tinted frame + a soft inner glow so the card pops off the dim.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4);
+        paint.setColor(rc);
+        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 16, 16, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        float pad = r.height() * 0.12f;
+        float cx = r.centerX();
+
+        // Rarity chip (top-left) and stack count (top-right).
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(r.height() * 0.17f);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setColor(rc);
+        canvas.drawText(card.rarity.name(), r.left + pad, r.top + pad + r.height() * 0.15f, paint);
+
+        paint.setTextAlign(Paint.Align.RIGHT);
+        paint.setColor(Color.rgb(210, 215, 220));
+        canvas.drawText("STACK " + card.stack + "/" + card.maxStack,
+                r.right - pad, r.top + pad + r.height() * 0.15f, paint);
+
+        // Name — centered, bold, larger.
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(r.height() * 0.22f);
+        paint.setColor(Color.WHITE);
+        canvas.drawText(card.name, cx, r.top + r.height() * 0.42f, paint);
+
+        // Description — centered under the name, one or two lines.
+        paint.setTextSize(r.height() * 0.15f);
+        paint.setTypeface(Typeface.DEFAULT);
+        paint.setColor(Color.rgb(215, 220, 228));
+        String[] lines = card.description.split("\n");
+        float lineH = r.height() * 0.19f;
+        float descTop = r.top + r.height() * 0.58f;
+        for (int i = 0; i < lines.length; i++) {
+            canvas.drawText(lines[i], cx, descTop + i * lineH, paint);
+        }
+    }
+
+    private void drawDiscardButton(Canvas canvas, RectF r) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(40, 42, 48));
+        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 14, 14, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3);
+        paint.setColor(Color.rgb(150, 160, 170));
+        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 14, 14, paint);
+        paint.setStyle(Paint.Style.FILL);
+        drawCenteredText(canvas, "DISCARD — NO UPGRADE", r.centerX(), r.centerY(),
+                26, Color.rgb(200, 205, 212), true);
     }
 
     private void drawGameOverOverlay(Canvas canvas) {

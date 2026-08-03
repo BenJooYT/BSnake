@@ -24,6 +24,8 @@ public class SoundEffects {
     private static final int SEGMENT_LOST_MS = 180;
     private static final int DEATH_MS = 900;
     private static final int PAUSE_MS = 150;
+    private static final int UPGRADE_MS = 650;
+    private static final int UPGRADE_PICK_MS = 220;
 
     private short[] clickBuffer;
     private short[] crunchBuffer;
@@ -38,10 +40,13 @@ public class SoundEffects {
     private short[] segmentLostBuffer;
     private short[] deathBuffer;
     private short[] pauseBuffer;
+    private short[] upgradeBuffer;
+    private short[] upgradePickBuffer;
 
     private AudioTrack clickTrack, crunchTrack, healTrack, bossDamageTrack, bossDefeatTrack,
             bossWarningTrack, bossSpawnTrack, wallDestroyTrack, challengeTrack,
-            challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack;
+            challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack, upgradeTrack,
+            upgradePickTrack;
     private float volume = 1.0f;
     private boolean muted;
 
@@ -59,6 +64,8 @@ public class SoundEffects {
         generateSegmentLost();
         generateDeath();
         generatePause();
+        generateUpgrade();
+        generateUpgradePick();
         initTracks();
     }
 
@@ -101,6 +108,10 @@ public class SoundEffects {
         deathTrack.write(deathBuffer, 0, deathBuffer.length);
         pauseTrack = createTrack(pauseBuffer.length * 2);
         pauseTrack.write(pauseBuffer, 0, pauseBuffer.length);
+        upgradeTrack = createTrack(upgradeBuffer.length * 2);
+        upgradeTrack.write(upgradeBuffer, 0, upgradeBuffer.length);
+        upgradePickTrack = createTrack(upgradePickBuffer.length * 2);
+        upgradePickTrack.write(upgradePickBuffer, 0, upgradePickBuffer.length);
     }
 
     // ----- sound generation -----
@@ -364,6 +375,46 @@ public class SoundEffects {
         }
     }
 
+    // Upgrade reveal: a warm C-E-G-C octave arpeggio with a sparkle tail.
+    private void generateUpgrade() {
+        int n = SAMPLE_RATE * UPGRADE_MS / 1000;
+        upgradeBuffer = new short[n];
+        double[] notes = { 523.25, 659.25, 783.99, 1046.50 };
+        double[] starts = { 0.0, 0.10, 0.20, 0.30 };
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double s = 0;
+            for (int k = 0; k < 4; k++) {
+                double lt = t - starts[k];
+                if (lt < 0) continue;
+                double env = Math.min(1.0, lt / 0.005) * Math.exp(-lt * 9.0);
+                s += Math.sin(2 * Math.PI * notes[k] * lt) * env;
+            }
+            double sp = t - 0.40;
+            if (sp >= 0) {
+                s += Math.sin(2 * Math.PI * 1567.98 * sp) * Math.exp(-sp * 10.0) * 0.4;
+            }
+            double a = Math.min(1.0, t / 0.004);
+            upgradeBuffer[i] = (short) (s * a * 0.28 * Short.MAX_VALUE);
+        }
+    }
+
+    // Upgrade picked: a short bright rising blip with a shimmer.
+    private void generateUpgradePick() {
+        int n = SAMPLE_RATE * UPGRADE_PICK_MS / 1000;
+        upgradePickBuffer = new short[n];
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double a = Math.min(1.0, t / 0.004);
+            double d = Math.exp(-t * 14.0);
+            double freq = 660.0 + 500.0 * Math.min(1.0, t / 0.10);
+            double tone = Math.sin(2 * Math.PI * freq * t) * 0.7;
+            double shimmer = Math.sin(2 * Math.PI * 1800.0 * t) * Math.exp(-t * 40.0) * 0.3;
+            double s = (tone + shimmer) * a * d * 0.4;
+            upgradePickBuffer[i] = (short) (s * Short.MAX_VALUE);
+        }
+    }
+
     // ----- shared play helper -----
 
     private void playTrack(AudioTrack track) {
@@ -395,6 +446,8 @@ public class SoundEffects {
     public void playSegmentLost() { if (!muted) playTrack(segmentLostTrack); }
     public void playDeath()      { if (!muted) playTrack(deathTrack); }
     public void playPause()      { if (!muted) playTrack(pauseTrack); }
+    public void playUpgrade()    { if (!muted) playTrack(upgradeTrack); }
+    public void playUpgradePick(){ if (!muted) playTrack(upgradePickTrack); }
     public void setMuted(boolean m) { muted = m; }
 
     public void setVolume(float vol) {
@@ -404,7 +457,8 @@ public class SoundEffects {
     public void stopAll() {
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
-                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack };
+                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
+        upgradeTrack, upgradePickTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); } catch (Exception e) { }
@@ -415,7 +469,8 @@ public class SoundEffects {
     public void release() {
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
-                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack };
+                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
+        upgradeTrack, upgradePickTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); t.release(); } catch (Exception e) { }
@@ -426,6 +481,7 @@ public class SoundEffects {
         bossWarningTrack = null; bossSpawnTrack = null;
         wallDestroyTrack = null; challengeTrack = null;
         challengeFailTrack = null; segmentLostTrack = null;
-        deathTrack = null; pauseTrack = null;
+        deathTrack = null; pauseTrack = null; upgradeTrack = null;
+        upgradePickTrack = null;
     }
 }

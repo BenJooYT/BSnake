@@ -11,6 +11,7 @@ public class SnakeEngine {
     private final GameState state;
     private final PersistenceManager persistence;
     private final ChallengeManager challenges;
+    private final UpgradeManager upgrades;
     private final Random rand = new Random();
     private SoundEffects sound;
     private static final int BOSS_MOVE_INTERVAL = 3;
@@ -37,11 +38,19 @@ public class SnakeEngine {
         this.state = state;
         this.persistence = persistence;
         this.challenges = new ChallengeManager(state);
+        this.upgrades = new UpgradeManager(state);
     }
 
     void setSoundEffects(SoundEffects sound) {
         this.sound = sound;
         challenges.setSoundEffects(sound);
+        upgrades.setSoundEffects(sound);
+    }
+
+    // Recomputes the tick delay so speed-affecting upgrades (Heavy Body) apply
+    // on top of the chosen speed setting.
+    private void recomputeSpeed() {
+        state.tickDelay = (long) (state.speedDelays[state.speedIndex] * upgrades.speedMultiplier());
     }
 
     void resetGame() {
@@ -80,6 +89,7 @@ public class SnakeEngine {
         state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
         state.tickCount = 0;
         challenges.reset();
+        upgrades.reset();
         state.bossWarningStartMs = 0;
         state.bossSpawnRingStartMs = 0;
         state.shakeUntilMs = 0;
@@ -133,9 +143,12 @@ public class SnakeEngine {
         state.tickCount = 0;
         if (state.isClassicMode()) {
             challenges.reset();
+            upgrades.reset();
         } else {
             challenges.startRun();
+            upgrades.startRun();
         }
+        recomputeSpeed();
         state.bossWarningStartMs = 0;
         state.bossSpawnRingStartMs = 0;
         state.shakeUntilMs = 0;
@@ -153,6 +166,25 @@ public class SnakeEngine {
 
     void update() {
         update(false);
+    }
+
+    // Called when the player picks an upgrade card (index) or the Discard
+    // option (index -1). Applies the stack, recomputes any speed effects, and
+    // resumes the run.
+    void selectUpgrade(int index) {
+        boolean picked = upgrades.applyPick(index);
+        upgrades.clearOffer();
+        recomputeSpeed();
+        state.currentState = GameState.State.PLAYING;
+        if (picked) {
+            state.scorePulseMs = System.currentTimeMillis();
+            state.scorePopMs = state.scorePulseMs;
+            state.flashAlpha = 0.6f;
+            state.flashColor = android.graphics.Color.argb(160, 90, 230, 90);
+            if (sound != null) sound.playUpgradePick();
+        } else {
+            if (sound != null) sound.playPause();
+        }
     }
 
     // Marks a snake dead, snapshots its body for the dissolve animation, then
@@ -354,6 +386,7 @@ public class SnakeEngine {
 
             // Food eating (only snake[0] gets score for now; snake[1]'s score comes from host)
             boolean ateFood = false;
+            int eatNetGrowth = 0; // upgrade-driven growth delta for this piece
             GameState.Fruit eatenFood = null;
             for (GameState.Fruit f : state.foods) {
                 if (nx == f.x && ny == f.y) { eatenFood = f; break; }
@@ -366,10 +399,12 @@ public class SnakeEngine {
                         sd.growthPending += 2;
                     } else {
                         ateFood = true;
-                        sd.score++;
+                        int[] eat = upgrades.onEatNormal(si);
+                        sd.score += 1 + eat[0];
                         state.score = sd.score;
                         state.scorePulseMs = System.currentTimeMillis();
                         state.scorePopMs = state.scorePulseMs;
+                        eatNetGrowth = eat[1];
                     }
                     if (si == 0) challenges.onFoodEaten(eatenFood, true);
                     if (sound != null && si == 0) {
@@ -422,7 +457,7 @@ public class SnakeEngine {
                 if (nx == tc.x && ny == tc.y) {
                     state.bossTrail.remove(i);
                     ateTrail = true;
-                    sd.score++;
+                    sd.score += 1 + upgrades.onEatTrail(si);
                     state.score = sd.score;
                     break;
                 }
@@ -430,23 +465,35 @@ public class SnakeEngine {
 
             // Growth / shrink / detach
             if (hitBoss && !bossKillingBlow) {
-                // Boss hit shrinks the player by BOSS_HIT_SHRINK, but never below
-                // 1 head + 2 body. Skipped on the killing blow: boss defeat only
-                // rewards +25 score / +5 growth.
-                int shrink = BOSS_HIT_SHRINK;
-                while (shrink > 0 && sd.body.size() > 3) {
+                // Boss hit shrinks the player by BOSS_HIT_SHRINK (minus any
+                // defensive reduction), but never below 1 head + 2 body.
+                // Skipped on the killing blow: boss defeat only rewards score/growth.
+                int shrink = Math.max(0, BOSS_HIT_SHRINK - upgrades.damageReduction());
+                int removed = 0;
+                while (removed < shrink && sd.body.size() > 3) {
                     sd.body.remove(sd.body.size() - 1);
-                    shrink--;
+                    removed++;
                 }
-                if (si == 0 && shrink < BOSS_HIT_SHRINK) {
-                    challenges.onSegmentLost();
-                    if (sound != null) sound.playSegmentLost();
+                if (removed > 0) {
+                    upgrades.onPlayerTakenDamage();
+                    if (si == 0) {
+                        challenges.onSegmentLost();
+                        if (sound != null) sound.playSegmentLost();
+                    }
                 }
             } else if (sd.growthPending > 0) {
                 sd.growthPending--;
             } else if (state.bossGrowthPending > 0 && si == 0) {
                 state.bossGrowthPending--;
-            } else if (!ateFood) {
+            } else if (ateFood) {
+                // Normal food already grows +1 (tail is kept). Upgrades may add
+                // extra growth or, on a "no growth" interval, remove the tail.
+                if (eatNetGrowth > 0) {
+                    sd.growthPending += eatNetGrowth;
+                } else if (eatNetGrowth < 0) {
+                    sd.body.remove(sd.body.size() - 1);
+                }
+            } else {
                 sd.body.remove(sd.body.size() - 1);
             }
         }
@@ -454,15 +501,20 @@ public class SnakeEngine {
         // Boss auto-movement, spawn, and food refill: host only
         if (!predict) {
             challenges.update();
-            if (state.boss.alive && state.tickCount - state.boss.lastMoveTick >= BOSS_MOVE_INTERVAL) {
-                if (state.boss.type == GameState.BossType.WALL_BUILDER) {
-                    moveWallBuilder();
-                } else if (state.boss.type == GameState.BossType.HEALER) {
-                    moveHealer();
-                } else {
-                    moveBoss();
-                }
-                state.boss.lastMoveTick = state.tickCount;
+            upgrades.tick();
+            if (state.boss.alive) {
+                state.boss.moveAccum += 1f;
+                float moveInterval = BOSS_MOVE_INTERVAL * upgrades.bossInterval();
+                if (state.boss.moveAccum >= moveInterval) {
+                    state.boss.moveAccum -= moveInterval;
+                    if (state.boss.type == GameState.BossType.WALL_BUILDER) {
+                        moveWallBuilder();
+                    } else if (state.boss.type == GameState.BossType.HEALER) {
+                        moveHealer();
+                    } else {
+                        moveBoss();
+                    }
+                    state.boss.lastMoveTick = state.tickCount;
 
                 // After moving, check if boss head overlaps a player snake segment
                 Point bh = state.boss.body.get(0);
@@ -504,6 +556,7 @@ public class SnakeEngine {
                             break;
                         }
                     }
+                }
                 }
             }
 
@@ -639,6 +692,8 @@ public class SnakeEngine {
     // Flash/ring/shake when the boss materializes.
     private void bossSpawnedEffects() {
         state.boss.maxSegments = state.boss.body.size();
+        state.boss.moveAccum = 0;
+        upgrades.onBossSpawned();
         state.bossSpawnRingStartMs = System.currentTimeMillis();
         state.bossFlashTicks = 8;
         startBossShake();
@@ -870,10 +925,18 @@ public class SnakeEngine {
         int color = bossColor();
         if (head != null) spawnBossBurst(head.x, head.y, color, killingBlow);
 
+        // Upgrade hooks: first-hit bonus (Focused Strike) and periodic extra
+        // damage (Heavy Hit).
+        int[] hit = upgrades.onBossHit();
+        if (creditScore && hit[0] > 0) {
+            state.snakes[hitterIndex].score += hit[0];
+            state.score = state.snakes[hitterIndex].score;
+        }
+
         // Spawn trail at pre-damage body positions before removing segments
         spawnBossTrailAtBody();
 
-        while (removed < 2 && state.boss.body.size() > 0) {
+        while (removed < 2 + hit[1] && state.boss.body.size() > 0) {
             state.boss.body.remove(state.boss.body.size() - 1);
             removed++;
         }
@@ -892,7 +955,14 @@ public class SnakeEngine {
                 state.snakes[hitterIndex].score += BOSS_DEFEAT_SCORE;
                 state.score = state.snakes[hitterIndex].score;
             }
-            state.bossGrowthPending += BOSS_DEFEAT_GROWTH;
+            // Upgrade rewards: bonus score (Boss Hunter) + extra growth
+            // (Boss Bounty, Quick Recovery) ride on the same defeat.
+            int[] reward = upgrades.onBossDefeat();
+            if (creditScore && reward[0] > 0) {
+                state.snakes[hitterIndex].score += reward[0];
+                state.score = state.snakes[hitterIndex].score;
+            }
+            state.bossGrowthPending += BOSS_DEFEAT_GROWTH + reward[1];
             state.nextBossSpawnScore += BOSS_SPAWN_INTERVAL;
             challenges.onBossDefeated(state.boss.type, state.snakes[hitterIndex].body.size());
             if (sound != null) sound.playBossDefeat();
@@ -903,6 +973,12 @@ public class SnakeEngine {
                 state.challengePopups.add(new GameState.ChallengePopup(
                         "BOSS DEFEATED +" + BOSS_DEFEAT_SCORE, System.currentTimeMillis(),
                         2200, state.screenW / 2f, state.screenH * 0.35f));
+            }
+            // Single-player Arcade runs pause for the post-boss upgrade pick.
+            if (upgrades.isActive()) {
+                upgrades.offer();
+                if (sound != null) sound.playUpgrade();
+                state.currentState = GameState.State.BOSS_UPGRADE;
             }
         } else {
             teleportBoss();
@@ -1155,6 +1231,30 @@ public class SnakeEngine {
         int fx, fy;
         boolean coll;
         int attempts = 0;
+        // Food Sense: biased toward the snake's head, scaling with the card's
+        // stack count. Falls back to the uniform random spawn on a miss.
+        int sense = upgrades.foodSenseStacks();
+        if (type == GameState.FruitType.NORMAL && sense > 0 && rand.nextInt(100) < sense * 20) {
+            GameState.SnakeData sd = state.snakes[0];
+            if (sd.alive && !sd.body.isEmpty()) {
+                Point h = sd.body.get(0);
+                for (int tries = 0; tries < 80; tries++) {
+                    int r = 2 + rand.nextInt(6);
+                    fx = h.x + rand.nextInt(2 * r + 1) - r;
+                    fy = h.y + rand.nextInt(2 * r + 1) - r;
+                    if (fx < 0) fx += state.cols;
+                    if (fx >= state.cols) fx -= state.cols;
+                    if (fy < 0) fy += state.rows;
+                    if (fy >= state.rows) fy -= state.rows;
+                    if (overlapsSnake(fx, fy) || overlapsFood(fx, fy) || overlapsTrail(fx, fy)
+                            || overlapsBoss(fx, fy) || overlapsWall(fx, fy)) continue;
+                    GameState.Fruit f = new GameState.Fruit(type, fx, fy);
+                    state.foods.add(f);
+                    challenges.onFoodSpawned(f);
+                    return;
+                }
+            }
+        }
         do {
             fx = rand.nextInt(state.cols);
             fy = rand.nextInt(state.rows);

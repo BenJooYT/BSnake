@@ -39,6 +39,7 @@ class InputHandler {
         void setPickerVal(float val);
         void togglePickerTarget();
         void editPickerHex();
+        void selectUpgrade(int index);
     }
 
     private final GameState state;
@@ -304,6 +305,20 @@ class InputHandler {
                     actions.playClick();
                     actions.dismissKeyboard();
                     state.currentState = GameState.State.MENU;
+                }
+                break;
+
+            case BOSS_UPGRADE:
+                if (contains(state.upgradeDiscardRect, upX, upY)) {
+                    actions.selectUpgrade(-1);
+                } else {
+                    for (int i = 0; i < state.upgradeOffers.size(); i++) {
+                        if (i < state.upgradeCardRects.length
+                                && contains(state.upgradeCardRects[i], upX, upY)) {
+                            actions.selectUpgrade(i);
+                            break;
+                        }
+                    }
                 }
                 break;
 

@@ -738,6 +738,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void playPause() { soundEffects.playPause(); }
 
     @Override
+    public void selectUpgrade(int index) { engine.selectUpgrade(index); }
+
+    @Override
     public void setMusicVolume(float vol) {
         state.musicVolume = vol;
         menuMusic.setVolume(vol);

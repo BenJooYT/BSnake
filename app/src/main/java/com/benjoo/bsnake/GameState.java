@@ -10,7 +10,7 @@ public class GameState {
 
     enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS,
                  MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER,
-                 COLOR_PICKER, PLAY_MENU, MODE_SELECT }
+                 COLOR_PICKER, PLAY_MENU, MODE_SELECT, BOSS_UPGRADE }
     volatile State currentState = State.MENU;
 
     enum SortMode { HIGH_SCORE, RECENT }
@@ -154,6 +154,35 @@ public class GameState {
             this.y = y;
         }
     }
+
+    // Rarity tiers for the post-boss upgrade cards. Colors used by the renderer.
+    enum UpgradeRarity { COMMON, RARE, EPIC }
+
+    // A single post-boss upgrade card: immutable flavor + mutable stack count.
+    static class UpgradeCard {
+        final String id;
+        final String name;
+        final String description;
+        final UpgradeRarity rarity;
+        final int maxStack;
+        int stack = 0;
+        UpgradeCard(String id, String name, String description,
+                    UpgradeRarity rarity, int maxStack) {
+            this.id = id;
+            this.name = name;
+            this.description = description;
+            this.rarity = rarity;
+            this.maxStack = maxStack;
+        }
+    }
+
+    // Post-boss upgrade selection screen.
+    ArrayList<UpgradeCard> upgradeOffers = new ArrayList<>();
+    RectF[] upgradeCardRects = new RectF[3];
+    RectF upgradeDiscardRect;
+    // Wall-clock time the offer first appeared, driving the cards' entry
+    // animation. Reset to 0 when closed.
+    long upgradeOpenAt = 0;
     int cellSize = 40;
     int uiCellSize = 40;
     int cols = 32, rows = 32;
@@ -266,6 +295,9 @@ public class GameState {
         int healFruitCap = 6; // HEALER: max green healing fruits on the board
         // Highest length reached this fight — used for the health bar fraction.
         int maxSegments = 5;
+        // Fractional move interval accumulator, so speed-modifying upgrades
+        // (Slow Pressure) work even at sub-tick precision.
+        float moveAccum = 0;
     }
 
     enum BossType { CHASER, WALL_BUILDER, HEALER }
