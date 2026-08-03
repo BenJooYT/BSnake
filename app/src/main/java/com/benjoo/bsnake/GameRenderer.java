@@ -1181,6 +1181,19 @@ class GameRenderer {
         }
     }
 
+    // Shrinks textSize until `text` fits within maxWidth, so long card strings
+    // never spill past the card edges regardless of screen size/card shape.
+    private float fitTextSize(String text, float textSize, float maxWidth) {
+        float size = textSize;
+        paint.setTextSize(textSize);
+        while (size > 1f && paint.measureText(text) > maxWidth) {
+            size *= 0.9f;
+            if (size < 1f) break;
+        }
+        paint.setTextSize(size);
+        return size;
+    }
+
     private void drawUpgradeCard(Canvas canvas, RectF r, GameState.UpgradeCard card) {
         int rc = rarityColor(card.rarity);
         paint.setStyle(Paint.Style.FILL);
@@ -1196,33 +1209,36 @@ class GameRenderer {
 
         float pad = r.height() * 0.12f;
         float cx = r.centerX();
+        float maxTextW = r.width() - pad * 2f;
 
         // Rarity chip (top-left) and stack count (top-right).
-        paint.setTextAlign(Paint.Align.LEFT);
-        paint.setTextSize(r.height() * 0.17f);
         paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.LEFT);
+        fitTextSize(card.rarity.name(), r.height() * 0.17f, maxTextW * 0.42f);
         paint.setColor(rc);
         canvas.drawText(card.rarity.name(), r.left + pad, r.top + pad + r.height() * 0.15f, paint);
 
         paint.setTextAlign(Paint.Align.RIGHT);
+        String stackText = "STACK " + card.stack + "/" + card.maxStack;
+        fitTextSize(stackText, r.height() * 0.17f, maxTextW * 0.42f);
         paint.setColor(Color.rgb(210, 215, 220));
-        canvas.drawText("STACK " + card.stack + "/" + card.maxStack,
-                r.right - pad, r.top + pad + r.height() * 0.15f, paint);
+        canvas.drawText(stackText, r.right - pad, r.top + pad + r.height() * 0.15f, paint);
 
-        // Name — centered, bold, larger.
+        // Name — centered, bold, larger. Clamped to fit the card width.
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
         paint.setTextAlign(Paint.Align.CENTER);
-        paint.setTextSize(r.height() * 0.22f);
+        fitTextSize(card.name, r.height() * 0.22f, maxTextW);
         paint.setColor(Color.WHITE);
         canvas.drawText(card.name, cx, r.top + r.height() * 0.42f, paint);
 
-        // Description — centered under the name, one or two lines.
-        paint.setTextSize(r.height() * 0.15f);
+        // Description — centered under the name, one or two lines, each fit.
         paint.setTypeface(Typeface.DEFAULT);
         paint.setColor(Color.rgb(215, 220, 228));
         String[] lines = card.description.split("\n");
         float lineH = r.height() * 0.19f;
         float descTop = r.top + r.height() * 0.58f;
         for (int i = 0; i < lines.length; i++) {
+            fitTextSize(lines[i], r.height() * 0.15f, maxTextW);
             canvas.drawText(lines[i], cx, descTop + i * lineH, paint);
         }
     }
