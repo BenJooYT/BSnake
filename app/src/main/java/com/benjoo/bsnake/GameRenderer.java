@@ -1007,6 +1007,18 @@ class GameRenderer {
             long now = System.currentTimeMillis();
             long elapsed = now - state.cinematicStartMs;
             float cameraZoom = 1f;
+
+            // Smoothly pan from the player's position to the boss head over
+            // the hit stop and camera wind-up phases combined.
+            float panDuration = GameState.BOSS_DEATH_HIT_STOP_MS + GameState.BOSS_DEATH_CAMERA_WINDUP_MS;
+            float panP = Math.min(1f, elapsed / panDuration);
+            // Ease-out for smooth deceleration into position
+            float panEase = 1f - (1f - panP) * (1f - panP);
+            float fromX = state.cinematicCameraStartX;
+            float fromY = state.cinematicCameraStartY;
+            state.cameraX = fromX + (state.cinematicFocusX - fromX) * panEase;
+            state.cameraY = fromY + (state.cinematicFocusY - fromY) * panEase;
+
             // Phase 1 (hit stop): no zoom yet
             if (elapsed > GameState.BOSS_DEATH_HIT_STOP_MS) {
                 float windupElapsed = elapsed - GameState.BOSS_DEATH_HIT_STOP_MS;
@@ -1016,8 +1028,6 @@ class GameRenderer {
                 cameraZoom = 1f + 0.15f * ease;
             }
             state.cinematicCameraZoom = cameraZoom;
-            state.cameraX = state.cinematicFocusX;
-            state.cameraY = state.cinematicFocusY;
             return;
         }
         if (state.isClassicMode()) {

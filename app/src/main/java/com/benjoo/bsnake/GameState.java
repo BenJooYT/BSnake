@@ -363,6 +363,7 @@ public class GameState {
     // Cinematic state
     long cinematicStartMs = 0;
     float cinematicFocusX, cinematicFocusY;
+    float cinematicCameraStartX, cinematicCameraStartY;
     int cinematicBossColor;
     ArrayList<Point> cinematicBossBody = new ArrayList<>();
     boolean cinematicExplosionTriggered = false;

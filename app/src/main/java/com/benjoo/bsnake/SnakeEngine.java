@@ -741,6 +741,8 @@ public class SnakeEngine {
         state.cinematicBossBody.clear();
         state.cinematicExplosionTriggered = false;
         state.cinematicCameraZoom = 1f;
+        state.cinematicCameraStartX = 0;
+        state.cinematicCameraStartY = 0;
     }
 
     // Spawns the cinematic explosion particle burst. Called once when the
@@ -1084,6 +1086,16 @@ public class SnakeEngine {
                 state.cinematicStartMs = System.currentTimeMillis();
                 state.cinematicExplosionTriggered = false;
                 state.cinematicCameraZoom = 1f;
+                // Save camera start position (player's head) for smooth pan to boss
+                GameState.SnakeData sd = state.snakes[hitterIndex];
+                if (sd != null && !sd.body.isEmpty()) {
+                    Point playerHead = sd.body.get(0);
+                    state.cinematicCameraStartX = playerHead.x;
+                    state.cinematicCameraStartY = playerHead.y;
+                } else {
+                    state.cinematicCameraStartX = state.cameraX;
+                    state.cinematicCameraStartY = state.cameraY;
+                }
                 // Initial shake for the hit stop
                 state.shakeMagnitude = 14f;
                 state.shakeUntilMs = System.currentTimeMillis() + 200;
