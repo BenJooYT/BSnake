@@ -27,7 +27,7 @@ class UpgradeManager {
         this.state = state;
         for (GameState.UpgradeCard def : UpgradeDefinitions.getAll()) {
             cards.add(new GameState.UpgradeCard(
-                    def.id, def.name, def.description, def.rarity, def.maxStack));
+                    def.id, def.name, def.description, def.flavor, def.rarity, def.maxStack));
         }
     }
 
@@ -59,6 +59,7 @@ class UpgradeManager {
         activeRun = false;
         state.upgradeOffers.clear();
         state.upgradeOpenAt = 0;
+        state.upgradeSelectedIndex = -1;
     }
 
     int stackOf(String id) {
@@ -99,6 +100,7 @@ class UpgradeManager {
     void clearOffer() {
         state.upgradeOffers.clear();
         state.upgradeOpenAt = 0;
+        state.upgradeSelectedIndex = -1;
     }
 
     // ----- gameplay hooks -----

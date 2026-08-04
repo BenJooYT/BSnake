@@ -163,26 +163,43 @@ public class GameState {
         final String id;
         final String name;
         final String description;
+        final String flavor;
         final UpgradeRarity rarity;
         final int maxStack;
         int stack = 0;
-        UpgradeCard(String id, String name, String description,
+        UpgradeCard(String id, String name, String description, String flavor,
                     UpgradeRarity rarity, int maxStack) {
             this.id = id;
             this.name = name;
             this.description = description;
+            this.flavor = flavor;
             this.rarity = rarity;
             this.maxStack = maxStack;
         }
     }
 
+    // Entrance animation pacing for the post-boss upgrade cards. Shared between
+    // the renderer (which drives the visuals) and the input handler (which
+    // refuses taps until a card has actually landed).
+    static final long UPGRADE_CARD_DELAY_MS = 90;   // stagger between cards
+    static final long UPGRADE_CARD_ENTRY_MS = 320;  // per-card fly-in
+    static final long UPGRADE_SKIP_EXTRA_MS = 160;  // skip appears after cards
+
     // Post-boss upgrade selection screen.
     ArrayList<UpgradeCard> upgradeOffers = new ArrayList<>();
     RectF[] upgradeCardRects = new RectF[3];
-    RectF upgradeDiscardRect;
+    RectF upgradeChooseBtn;   // appears below the cards once one is selected
+    RectF upgradeSkipBtn;     // always-present "skip" option at the bottom
     // Wall-clock time the offer first appeared, driving the cards' entry
     // animation. Reset to 0 when closed.
     long upgradeOpenAt = 0;
+    // Index of the highlighted card (-1 = none). Picking only happens after
+    // the player confirms with the Choose button.
+    volatile int upgradeSelectedIndex = -1;
+    // When the current selection changed + a seed for the one-shot particle
+    // burst, so the pop animation and sparks are deterministic per selection.
+    long upgradeSelectMs = 0;
+    int upgradeSelectSeed = 0;
     int cellSize = 40;
     int uiCellSize = 40;
     int cols = 32, rows = 32;

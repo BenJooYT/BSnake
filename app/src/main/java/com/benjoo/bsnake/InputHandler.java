@@ -39,7 +39,9 @@ class InputHandler {
         void setPickerVal(float val);
         void togglePickerTarget();
         void editPickerHex();
-        void selectUpgrade(int index);
+        void onUpgradeCardTap(int index);
+        void onUpgradeChoose();
+        void onUpgradeSkip();
     }
 
     private final GameState state;
@@ -72,6 +74,8 @@ class InputHandler {
                     checkSliderDown(event.getX(), event.getY());
                 } else if (state.currentState == GameState.State.COLOR_PICKER) {
                     checkPickerSliderDown(event.getX(), event.getY());
+                } else if (state.currentState == GameState.State.BOSS_UPGRADE) {
+                    checkUpgradeCardDown(event.getX(), event.getY());
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
@@ -97,6 +101,20 @@ class InputHandler {
             draggingSlider = 2;
             float vol = (x - state.sfxSliderTrack.left) / state.sfxSliderTrack.width();
             actions.setSfxVolume(Math.max(0, Math.min(1, vol)));
+        }
+    }
+
+    // Tapping a card selects it (press-down for instant feedback). Taps are
+    // ignored until that card has finished flying in.
+    private void checkUpgradeCardDown(float x, float y) {
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < state.upgradeOffers.size(); i++) {
+            if (i < state.upgradeCardRects.length && contains(state.upgradeCardRects[i], x, y)) {
+                long readyAt = state.upgradeOpenAt + i * GameState.UPGRADE_CARD_DELAY_MS
+                        + GameState.UPGRADE_CARD_ENTRY_MS;
+                if (now >= readyAt) actions.onUpgradeCardTap(i);
+                return;
+            }
         }
     }
 
@@ -309,16 +327,10 @@ class InputHandler {
                 break;
 
             case BOSS_UPGRADE:
-                if (contains(state.upgradeDiscardRect, upX, upY)) {
-                    actions.selectUpgrade(-1);
-                } else {
-                    for (int i = 0; i < state.upgradeOffers.size(); i++) {
-                        if (i < state.upgradeCardRects.length
-                                && contains(state.upgradeCardRects[i], upX, upY)) {
-                            actions.selectUpgrade(i);
-                            break;
-                        }
-                    }
+                if (state.upgradeSelectedIndex >= 0 && contains(state.upgradeChooseBtn, upX, upY)) {
+                    actions.onUpgradeChoose();
+                } else if (contains(state.upgradeSkipBtn, upX, upY)) {
+                    actions.onUpgradeSkip();
                 }
                 break;
 

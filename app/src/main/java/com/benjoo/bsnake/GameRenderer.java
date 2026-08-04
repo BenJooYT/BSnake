@@ -55,7 +55,6 @@ class GameRenderer {
                 break;
             case BOSS_UPGRADE:
                 drawGameField(canvas, 1f, false);
-                drawDim(canvas);
                 drawUpgradeScreen(canvas);
                 break;
             case GAME_OVER:
@@ -1125,52 +1124,218 @@ class GameRenderer {
         drawButton(canvas, state.pauseMenuBtn, "MENU");
     }
 
-    // Post-boss upgrade selection: up to 3 cards plus a Discard option. Cards
-    // slide up in sequence with a rarity-colored frame so a fresh pick reads
-    // instantly. Rects are stored on state for touch hit-testing.
+    // Post-boss upgrade selection: a reward-chest moment. Cards fly in one by
+    // one over a dimmed, breathing backdrop; tapping a card highlights it and
+    // reveals a Choose button; the Skip option lands last. Rects are stored on
+    // state each frame for touch hit-testing.
     private void drawUpgradeScreen(Canvas canvas) {
         long now = System.currentTimeMillis();
         int n = state.upgradeOffers.size();
-        float titleSize = 40;
-        float titleY = state.screenH * 0.13f;
-        drawCenteredText(canvas, "CHOOSE AN UPGRADE", state.screenW / 2f, titleY, titleSize,
-                Color.rgb(255, 215, 90), true);
+        float w = state.screenW;
+        float h = state.screenH;
+        float cx = w / 2f;
 
-        float margin = state.uiCellSize * 0.9f;
-        float top = state.screenH * 0.22f;
-        float bottom = state.screenH * 0.84f;
-        float gap = state.screenH * 0.02f;
+        drawUpgradeBackdrop(canvas, now);
+
+        // Title fades in with a gentle rise.
+        float titleP = clamp01((now - state.upgradeOpenAt) / 300f);
+        drawUpgradeTitle(canvas, "CHOOSE AN UPGRADE",
+                cx, h * 0.115f + (1f - titleP) * 26f, titleP);
+
+        // Card column.
+        float margin = Math.max(24f, w * 0.06f);
+        float top = h * 0.19f;
+        float bottom = h * 0.76f;
+        float gap = h * 0.012f;
         float cardH = n > 0 ? (bottom - top - gap * (n - 1)) / n : 0;
         float left = margin;
-        float right = state.screenW - margin;
+        float right = w - margin;
         float cardW = right - left;
-
-        // Discard button — always present as the fourth option.
-        float dH = state.uiCellSize * 1.3f;
-        float dTop = bottom + state.screenH * 0.025f;
-        state.upgradeDiscardRect = new RectF(
-                state.screenW / 2f - cardW * 0.45f, dTop,
-                state.screenW / 2f + cardW * 0.45f, dTop + dH);
-        drawDiscardButton(canvas, state.upgradeDiscardRect);
 
         for (int i = 0; i < n; i++) {
             float cy = top + cardH * i + gap * i + cardH / 2f;
             RectF r = new RectF(left, cy - cardH / 2f, right, cy + cardH / 2f);
             state.upgradeCardRects[i] = r;
-            // Staggered entry: cards rise and fade in after each other.
-            float p = (now - state.upgradeOpenAt - i * 90) / 320f;
-            if (p < 0) p = 0;
-            if (p > 1) p = 1;
-            float ease = 1f - (1f - p) * (1f - p);
+            boolean selected = i == state.upgradeSelectedIndex;
+            boolean epic = state.upgradeOffers.get(i).rarity == GameState.UpgradeRarity.EPIC;
+
+            // Staggered fly-in: cards rise and scale in one after another.
+            float p = clamp01((now - state.upgradeOpenAt
+                    - i * GameState.UPGRADE_CARD_DELAY_MS) / (float) GameState.UPGRADE_CARD_ENTRY_MS);
+            float ease = easeOut(p);
+            float rise = (1f - ease) * 44f;
+            float scale = epic ? entranceScale(p) : 0.88f + 0.12f * ease;
+            float alpha = p;
+
+            // Selection pop: quick overshoot that settles slightly enlarged.
+            float pop = selected ? clamp01((now - state.upgradeSelectMs) / 220f) : 0f;
+            float selScale = 1f + 0.05f * easeOutBack(pop);
+
             canvas.save();
-            float scale = 0.88f + 0.12f * ease;
-            canvas.scale(scale, scale, r.centerX(), r.centerY());
-            drawUpgradeCard(canvas, r, state.upgradeOffers.get(i));
+            canvas.translate(0, rise);
+            canvas.scale(scale * selScale, scale * selScale, r.centerX(), r.centerY());
+            drawUpgradeCard(canvas, r, state.upgradeOffers.get(i), selected, alpha, now);
             canvas.restore();
         }
+
+        // Choose + Skip buttons live in reserved bands below the cards so the
+        // layout never jumps when a card is highlighted.
+        float btnW = cardW * 0.5f;
+        float btnH = h * 0.048f;
+        state.upgradeChooseBtn = new RectF(cx - btnW / 2f, h * 0.772f,
+                cx + btnW / 2f, h * 0.772f + btnH);
+        float skipW = cardW * 0.56f;
+        state.upgradeSkipBtn = new RectF(cx - skipW / 2f, h * 0.852f,
+                cx + skipW / 2f, h * 0.852f + btnH);
+
+        // Skip button — lands after the cards.
+        float skipAt = (n - 1) * GameState.UPGRADE_CARD_DELAY_MS
+                + GameState.UPGRADE_CARD_ENTRY_MS + GameState.UPGRADE_SKIP_EXTRA_MS;
+        float skipP = clamp01((now - state.upgradeOpenAt - skipAt) / 220f);
+        drawSkipButton(canvas, state.upgradeSkipBtn, skipP);
+
+        // Choose button — once a card is highlighted.
+        if (state.upgradeSelectedIndex >= 0 && state.upgradeSelectedIndex < n) {
+            drawChooseButton(canvas, state.upgradeChooseBtn, state.upgradeSelectedIndex, now);
+        }
+
+        paint.setAlpha(255);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setTypeface(Typeface.DEFAULT);
         paint.setColor(Color.WHITE);
+    }
+
+    // Dim veil + breathing radial glow + slow ambient motes. The paused game
+    // stays dimly visible so the player remembers they're mid-run.
+    private void drawUpgradeBackdrop(Canvas canvas, long now) {
+        float w = state.screenW;
+        float h = state.screenH;
+        float cx = w / 2f;
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(178, 0, 0, 0));
+        canvas.drawRect(0, 0, w, h, paint);
+
+        // Breathing radial glow behind the card stack.
+        float pulse = 0.5f + 0.5f * (float) Math.sin(now * 0.0012);
+        float glowR = Math.max(w, h) * (0.6f + 0.10f * pulse);
+        int glowA = (int) (26 + 18 * pulse);
+        paint.setShader(new RadialGradient(cx, h * 0.5f, glowR,
+                Color.argb(glowA, 255, 215, 90), Color.argb(0, 255, 215, 90),
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, w, h, paint);
+        paint.setShader(null);
+
+        // Epic reveal flash rides above the veil so it reads as a reward pop.
+        if (state.flashAlpha > 0) {
+            paint.setColor(Color.argb(
+                    (int) (255 * state.flashAlpha),
+                    Color.red(state.flashColor),
+                    Color.green(state.flashColor),
+                    Color.blue(state.flashColor)));
+            canvas.drawRect(0, 0, w, h, paint);
+        }
+
+        drawAmbientMotes(canvas, now);
+    }
+
+    // Slow drifting dust motes, fully deterministic from wall-clock time so
+    // there is no particle state to update or prune.
+    private void drawAmbientMotes(Canvas canvas, long now) {
+        float w = state.screenW;
+        float h = state.screenH;
+        paint.setStyle(Paint.Style.FILL);
+        float t = now * 0.00016f;
+        for (int i = 0; i < 16; i++) {
+            float x = w * frac(i * 0.618f + t * (0.4f + (i % 5) * 0.10f));
+            float y = h * frac(i * 0.314f - t * (0.3f + (i % 4) * 0.08f));
+            float tw = 0.5f + 0.5f * (float) Math.sin(now * 0.002f + i * 1.7f);
+            int alpha = (int) (20 + 30 * tw);
+            float size = 1.6f + (i % 3) * 1.3f;
+            paint.setColor(Color.argb(alpha, 255, 238, 180));
+            canvas.drawCircle(x, y, size, paint);
+        }
+    }
+
+    private void drawUpgradeTitle(Canvas canvas, String text, float cx, float cy, float alpha) {
+        paint.setAlpha((int) (255 * alpha));
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        fitTextSize(text, 42f, state.screenW * 0.92f);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = cy - (fm.ascent + fm.descent) / 2f;
+        // Dark halo so the gold title reads over the dimmed game.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(7);
+        paint.setColor(Color.argb((int) (200 * alpha), 0, 0, 0));
+        canvas.drawText(text, cx, textY, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(255, 216, 96));
+        canvas.drawText(text, cx, textY, paint);
+        paint.setAlpha(255);
+    }
+
+    private void drawSkipButton(Canvas canvas, RectF r, float alpha) {
+        if (r == null) return;
+        paint.setAlpha((int) (255 * alpha));
+        float radius = 12;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(30, 33, 39));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.rgb(130, 140, 150));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(200, 206, 214));
+        paint.setTextSize(22);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = r.centerY() - (fm.ascent + fm.descent) / 2f;
+        canvas.drawText("SKIP — NO UPGRADE", r.centerX(), textY, paint);
+        paint.setAlpha(255);
+    }
+
+    private void drawChooseButton(Canvas canvas, RectF r, int cardIndex, long now) {
+        if (r == null) return;
+        GameState.UpgradeCard card = state.upgradeOffers.get(cardIndex);
+        int rc = rarityColor(card.rarity);
+        // Pop in with a touch of the rarity color.
+        float p = clamp01((now - state.upgradeSelectMs) / 220f);
+        float scale = 0.92f + 0.08f * easeOutBack(p);
+        canvas.save();
+        canvas.scale(scale, scale, r.centerX(), r.centerY());
+        float radius = 12;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(blend(Color.rgb(28, 30, 36), rc, 0.16f));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(9);
+        paint.setColor(Color.argb(70, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStrokeWidth(3);
+        paint.setColor(rc);
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(22);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = r.centerY() - (fm.ascent + fm.descent) / 2f - 1;
+        canvas.drawText("CHOOSE", r.centerX(), textY, paint);
+        // Little chevron pointing up at the cards.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.5f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setColor(rc);
+        canvas.drawLine(r.centerX(), r.top - 8, r.centerX() - 6, r.top, paint);
+        canvas.drawLine(r.centerX(), r.top - 8, r.centerX() + 6, r.top, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        canvas.restore();
+        paint.setAlpha(255);
     }
 
     private int rarityColor(GameState.UpgradeRarity rarity) {
@@ -1194,66 +1359,211 @@ class GameRenderer {
         return size;
     }
 
-    private void drawUpgradeCard(Canvas canvas, RectF r, GameState.UpgradeCard card) {
-        int rc = rarityColor(card.rarity);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.rgb(26, 28, 34));
-        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 16, 16, paint);
+    // --- small animation/color helpers (shared by the upgrade screen) ---
 
-        // Rarity-tinted frame + a soft inner glow so the card pops off the dim.
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(4);
-        paint.setColor(rc);
-        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 16, 16, paint);
-        paint.setStyle(Paint.Style.FILL);
-
-        float pad = r.height() * 0.12f;
-        float cx = r.centerX();
-        float maxTextW = r.width() - pad * 2f;
-
-        // Rarity chip (top-left) and stack count (top-right).
-        paint.setTypeface(Typeface.DEFAULT_BOLD);
-        paint.setTextAlign(Paint.Align.LEFT);
-        fitTextSize(card.rarity.name(), r.height() * 0.17f, maxTextW * 0.42f);
-        paint.setColor(rc);
-        canvas.drawText(card.rarity.name(), r.left + pad, r.top + pad + r.height() * 0.15f, paint);
-
-        paint.setTextAlign(Paint.Align.RIGHT);
-        String stackText = "STACK " + card.stack + "/" + card.maxStack;
-        fitTextSize(stackText, r.height() * 0.17f, maxTextW * 0.42f);
-        paint.setColor(Color.rgb(210, 215, 220));
-        canvas.drawText(stackText, r.right - pad, r.top + pad + r.height() * 0.15f, paint);
-
-        // Name — centered, bold, larger. Clamped to fit the card width.
-        paint.setTypeface(Typeface.DEFAULT_BOLD);
-        paint.setTextAlign(Paint.Align.CENTER);
-        fitTextSize(card.name, r.height() * 0.22f, maxTextW);
-        paint.setColor(Color.WHITE);
-        canvas.drawText(card.name, cx, r.top + r.height() * 0.42f, paint);
-
-        // Description — centered under the name, one or two lines, each fit.
-        paint.setTypeface(Typeface.DEFAULT);
-        paint.setColor(Color.rgb(215, 220, 228));
-        String[] lines = card.description.split("\n");
-        float lineH = r.height() * 0.19f;
-        float descTop = r.top + r.height() * 0.58f;
-        for (int i = 0; i < lines.length; i++) {
-            fitTextSize(lines[i], r.height() * 0.15f, maxTextW);
-            canvas.drawText(lines[i], cx, descTop + i * lineH, paint);
-        }
+    private float clamp01(float v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+    private float frac(float v) { return v - (float) Math.floor(v); }
+    private float easeOut(float p) { return 1f - (1f - p) * (1f - p); }
+    private float easeOutBack(float p) {
+        float c1 = 1.70158f;
+        float c3 = c1 + 1f;
+        float u = p - 1f;
+        return 1f + c3 * u * u * u + c1 * u * u;
+    }
+    // Epic cards bounce in with an overshoot, then settle at exactly 1.0.
+    private float entranceScale(float p) {
+        float base = 0.78f + 0.22f * easeOut(p);
+        float pop = (float) Math.sin(Math.min(1f, p) * Math.PI);
+        return base + 0.08f * pop;
+    }
+    private int blend(int c1, int c2, float t) {
+        int r = (int) (Color.red(c1) + (Color.red(c2) - Color.red(c1)) * t);
+        int g = (int) (Color.green(c1) + (Color.green(c2) - Color.green(c1)) * t);
+        int b = (int) (Color.blue(c1) + (Color.blue(c2) - Color.blue(c1)) * t);
+        return Color.rgb(r, g, b);
     }
 
-    private void drawDiscardButton(Canvas canvas, RectF r) {
+    private void drawUpgradeCard(Canvas canvas, RectF r, GameState.UpgradeCard card,
+                                 boolean selected, float alpha, long now) {
+        int rc = rarityColor(card.rarity);
+        boolean epic = card.rarity == GameState.UpgradeRarity.EPIC;
+        float h = r.height();
+        float cx = r.centerX();
+        float radius = Math.max(12f, h * 0.10f);
+
+        paint.setAlpha((int) (255 * alpha));
+
+        drawCardShadow(canvas, r, radius);
+
+        // Body gradient — brightens slightly while selected.
+        int topC = selected ? Color.rgb(58, 64, 78) : Color.rgb(35, 39, 49);
+        int botC = selected ? Color.rgb(28, 32, 40) : Color.rgb(16, 18, 24);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.rgb(40, 42, 48));
-        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 14, 14, paint);
+        paint.setShader(new LinearGradient(r.left, r.top, r.left, r.bottom,
+                topC, botC, Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setShader(null);
+
+        // Rarity glow halo — thicker and brighter when selected, strongest for
+        // Epic.
+        int haloW = epic ? (selected ? 22 : 15) : (selected ? 13 : 9);
+        int haloA = epic ? (selected ? 95 : 60) : (selected ? 75 : 40);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(3);
-        paint.setColor(Color.rgb(150, 160, 170));
-        canvas.drawRoundRect(r.left, r.top, r.right, r.bottom, 14, 14, paint);
+        paint.setStrokeWidth(haloW);
+        paint.setColor(Color.argb(haloA, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawRoundRect(r, radius, radius, paint);
+
+        // Thin bright border.
+        paint.setStrokeWidth(selected ? 4 : 3);
+        paint.setColor(rc);
+        canvas.drawRoundRect(r, radius, radius, paint);
         paint.setStyle(Paint.Style.FILL);
-        drawCenteredText(canvas, "DISCARD — NO UPGRADE", r.centerX(), r.centerY(),
-                26, Color.rgb(200, 205, 212), true);
+
+        float pad = h * 0.10f;
+        float innerL = r.left + pad * 1.4f;
+        float innerR = r.right - pad * 1.4f;
+        float maxTextW = innerR - innerL;
+
+        // Top row: rarity label (left) + stack counter (right).
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.LEFT);
+        fitTextSize(card.rarity.name(), h * 0.13f, maxTextW * 0.45f);
+        paint.setColor(rc);
+        canvas.drawText(card.rarity.name(), innerL, r.top + h * 0.15f, paint);
+
+        paint.setTextAlign(Paint.Align.RIGHT);
+        String stackText = card.stack + " / " + card.maxStack;
+        fitTextSize(stackText, h * 0.13f, maxTextW * 0.45f);
+        paint.setColor(Color.rgb(214, 220, 228));
+        canvas.drawText(stackText, innerR, r.top + h * 0.15f, paint);
+
+        // Name — the visual anchor.
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        fitTextSize(card.name, h * 0.20f, maxTextW);
+        paint.setColor(Color.WHITE);
+        canvas.drawText(card.name, cx, r.top + h * 0.40f, paint);
+
+        // Divider under the name.
+        paint.setStrokeWidth(Math.max(1.5f, h * 0.008f));
+        paint.setColor(Color.argb(70, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawLine(cx - maxTextW * 0.28f, r.top + h * 0.46f,
+                cx + maxTextW * 0.28f, r.top + h * 0.46f, paint);
+        paint.setStrokeWidth(0);
+        paint.setStyle(Paint.Style.FILL);
+
+        // Effect description (1-2 lines, each width-fitted).
+        String[] lines = card.description.split("\n");
+        float lineH = h * 0.13f;
+        float descTop = r.top + h * 0.52f;
+        paint.setTypeface(Typeface.DEFAULT);
+        paint.setColor(Color.rgb(216, 222, 230));
+        for (int i = 0; i < lines.length; i++) {
+            fitTextSize(lines[i], h * 0.11f, maxTextW);
+            canvas.drawText(lines[i], cx, descTop + i * lineH, paint);
+        }
+
+        // Flavor text — smaller, italic, dimmer.
+        paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC));
+        paint.setColor(Color.rgb(168, 176, 190));
+        String flavor = "\u201C" + card.flavor + "\u201D";
+        fitTextSize(flavor, h * 0.085f, maxTextW);
+        canvas.drawText(flavor, cx, r.top + h * 0.885f, paint);
+
+        // Stack pips along the bottom edge.
+        float pipR = h * 0.026f;
+        float pipGap = pipR * 3.4f;
+        float pipY = r.bottom - h * 0.05f;
+        float pipStart = cx - (card.maxStack - 1) * pipGap / 2f;
+        for (int j = 0; j < card.maxStack; j++) {
+            float px = pipStart + j * pipGap;
+            if (j < card.stack) {
+                paint.setColor(rc);
+            } else {
+                paint.setColor(Color.argb(55, Color.red(rc), Color.green(rc), Color.blue(rc)));
+            }
+            canvas.drawCircle(px, pipY, pipR, paint);
+        }
+
+        // Rarity ambience around the highlighted card.
+        if (selected) drawCardSparkles(canvas, r, card, now);
+
+        paint.setAlpha(255);
+    }
+
+    // Two offset translucent rounds fake a soft drop shadow cheaply.
+    private void drawCardShadow(Canvas canvas, RectF r, float radius) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(150, 0, 0, 0));
+        canvas.drawRoundRect(r.left + 2, r.top + 4, r.right + 2, r.bottom + 4,
+                radius, radius, paint);
+        paint.setColor(Color.argb(80, 0, 0, 0));
+        canvas.drawRoundRect(r.left + 5, r.top + 8, r.right + 5, r.bottom + 8,
+                radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    // Continuous rarity ambience around the highlighted card, plus the one-shot
+    // burst when it was just tapped. Everything is time-driven — no state.
+    private void drawCardSparkles(Canvas canvas, RectF r, GameState.UpgradeCard card, long now) {
+        int rc = rarityColor(card.rarity);
+        float cx = r.centerX();
+        float cy = r.centerY();
+        if (card.rarity == GameState.UpgradeRarity.EPIC) {
+            // Rising purple embers.
+            for (int i = 0; i < 6; i++) {
+                float t = frac(now * 0.0007f + i * 0.29f);
+                float ex = cx + (float) Math.sin(i * 1.9f + t * 9.0f) * r.width() * 0.20f;
+                float ey = r.bottom - 6 - t * r.height() * 1.05f;
+                int a = (int) (130 * (1f - t));
+                paint.setColor(Color.argb(a, 200, 130, 255));
+                canvas.drawCircle(ex, ey, 2.2f + (i % 3) * 0.8f, paint);
+            }
+            // Bright glitter ring.
+            for (int i = 0; i < 5; i++) {
+                float a = now * 0.0014f + i * (float) (Math.PI * 2 / 5);
+                float ox = cx + r.width() * 0.56f * (float) Math.cos(a);
+                float oy = cy + r.height() * 0.64f * (float) Math.sin(a) * 0.7f;
+                int aa = 60 + (int) (50 * (0.5 + 0.5 * Math.sin(now * 0.005 + i * 2.1)));
+                paint.setColor(Color.argb(aa, Color.red(rc), Color.green(rc), Color.blue(rc)));
+                canvas.drawCircle(ox, oy, 2.2f, paint);
+            }
+        } else if (card.rarity == GameState.UpgradeRarity.RARE) {
+            // Subtle blue drifting sparks.
+            for (int i = 0; i < 4; i++) {
+                float t = frac(now * 0.0011f + i * 0.37f);
+                float ox = cx + r.width() * 0.52f * (float) Math.cos(i * 2.4f + t * 4f);
+                float oy = cy + r.height() * 0.60f * (float) Math.sin(i * 1.7f + t * 5f) * 0.7f;
+                int aa = 50 + (int) (45 * (0.5 + 0.5 * Math.sin(now * 0.004 + i * 2.6)));
+                paint.setColor(Color.argb(aa, Color.red(rc), Color.green(rc), Color.blue(rc)));
+                canvas.drawCircle(ox, oy, 1.8f, paint);
+            }
+        }
+        drawSelectBurst(canvas, r, now);
+    }
+
+    // One-shot spark burst radiating from the card the instant it's tapped.
+    private void drawSelectBurst(Canvas canvas, RectF r, long now) {
+        long age = now - state.upgradeSelectMs;
+        if (age < 0 || age >= 520) return;
+        if (state.upgradeSelectedIndex < 0
+                || state.upgradeSelectedIndex >= state.upgradeOffers.size()) return;
+        float p = age / 520f;
+        GameState.UpgradeCard card = state.upgradeOffers.get(state.upgradeSelectedIndex);
+        if (card == null) return;
+        int rc = rarityColor(card.rarity);
+        float cx = r.centerX();
+        float cy = r.centerY();
+        float seed = state.upgradeSelectSeed;
+        for (int i = 0; i < 10; i++) {
+            float ang = (float) (i / 10.0 * Math.PI * 2 + seed * 0.001f);
+            float dist = 26 + 70 * p * (0.5f + 0.5f * (float) Math.sin(i * 2.4f + seed));
+            float x = cx + (float) Math.cos(ang) * dist;
+            float y = cy + (float) Math.sin(ang) * dist * 0.6f;
+            int a = (int) (220 * (1f - p));
+            paint.setColor(Color.argb(a, Color.red(rc), Color.green(rc), Color.blue(rc)));
+            canvas.drawCircle(x, y, 3f * (1f - 0.5f * p), paint);
+        }
     }
 
     private void drawGameOverOverlay(Canvas canvas) {

@@ -168,13 +168,37 @@ public class SnakeEngine {
         update(false);
     }
 
-    // Called when the player picks an upgrade card (index) or the Discard
-    // option (index -1). Applies the stack, recomputes any speed effects, and
-    // resumes the run.
-    void selectUpgrade(int index) {
+    // Tapping a card highlights it (and shows the Choose button). Tapping the
+    // same card again drops the selection. No upgrade is applied yet.
+    void onUpgradeCardTap(int index) {
+        if (index < 0 || index >= state.upgradeOffers.size()) return;
+        if (state.upgradeSelectedIndex == index) {
+            state.upgradeSelectedIndex = -1;
+            return;
+        }
+        state.upgradeSelectedIndex = index;
+        state.upgradeSelectMs = System.currentTimeMillis();
+        state.upgradeSelectSeed = rand.nextInt(1000);
+        if (sound != null) sound.playUpgradeSelect();
+    }
+
+    // Confirms the highlighted card (or -1 if none was selected).
+    void onUpgradeChoose() {
+        applyUpgrade(state.upgradeSelectedIndex);
+    }
+
+    // The Skip button — confirms "no upgrade".
+    void onUpgradeSkip() {
+        applyUpgrade(-1);
+    }
+
+    // Applies the picked card (index) or discard (index -1), recomputes any
+    // speed effects, and resumes the run.
+    private void applyUpgrade(int index) {
         boolean picked = upgrades.applyPick(index);
         upgrades.clearOffer();
         recomputeSpeed();
+        state.upgradeSelectedIndex = -1;
         state.currentState = GameState.State.PLAYING;
         if (picked) {
             state.scorePulseMs = System.currentTimeMillis();
@@ -977,7 +1001,18 @@ public class SnakeEngine {
             // Single-player Arcade runs pause for the post-boss upgrade pick.
             if (upgrades.isActive()) {
                 upgrades.offer();
-                if (sound != null) sound.playUpgrade();
+                boolean hasEpic = false;
+                for (GameState.UpgradeCard c : state.upgradeOffers) {
+                    if (c.rarity == GameState.UpgradeRarity.EPIC) hasEpic = true;
+                }
+                if (hasEpic) {
+                    // Epic cards get a dramatic reveal: bigger flash + fanfare.
+                    if (sound != null) sound.playUpgradeEpic();
+                    state.flashAlpha = 1f;
+                    state.flashColor = android.graphics.Color.argb(200, 190, 120, 255);
+                } else {
+                    if (sound != null) sound.playUpgrade();
+                }
                 state.currentState = GameState.State.BOSS_UPGRADE;
             }
         } else {
