@@ -36,96 +36,96 @@ public class UpgradeDefinitions {
         list.add(new GameState.UpgradeCard(
                 "rich_food", "Rich Food",
                 "Normal food gives +1 score per stack.",
-                "Abundance forgives the slowest tongue.",
+                "Every meal has hidden value.",
                 GameState.UpgradeRarity.COMMON, 3));
         list.add(new GameState.UpgradeCard(
                 "food_sense", "Food Sense",
-                "Food is increasingly likely to spawn near you.",
-                "The board whispers its secrets.",
+                "Food is more likely to appear near the snake.\nImproves with each stack.",
+                "You always know where the next bite is.",
                 GameState.UpgradeRarity.COMMON, 2));
         list.add(new GameState.UpgradeCard(
                 "boss_hunter", "Boss Hunter",
-                "Boss defeat grants +5 bonus score per stack.",
-                "Every crown owes a debt.",
+                "Defeating a boss grants +5 bonus score per stack.",
+                "The bigger they are, the greater the reward.",
                 GameState.UpgradeRarity.COMMON, 2));
         list.add(new GameState.UpgradeCard(
                 "lucky_fruit", "Lucky Fruit",
-                "Every 10th normal food grants +5 score.\nEach stack lowers the interval by 1 (min 8).",
-                "Fortune favors the hungry.",
+                "Every 10th normal food grants +5 bonus score.\nEach stack reduces the interval by 1 (minimum 8).",
+                "Fortune ripens for the patient.",
                 GameState.UpgradeRarity.COMMON, 2));
         list.add(new GameState.UpgradeCard(
                 "trail_hunter", "Trail Hunter",
-                "Trail fruit gives +1 bonus score per stack.",
-                "Follow the crumbs of kings.",
+                "Trail Fruit gives +1 bonus score per stack.",
+                "Follow the glittering path.",
                 GameState.UpgradeRarity.COMMON, 3));
         list.add(new GameState.UpgradeCard(
                 "focused_strike", "Focused Strike",
-                "First successful hit on every boss grants +2 bonus score per stack.",
-                "One clean cut ends the dance.",
+                "The first hit on each boss grants +2 bonus score per stack.",
+                "A clean opening changes everything.",
                 GameState.UpgradeRarity.COMMON, 2));
 
         // ---- RARE ----
         list.add(new GameState.UpgradeCard(
                 "big_bite", "Big Bite",
                 "Normal food gives +1 extra segment.",
-                "Eat like tomorrow matters.",
+                "Leave nothing behind.",
                 GameState.UpgradeRarity.RARE, 1));
         list.add(new GameState.UpgradeCard(
                 "light_appetite", "Light Appetite",
-                "Every 5th food grants score but no growth.\nEach stack lowers the interval by 1 (min 2).",
-                "Less weight, quicker turns.",
+                "Every 5th food grants score but no growth.\nEach stack reduces the interval by 1 (minimum 2).",
+                "Sometimes restraint is the fastest path forward.",
                 GameState.UpgradeRarity.RARE, 3));
         list.add(new GameState.UpgradeCard(
                 "quick_recovery", "Quick Recovery",
-                "Boss defeat restores 2 segments.",
-                "The old skin always sheds.",
+                "Defeating a boss restores 2 segments.",
+                "Victory heals old wounds.",
                 GameState.UpgradeRarity.RARE, 1));
         list.add(new GameState.UpgradeCard(
                 "slow_pressure", "Slow Pressure",
-                "Boss movement speed reduced by 3% per stack.",
-                "Gravity remembers who lingers.",
+                "Boss movement speed is reduced by 3% per stack.",
+                "Steady pressure wears down any foe.",
                 GameState.UpgradeRarity.RARE, 5));
         list.add(new GameState.UpgradeCard(
                 "efficient_growth", "Efficient Growth",
                 "Every 8th normal food gives one fewer segment.",
-                "Nature wastes nothing.",
+                "Grow only when it matters.",
                 GameState.UpgradeRarity.RARE, 1));
         list.add(new GameState.UpgradeCard(
                 "boss_bounty", "Boss Bounty",
-                "Boss rewards give +1 extra segment per stack.",
-                "Victory pays its own wages.",
+                "Boss rewards grant +1 extra segment per stack.",
+                "Great prey feeds many.",
                 GameState.UpgradeRarity.RARE, 3));
         list.add(new GameState.UpgradeCard(
                 "patient", "Patient Snake",
-                "Every 10 seconds without taking boss damage, gain +2 score per stack.",
-                "Stillness is its own prey.",
+                "After 10 seconds without taking boss damage, gain +2 score per stack.",
+                "Stillness has its own rewards.",
                 GameState.UpgradeRarity.RARE, 4));
         list.add(new GameState.UpgradeCard(
                 "greedy", "Greedy",
                 "Normal food gives +2 score and +1 extra segment per stack.",
-                "More is never enough.",
+                "If some is good, more is better.",
                 GameState.UpgradeRarity.RARE, 2));
         list.add(new GameState.UpgradeCard(
                 "small_appetite", "Small Appetite",
                 "Every 5th normal food gives no growth.",
-                "The fastest carry the least.",
+                "Not every meal needs to be filling.",
                 GameState.UpgradeRarity.RARE, 1));
 
         // ---- EPIC ----
         list.add(new GameState.UpgradeCard(
                 "thick_skin", "Thick Skin",
                 "Boss attacks remove 1 fewer segment.",
-                "They sharpen blades on the old.",
+                "You've learned to take the hit.",
                 GameState.UpgradeRarity.EPIC, 1));
         list.add(new GameState.UpgradeCard(
                 "heavy_hit", "Heavy Hit",
-                "Every 5th successful boss hit deals +1 damage.\nEach stack lowers the interval by 1 (min 3).",
-                "The mountain does not rush.",
+                "Every 5th successful boss hit deals +1 damage.\nEach stack reduces the interval by 1 (minimum 3).",
+                "Wait for the perfect strike.",
                 GameState.UpgradeRarity.EPIC, 2));
         list.add(new GameState.UpgradeCard(
                 "heavy_body", "Heavy Body",
-                "Boss damage removes 1 fewer segment.\nSnake speed increases by 3% per stack.",
-                "Weight is a promise kept.",
+                "Boss attacks remove 1 fewer segment, but snake speed\nincreases by 3% per stack.",
+                "Strength comes with momentum.",
                 GameState.UpgradeRarity.EPIC, 2));
 
         return Collections.unmodifiableList(list);

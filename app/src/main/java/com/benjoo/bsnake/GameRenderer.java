@@ -1390,8 +1390,9 @@ class GameRenderer {
         float h = r.height();
         float cx = r.centerX();
         float radius = Math.max(12f, h * 0.10f);
+        int cardAlpha = (int) (255 * alpha);
 
-        paint.setAlpha((int) (255 * alpha));
+        paint.setAlpha(cardAlpha);
 
         drawCardShadow(canvas, r, radius);
 
@@ -1410,12 +1411,12 @@ class GameRenderer {
         int haloA = epic ? (selected ? 95 : 60) : (selected ? 75 : 40);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(haloW);
-        paint.setColor(Color.argb(haloA, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        paint.setColor(Color.argb((int) (haloA * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
         canvas.drawRoundRect(r, radius, radius, paint);
 
         // Thin bright border.
         paint.setStrokeWidth(selected ? 4 : 3);
-        paint.setColor(rc);
+        paint.setColor(Color.argb(cardAlpha, Color.red(rc), Color.green(rc), Color.blue(rc)));
         canvas.drawRoundRect(r, radius, radius, paint);
         paint.setStyle(Paint.Style.FILL);
 
@@ -1428,25 +1429,25 @@ class GameRenderer {
         paint.setTypeface(Typeface.DEFAULT_BOLD);
         paint.setTextAlign(Paint.Align.LEFT);
         fitTextSize(card.rarity.name(), h * 0.13f, maxTextW * 0.45f);
-        paint.setColor(rc);
+        paint.setColor(Color.argb(cardAlpha, Color.red(rc), Color.green(rc), Color.blue(rc)));
         canvas.drawText(card.rarity.name(), innerL, r.top + h * 0.15f, paint);
 
         paint.setTextAlign(Paint.Align.RIGHT);
         String stackText = card.stack + " / " + card.maxStack;
         fitTextSize(stackText, h * 0.13f, maxTextW * 0.45f);
-        paint.setColor(Color.rgb(214, 220, 228));
+        paint.setColor(Color.argb(cardAlpha, 230, 236, 244));
         canvas.drawText(stackText, innerR, r.top + h * 0.15f, paint);
 
         // Name — the visual anchor.
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setTypeface(Typeface.DEFAULT_BOLD);
         fitTextSize(card.name, h * 0.20f, maxTextW);
-        paint.setColor(Color.WHITE);
+        paint.setColor(Color.argb(cardAlpha, 255, 255, 255));
         canvas.drawText(card.name, cx, r.top + h * 0.40f, paint);
 
         // Divider under the name.
         paint.setStrokeWidth(Math.max(1.5f, h * 0.008f));
-        paint.setColor(Color.argb(70, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        paint.setColor(Color.argb((int) (70 * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
         canvas.drawLine(cx - maxTextW * 0.28f, r.top + h * 0.46f,
                 cx + maxTextW * 0.28f, r.top + h * 0.46f, paint);
         paint.setStrokeWidth(0);
@@ -1456,16 +1457,16 @@ class GameRenderer {
         String[] lines = card.description.split("\n");
         float lineH = h * 0.13f;
         float descTop = r.top + h * 0.52f;
-        paint.setTypeface(Typeface.DEFAULT);
-        paint.setColor(Color.rgb(216, 222, 230));
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setColor(Color.argb(cardAlpha, 255, 255, 255));
         for (int i = 0; i < lines.length; i++) {
             fitTextSize(lines[i], h * 0.11f, maxTextW);
             canvas.drawText(lines[i], cx, descTop + i * lineH, paint);
         }
 
-        // Flavor text — smaller, italic, dimmer.
+        // Flavor text — italic, visible.
         paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC));
-        paint.setColor(Color.rgb(168, 176, 190));
+        paint.setColor(Color.argb(cardAlpha, 196, 202, 214));
         String flavor = "\u201C" + card.flavor + "\u201D";
         fitTextSize(flavor, h * 0.085f, maxTextW);
         canvas.drawText(flavor, cx, r.top + h * 0.885f, paint);
@@ -1478,9 +1479,9 @@ class GameRenderer {
         for (int j = 0; j < card.maxStack; j++) {
             float px = pipStart + j * pipGap;
             if (j < card.stack) {
-                paint.setColor(rc);
+                paint.setColor(Color.argb(cardAlpha, Color.red(rc), Color.green(rc), Color.blue(rc)));
             } else {
-                paint.setColor(Color.argb(55, Color.red(rc), Color.green(rc), Color.blue(rc)));
+                paint.setColor(Color.argb((int) (55 * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
             }
             canvas.drawCircle(px, pipY, pipR, paint);
         }
@@ -1537,6 +1538,16 @@ class GameRenderer {
                 int aa = 50 + (int) (45 * (0.5 + 0.5 * Math.sin(now * 0.004 + i * 2.6)));
                 paint.setColor(Color.argb(aa, Color.red(rc), Color.green(rc), Color.blue(rc)));
                 canvas.drawCircle(ox, oy, 1.8f, paint);
+            }
+        } else {
+            // COMMON: subtle gray drift so these cards don't look empty.
+            for (int i = 0; i < 3; i++) {
+                float t = frac(now * 0.0009f + i * 0.41f);
+                float ox = cx + r.width() * 0.48f * (float) Math.cos(i * 2.7f + t * 3f);
+                float oy = cy + r.height() * 0.55f * (float) Math.sin(i * 1.9f + t * 4f) * 0.7f;
+                int aa = 30 + (int) (25 * (0.5 + 0.5 * Math.sin(now * 0.003 + i * 3.1)));
+                paint.setColor(Color.argb(aa, Color.red(rc), Color.green(rc), Color.blue(rc)));
+                canvas.drawCircle(ox, oy, 1.4f, paint);
             }
         }
         drawSelectBurst(canvas, r, now);

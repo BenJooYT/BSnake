@@ -105,11 +105,10 @@ class UpgradeManager {
 
     // ----- gameplay hooks -----
 
-    // Normal food eaten. Returns { bonusScore, netGrowth } where netGrowth is a
-    // delta relative to the implicit "+1 keep tail" a normal food already gives:
-    //    0  -> grow +1 as normal
-    //   +k  -> grow an EXTRA k
-    //   -1  -> grow 0 this piece (tail is removed) — "no growth"
+    // Normal food eaten. Returns { bonusScore, netGrowth, luckyPop } where:
+    //   bonusScore  extra score from upgrades this piece
+    //   netGrowth   +k = grow EXTRA k, -1 = no growth, 0 = normal +1
+    //   luckyPop    5 if Lucky Fruit triggered this piece, 0 otherwise
     int[] onEatNormal(int snakeIndex) {
         GameState.UpgradeCard rich = findCard("rich_food");
         GameState.UpgradeCard greedy = findCard("greedy");
@@ -126,8 +125,10 @@ class UpgradeManager {
         normalFoodsEaten++;
         int n = normalFoodsEaten;
 
+        int luckyPop = 0;
         if (lucky != null && lucky.stack > 0 && n % luckyInterval(lucky.stack) == 0) {
-            bonus += 5;
+            luckyPop = 5;
+            bonus += luckyPop;
         }
 
         // "No growth" variants override growth entirely on their interval.
@@ -136,7 +137,7 @@ class UpgradeManager {
         if (small != null && small.stack > 0 && n % 5 == 0) noGrow = true;
         if (efficient != null && efficient.stack > 0 && n % 8 == 0) noGrow = true;
 
-        return new int[]{ bonus, noGrow ? -1 : growth };
+        return new int[]{ bonus, noGrow ? -1 : growth, luckyPop };
     }
 
     // Trail fruit eaten: bonus score.

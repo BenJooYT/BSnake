@@ -428,6 +428,11 @@ public class SnakeEngine {
                         state.score = sd.score;
                         state.scorePulseMs = System.currentTimeMillis();
                         state.scorePopMs = state.scorePulseMs;
+                        if (eat[2] > 0 && si == 0 && state.screenW > 0) {
+                            state.challengePopups.add(new GameState.ChallengePopup(
+                                    "+5 LUCKY!", System.currentTimeMillis(), 1000,
+                                    state.screenW / 2f, state.screenH * 0.50f));
+                        }
                         eatNetGrowth = eat[1];
                     }
                     if (si == 0) challenges.onFoodEaten(eatenFood, true);
