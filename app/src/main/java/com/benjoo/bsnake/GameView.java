@@ -190,6 +190,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             // Game tick
             boolean isPlaying = state.currentState == GameState.State.PLAYING;
             boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
+            boolean isCinematic = state.currentState == GameState.State.BOSS_DEATH_CINEMATIC;
             if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
                 if (state.isHost) {
@@ -223,7 +224,21 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                         }
                         lastTick = now;
                         now = System.currentTimeMillis();
-                    } else if (!isPlaying && !isMpHost && !isMpClient) {
+                    } else if (isCinematic) {
+                // Cinematic boss death sequence: drive phases by wall-clock time
+                long elapsed = now - state.cinematicStartMs;
+                long phase2End = GameState.BOSS_DEATH_HIT_STOP_MS + GameState.BOSS_DEATH_CAMERA_WINDUP_MS;
+                if (elapsed >= phase2End && !state.cinematicExplosionTriggered) {
+                    state.cinematicExplosionTriggered = true;
+                    engine.triggerBossDeathExplosion();
+                }
+                long total = GameState.BOSS_DEATH_TOTAL_MS;
+                if (elapsed >= total) {
+                    engine.finishBossDefeatTransition();
+                    lastState = null; // force transition fade
+                }
+                lastTick = now;
+                    } else if (!isPlaying && !isMpHost && !isMpClient && !isCinematic) {
                 lastTick = now;
             }
 

@@ -62,6 +62,8 @@ class InputHandler {
     }
 
     boolean onTouchEvent(MotionEvent event) {
+        // Ignore all input during the cinematic boss death sequence
+        if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC) return true;
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
                 state.downX = event.getX();
@@ -161,6 +163,8 @@ class InputHandler {
     }
 
     private void handleTouchUp(float upX, float upY) {
+        // Ignore all input during the cinematic boss death sequence
+        if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC) return;
         switch (state.currentState) {
             case MENU:
                 if (contains(state.playBtn, upX, upY)) {

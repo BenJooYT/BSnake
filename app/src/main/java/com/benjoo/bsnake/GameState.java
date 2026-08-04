@@ -10,7 +10,7 @@ public class GameState {
 
     enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS,
                  MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER,
-                 COLOR_PICKER, PLAY_MENU, MODE_SELECT, BOSS_UPGRADE }
+                 COLOR_PICKER, PLAY_MENU, MODE_SELECT, BOSS_UPGRADE, BOSS_DEATH_CINEMATIC }
     volatile State currentState = State.MENU;
 
     enum SortMode { HIGH_SCORE, RECENT }
@@ -349,6 +349,24 @@ public class GameState {
     float shakeMagnitude = 0f;                  // screen shake intensity (px)
     long shakeUntilMs = 0;                      // when the shake stops
     int bossFlashTicks = 0;                     // frames the boss renders white after a hit
+
+    // Cinematic boss death sequence timing (total ~1.8s)
+    static final long BOSS_DEATH_HIT_STOP_MS = 150;
+    static final long BOSS_DEATH_CAMERA_WINDUP_MS = 300;
+    static final long BOSS_DEATH_EXPLOSION_MS = 800;
+    static final long BOSS_DEATH_HOLD_MS = 200;
+    static final long BOSS_DEATH_TRANSITION_MS = 350;
+    static final long BOSS_DEATH_TOTAL_MS = BOSS_DEATH_HIT_STOP_MS
+            + BOSS_DEATH_CAMERA_WINDUP_MS + BOSS_DEATH_EXPLOSION_MS
+            + BOSS_DEATH_HOLD_MS + BOSS_DEATH_TRANSITION_MS;
+
+    // Cinematic state
+    long cinematicStartMs = 0;
+    float cinematicFocusX, cinematicFocusY;
+    int cinematicBossColor;
+    ArrayList<Point> cinematicBossBody = new ArrayList<>();
+    boolean cinematicExplosionTriggered = false;
+    float cinematicCameraZoom = 1f;
 
     // Wall builder state
     ArrayList<WallCell> walls = new ArrayList<>();

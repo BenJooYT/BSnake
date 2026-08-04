@@ -41,6 +41,10 @@ class GameRenderer {
             case MP_HOST: drawHostScreen(canvas); break;
             case MP_JOIN: drawJoinScreen(canvas); break;
             case MP_LOBBY: drawLobby(canvas); break;
+            case BOSS_DEATH_CINEMATIC:
+                drawGameField(canvas, 1f, false);
+                drawBossDeathCinematic(canvas);
+                break;
             case PLAYING:
                 drawGameField(canvas, t, false);
                 drawPauseIcon(canvas);
@@ -101,6 +105,12 @@ class GameRenderer {
             // FIT_VERTICAL fills the screen height exactly and scrolls
             // horizontally; everything else shows the whole play area.
             state.cellSize = fitVertical ? state.fitVerticalCellSize : state.fullAreaCellSize;
+            state.viewportWidthCells = state.screenW / (float) state.cellSize;
+            state.viewportHeightCells = state.screenH / (float) state.cellSize;
+        }
+        // Apply cinematic camera zoom for boss death sequence
+        if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC && state.cinematicCameraZoom > 1f) {
+            state.cellSize = (int) (state.cellSize * state.cinematicCameraZoom);
             state.viewportWidthCells = state.screenW / (float) state.cellSize;
             state.viewportHeightCells = state.screenH / (float) state.cellSize;
         }
@@ -811,6 +821,122 @@ class GameRenderer {
         paint.setTypeface(Typeface.DEFAULT);
     }
 
+    // Cinematic boss death sequence overlay. Rendered on top of the frozen
+    // game field. Manages the boss body fade-out, ambient dim, flash, and
+    // transition fade.
+    private void drawBossDeathCinematic(Canvas canvas) {
+        long now = System.currentTimeMillis();
+        long elapsed = now - state.cinematicStartMs;
+        float w = state.screenW;
+        float h = state.screenH;
+        float cx = w / 2f;
+        float cy = h / 2f;
+
+        long phase1End = GameState.BOSS_DEATH_HIT_STOP_MS;
+        long phase2End = phase1End + GameState.BOSS_DEATH_CAMERA_WINDUP_MS;
+        long phase3End = phase2End + GameState.BOSS_DEATH_EXPLOSION_MS;
+        long phase4End = phase3End + GameState.BOSS_DEATH_HOLD_MS;
+        long phase5End = phase4End + GameState.BOSS_DEATH_TRANSITION_MS;
+
+        float viewCameraX = state.cameraX;
+        float viewCameraY = state.cameraY;
+
+        // Phase 1 & 2: draw the boss body from the snapshot (frozen in place)
+        if (elapsed < phase2End && !state.cinematicBossBody.isEmpty()) {
+            int color = state.cinematicBossColor;
+            for (int i = 0; i < state.cinematicBossBody.size(); i++) {
+                Point seg = state.cinematicBossBody.get(i);
+                float dDx = wrappedDelta(seg.x - viewCameraX, state.cols);
+                float dDy = wrappedDelta(seg.y - viewCameraY, state.rows);
+                if (Math.abs(dDx) >= state.viewportWidthCells / 2f
+                        || Math.abs(dDy) >= state.viewportHeightCells / 2f) continue;
+                float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + dDx);
+                float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + dDy);
+                if (i == 0) {
+                    // Head: bright white flash during hit stop, then normal
+                    if (elapsed < phase1End) {
+                        float flashP = 1f - elapsed / (float) phase1End;
+                        int flash = Color.argb((int) (255 * flashP), 255, 255, 255);
+                        paint.setColor(flash);
+                    } else {
+                        paint.setColor(Color.argb(235, 255, 255, 255));
+                    }
+                } else {
+                    // Body: dim slightly toward the tail
+                    int dim = Math.max(80, 180 - i * 15);
+                    paint.setColor(Color.argb(235,
+                            Color.red(color) * dim / 255,
+                            Color.green(color) * dim / 255,
+                            Color.blue(color) * dim / 255));
+                }
+                canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
+            }
+            // Head glow during windup
+            if (elapsed >= phase1End) {
+                Point head = state.cinematicBossBody.get(0);
+                float hDx = wrappedDelta(head.x - viewCameraX, state.cols);
+                float hDy = wrappedDelta(head.y - viewCameraY, state.rows);
+                if (Math.abs(hDx) < state.viewportWidthCells / 2f
+                        && Math.abs(hDy) < state.viewportHeightCells / 2f) {
+                    float hx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + hDx);
+                    float hy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + hDy);
+                    float glowR = state.cellSize * 2f;
+                    paint.setColor(Color.WHITE);
+                    paint.setShader(new RadialGradient(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR,
+                            Color.argb(180, Color.red(color), Color.green(color), Color.blue(color)),
+                            Color.argb(0, Color.red(color), Color.green(color), Color.blue(color)),
+                            Shader.TileMode.CLAMP));
+                    canvas.drawCircle(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR, paint);
+                    paint.setShader(null);
+                }
+            }
+        }
+
+        // Phase 3+: darkened background so particles stand out
+        if (elapsed >= phase2End) {
+            int dimAlpha = (int) (140 * Math.min(1f, (elapsed - phase2End) / 200f));
+            paint.setColor(Color.argb(dimAlpha, 0, 0, 0));
+            canvas.drawRect(0, 0, w, h, paint);
+
+            // Draw explosion particles on top of the dim so they pop
+            drawParticles(canvas, viewCameraX, viewCameraY);
+        }
+
+        // Colored flash on the boss color at explosion time
+        if (elapsed >= phase2End && elapsed < phase3End) {
+            float flashP = 1f - (elapsed - phase2End) / (float) GameState.BOSS_DEATH_EXPLOSION_MS;
+            flashP = Math.max(0, Math.min(0.6f, flashP * 2f));
+            int color = state.cinematicBossColor;
+            int flashAlpha = (int) (140 * flashP);
+            paint.setColor(Color.argb(flashAlpha, Color.red(color), Color.green(color), Color.blue(color)));
+            canvas.drawRect(0, 0, w, h, paint);
+        }
+
+        // "BOSS DEFEATED" text that appears during the explosion
+        if (elapsed >= phase2End && elapsed < phase4End) {
+            float textP = Math.min(1f, (elapsed - phase2End) / 300f);
+            float rise = (1f - textP) * 30f;
+            int alpha = (int) (255 * textP);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            paint.setTextSize(48);
+            paint.setColor(Color.argb(alpha, 255, 215, 80));
+            canvas.drawText("BOSS DEFEATED", cx, cy * 0.45f - rise, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+            paint.setTypeface(Typeface.DEFAULT);
+        }
+
+        // Phase 5: transition fade to black
+        if (elapsed >= phase4End) {
+            float fadeP = Math.min(1f, (elapsed - phase4End) / (float) GameState.BOSS_DEATH_TRANSITION_MS);
+            paint.setColor(Color.argb((int) (255 * fadeP), 0, 0, 0));
+            canvas.drawRect(0, 0, w, h, paint);
+        }
+
+        paint.setAlpha(255);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
     // Floating reward notifications (e.g. "+30") that rise above the middle of
     // the screen and fade out over their duration.
     private void drawChallengePopups(Canvas canvas) {
@@ -877,6 +1003,23 @@ class GameRenderer {
     }
 
     private void updateCamera(float t) {
+        if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC) {
+            long now = System.currentTimeMillis();
+            long elapsed = now - state.cinematicStartMs;
+            float cameraZoom = 1f;
+            // Phase 1 (hit stop): no zoom yet
+            if (elapsed > GameState.BOSS_DEATH_HIT_STOP_MS) {
+                float windupElapsed = elapsed - GameState.BOSS_DEATH_HIT_STOP_MS;
+                float windupP = Math.min(1f, windupElapsed / (float) GameState.BOSS_DEATH_CAMERA_WINDUP_MS);
+                // Ease-out zoom
+                float ease = 1f - (1f - windupP) * (1f - windupP);
+                cameraZoom = 1f + 0.15f * ease;
+            }
+            state.cinematicCameraZoom = cameraZoom;
+            state.cameraX = state.cinematicFocusX;
+            state.cameraY = state.cinematicFocusY;
+            return;
+        }
         if (state.isClassicMode()) {
             state.cameraX = state.cols / 2f - 0.5f;
             state.cameraY = state.rows / 2f - 0.5f;

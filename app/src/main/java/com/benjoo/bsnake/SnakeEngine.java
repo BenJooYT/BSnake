@@ -97,6 +97,7 @@ public class SnakeEngine {
         state.death.body.clear();
         state.deathPending = false;
         state.particles.clear();
+        resetCinematicState();
         placeFood();        for (int i = 0; i < 2; i++) {
             state.snakes[i].prevBody.clear();
             for (Point p : state.snakes[i].body)
@@ -156,6 +157,7 @@ public class SnakeEngine {
         state.death.body.clear();
         state.deathPending = false;
         state.particles.clear();
+        resetCinematicState();
         placeFood();
         state.snakes[0].prevBody.clear();
         for (Point p : state.snakes[0].body)
@@ -734,6 +736,74 @@ public class SnakeEngine {
         state.shakeUntilMs = System.currentTimeMillis() + 280;
     }
 
+    private void resetCinematicState() {
+        state.cinematicStartMs = 0;
+        state.cinematicBossBody.clear();
+        state.cinematicExplosionTriggered = false;
+        state.cinematicCameraZoom = 1f;
+    }
+
+    // Spawns the cinematic explosion particle burst. Called once when the
+    // explosion phase of the death sequence begins.
+    void triggerBossDeathExplosion() {
+        float fx = state.cinematicFocusX;
+        float fy = state.cinematicFocusY;
+        int color = state.cinematicBossColor;
+        long now = System.currentTimeMillis();
+
+        // Large burst: significantly more particles than the normal defeat burst
+        int count = 60;
+        for (int i = 0; i < count; i++) {
+            double a = rand.nextDouble() * Math.PI * 2;
+            float speed = 1.5f + rand.nextFloat() * 4.0f;
+            float size = (i < 6) ? 0.3f + rand.nextFloat() * 0.25f   // larger fragments
+                                 : 0.10f + rand.nextFloat() * 0.15f;  // smaller fragments
+            long life = 600 + rand.nextInt(500);
+            // Slight random offset so particles don't all originate from the exact center
+            float ox = (float) (Math.cos(a) * 0.3f * rand.nextFloat());
+            float oy = (float) (Math.sin(a) * 0.3f * rand.nextFloat());
+            state.particles.add(new GameState.Particle(
+                    fx + ox, fy + oy,
+                    (float) Math.cos(a) * speed, (float) Math.sin(a) * speed,
+                    now, life, color, size, false));
+        }
+        // Extra expanding rings
+        state.particles.add(new GameState.Particle(fx, fy, 0, 0, now, 700, color, 0.6f, true));
+        state.particles.add(new GameState.Particle(fx, fy, 0, 0, now + 100, 800, color, 0.9f, true));
+        state.particles.add(new GameState.Particle(fx, fy, 0, 0, now + 200, 900, color, 1.2f, true));
+
+        // Screen shake
+        state.shakeMagnitude = 18f;
+        state.shakeUntilMs = now + 500;
+
+        // Sound
+        if (sound != null) sound.playBossDefeat();
+    }
+
+    // Ends the cinematic sequence and transitions to the upgrade selection
+    // screen. Called once the death animation has fully played out.
+    void finishBossDefeatTransition() {
+        if (upgrades.isActive()) {
+            upgrades.offer();
+            boolean hasEpic = false;
+            for (GameState.UpgradeCard c : state.upgradeOffers) {
+                if (c.rarity == GameState.UpgradeRarity.EPIC) hasEpic = true;
+            }
+            if (hasEpic) {
+                if (sound != null) sound.playUpgradeEpic();
+                state.flashAlpha = 1f;
+                state.flashColor = android.graphics.Color.argb(200, 190, 120, 255);
+            } else {
+                if (sound != null) sound.playUpgrade();
+            }
+            state.currentState = GameState.State.BOSS_UPGRADE;
+        } else {
+            // If upgrades aren't active (e.g. classic mode), just go back to playing
+            state.currentState = GameState.State.PLAYING;
+        }
+        resetCinematicState();
+    }
+
     private void moveBoss() {
         Point head = state.boss.body.get(0);
         Point target = getBossTarget(head);
@@ -962,6 +1032,9 @@ public class SnakeEngine {
             state.score = state.snakes[hitterIndex].score;
         }
 
+        // Save boss body snapshot before removals, for cinematic rendering
+        ArrayList<Point> preDamageBody = new ArrayList<>(state.boss.body);
+
         // Spawn trail at pre-damage body positions before removing segments
         spawnBossTrailAtBody();
 
@@ -994,31 +1067,35 @@ public class SnakeEngine {
             state.bossGrowthPending += BOSS_DEFEAT_GROWTH + reward[1];
             state.nextBossSpawnScore += BOSS_SPAWN_INTERVAL;
             challenges.onBossDefeated(state.boss.type, state.snakes[hitterIndex].body.size());
-            if (sound != null) sound.playBossDefeat();
-            // Defeat explosion: extra burst at the boss head + a banner popup.
-            if (head != null) spawnBossBurst(head.x, head.y, color, true);
-            startBossShake();
+            // BOSS DEFEATED popup
             if (state.screenW > 0) {
                 state.challengePopups.add(new GameState.ChallengePopup(
                         "BOSS DEFEATED +" + BOSS_DEFEAT_SCORE, System.currentTimeMillis(),
                         2200, state.screenW / 2f, state.screenH * 0.35f));
             }
-            // Single-player Arcade runs pause for the post-boss upgrade pick.
-            if (upgrades.isActive()) {
-                upgrades.offer();
-                boolean hasEpic = false;
-                for (GameState.UpgradeCard c : state.upgradeOffers) {
-                    if (c.rarity == GameState.UpgradeRarity.EPIC) hasEpic = true;
+            // Start the cinematic death sequence instead of transitioning
+            // immediately to the upgrade screen.
+            if (head != null) {
+                state.cinematicBossBody.clear();
+                state.cinematicBossBody.addAll(preDamageBody);
+                state.cinematicFocusX = head.x;
+                state.cinematicFocusY = head.y;
+                state.cinematicBossColor = color;
+                state.cinematicStartMs = System.currentTimeMillis();
+                state.cinematicExplosionTriggered = false;
+                state.cinematicCameraZoom = 1f;
+                // Initial shake for the hit stop
+                state.shakeMagnitude = 14f;
+                state.shakeUntilMs = System.currentTimeMillis() + 200;
+                // Small flash on the killing blow
+                state.flashAlpha = 0.5f;
+                state.flashColor = android.graphics.Color.argb(180, 255, 255, 255);
+                state.currentState = GameState.State.BOSS_DEATH_CINEMATIC;
+            } else {
+                // Fallback: no head position, skip cinematic
+                if (upgrades.isActive()) {
+                    finishBossDefeatTransition();
                 }
-                if (hasEpic) {
-                    // Epic cards get a dramatic reveal: bigger flash + fanfare.
-                    if (sound != null) sound.playUpgradeEpic();
-                    state.flashAlpha = 1f;
-                    state.flashColor = android.graphics.Color.argb(200, 190, 120, 255);
-                } else {
-                    if (sound != null) sound.playUpgrade();
-                }
-                state.currentState = GameState.State.BOSS_UPGRADE;
             }
         } else {
             teleportBoss();
