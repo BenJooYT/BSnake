@@ -743,40 +743,81 @@ public class SnakeEngine {
         state.cinematicCameraZoom = 1f;
         state.cinematicCameraStartX = 0;
         state.cinematicCameraStartY = 0;
+        state.cinematicShockwaveAt = 0;
     }
 
     // Spawns the cinematic explosion particle burst. Called once when the
-    // explosion phase of the death sequence begins.
+    // explosion phase of the death sequence begins. Every visible boss segment
+    // shatters into particles.
     void triggerBossDeathExplosion() {
-        float fx = state.cinematicFocusX;
-        float fy = state.cinematicFocusY;
         int color = state.cinematicBossColor;
         long now = System.currentTimeMillis();
+        state.cinematicShockwaveAt = now;
 
-        // Large burst: significantly more particles than the normal defeat burst
-        int count = 60;
-        for (int i = 0; i < count; i++) {
-            double a = rand.nextDouble() * Math.PI * 2;
-            float speed = 1.5f + rand.nextFloat() * 4.0f;
-            float size = (i < 6) ? 0.3f + rand.nextFloat() * 0.25f   // larger fragments
-                                 : 0.10f + rand.nextFloat() * 0.15f;  // smaller fragments
-            long life = 600 + rand.nextInt(500);
-            // Slight random offset so particles don't all originate from the exact center
-            float ox = (float) (Math.cos(a) * 0.3f * rand.nextFloat());
-            float oy = (float) (Math.sin(a) * 0.3f * rand.nextFloat());
-            state.particles.add(new GameState.Particle(
-                    fx + ox, fy + oy,
-                    (float) Math.cos(a) * speed, (float) Math.sin(a) * speed,
-                    now, life, color, size, false));
+        // Explode every boss body segment into particles
+        for (int si = 0; si < state.cinematicBossBody.size(); si++) {
+            Point seg = state.cinematicBossBody.get(si);
+            float sx = seg.x;
+            float sy = seg.y;
+            boolean isHead = (si == 0);
+            // Head gets more + larger fragments
+            int perSeg = isHead ? 14 : 8;
+            for (int i = 0; i < perSeg; i++) {
+                double a = rand.nextDouble() * Math.PI * 2;
+                float speed = (isHead ? 2.0f : 1.2f) + rand.nextFloat() * (isHead ? 4.5f : 3.0f);
+                float size;
+                int sizeRoll = rand.nextInt(100);
+                if (sizeRoll < 15) {
+                    size = 0.30f + rand.nextFloat() * 0.30f;  // large chunks
+                } else if (sizeRoll < 45) {
+                    size = 0.18f + rand.nextFloat() * 0.15f;  // medium fragments
+                } else {
+                    size = 0.07f + rand.nextFloat() * 0.10f;  // tiny debris
+                }
+                // Larger chunks take longer to fade and slow down more gradually
+                long life = (long)(500 + size * 1200 + rand.nextInt(400));
+                float rotSpeed = (float)((rand.nextDouble() - 0.5) * 12.0);
+                float ox = (float)(Math.cos(a) * 0.2f * rand.nextFloat());
+                float oy = (float)(Math.sin(a) * 0.2f * rand.nextFloat());
+                state.particles.add(new GameState.Particle(
+                        sx + ox, sy + oy,
+                        (float) Math.cos(a) * speed,
+                        (float) Math.sin(a) * speed,
+                        now, life, color, size, false,
+                        rand.nextFloat() * 360f, rotSpeed,
+                        size > 0.25f));  // large chunks glow
+            }
         }
-        // Extra expanding rings
-        state.particles.add(new GameState.Particle(fx, fy, 0, 0, now, 700, color, 0.6f, true));
-        state.particles.add(new GameState.Particle(fx, fy, 0, 0, now + 100, 800, color, 0.9f, true));
-        state.particles.add(new GameState.Particle(fx, fy, 0, 0, now + 200, 900, color, 1.2f, true));
 
-        // Screen shake
-        state.shakeMagnitude = 18f;
-        state.shakeUntilMs = now + 500;
+        // Expanding shockwave rings
+        state.particles.add(new GameState.Particle(
+                state.cinematicFocusX, state.cinematicFocusY, 0, 0,
+                now, 450, color, 0.5f, true));
+        state.particles.add(new GameState.Particle(
+                state.cinematicFocusX, state.cinematicFocusY, 0, 0,
+                now + 60, 550, color, 0.8f, true));
+        state.particles.add(new GameState.Particle(
+                state.cinematicFocusX, state.cinematicFocusY, 0, 0,
+                now + 130, 650, color, 1.1f, true));
+
+        // Lingering glowing embers (few, slow, long life)
+        for (int i = 0; i < 12; i++) {
+            double a = rand.nextDouble() * Math.PI * 2;
+            float speed = 0.3f + rand.nextFloat() * 0.8f;
+            state.particles.add(new GameState.Particle(
+                    state.cinematicFocusX, state.cinematicFocusY,
+                    (float) Math.cos(a) * speed,
+                    (float) Math.sin(a) * speed,
+                    now + 300 + rand.nextInt(200),
+                    900 + rand.nextInt(600),
+                    color, 0.06f + rand.nextFloat() * 0.08f, false,
+                    rand.nextFloat() * 360f, (float)(rand.nextDouble() - 0.5) * 6f,
+                    true));  // embers glow
+        }
+
+        // Screen shake: strong initial jolt followed by rapid decay
+        state.shakeMagnitude = 22f;
+        state.shakeUntilMs = now + 550;
 
         // Sound
         if (sound != null) sound.playBossDefeat();

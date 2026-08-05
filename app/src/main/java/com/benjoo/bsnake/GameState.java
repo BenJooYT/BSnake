@@ -60,8 +60,15 @@ public class GameState {
         int color;
         float size;
         boolean ring;
+        float rotation, rotSpeed;
+        boolean glow;
         Particle(float x, float y, float vx, float vy, long startMs, long lifeMs,
                  int color, float size, boolean ring) {
+            this(x, y, vx, vy, startMs, lifeMs, color, size, ring, 0, 0, false);
+        }
+        Particle(float x, float y, float vx, float vy, long startMs, long lifeMs,
+                 int color, float size, boolean ring,
+                 float rotation, float rotSpeed, boolean glow) {
             this.x = x;
             this.y = y;
             this.vx = vx;
@@ -71,6 +78,9 @@ public class GameState {
             this.color = color;
             this.size = size;
             this.ring = ring;
+            this.rotation = rotation;
+            this.rotSpeed = rotSpeed;
+            this.glow = glow;
         }
     }
 
@@ -350,15 +360,18 @@ public class GameState {
     long shakeUntilMs = 0;                      // when the shake stops
     int bossFlashTicks = 0;                     // frames the boss renders white after a hit
 
-    // Cinematic boss death sequence timing (total ~1.8s)
-    static final long BOSS_DEATH_HIT_STOP_MS = 150;
-    static final long BOSS_DEATH_CAMERA_WINDUP_MS = 300;
-    static final long BOSS_DEATH_EXPLOSION_MS = 800;
-    static final long BOSS_DEATH_HOLD_MS = 200;
-    static final long BOSS_DEATH_TRANSITION_MS = 350;
-    static final long BOSS_DEATH_TOTAL_MS = BOSS_DEATH_HIT_STOP_MS
-            + BOSS_DEATH_CAMERA_WINDUP_MS + BOSS_DEATH_EXPLOSION_MS
-            + BOSS_DEATH_HOLD_MS + BOSS_DEATH_TRANSITION_MS;
+    // Cinematic boss death sequence timing (total ~1.6s)
+    static final long BOSS_DEATH_HIT_STOP_MS = 140;
+    static final long BOSS_DEATH_CAMERA_WINDUP_MS = 250;  // camera lunge
+    static final long BOSS_DEATH_COMPRESS_MS = 50;         // squash before explosion
+    static final long BOSS_DEATH_EXPLOSION_MS = 700;
+    static final long BOSS_DEATH_HOLD_MS = 160;
+    static final long BOSS_DEATH_TRANSITION_MS = 300;
+    static final long BOSS_DEATH_CAMERA_END_MS = BOSS_DEATH_HIT_STOP_MS
+            + BOSS_DEATH_CAMERA_WINDUP_MS;
+    static final long BOSS_DEATH_TOTAL_MS = BOSS_DEATH_CAMERA_END_MS
+            + BOSS_DEATH_EXPLOSION_MS + BOSS_DEATH_HOLD_MS
+            + BOSS_DEATH_TRANSITION_MS;
 
     // Cinematic state
     long cinematicStartMs = 0;
@@ -368,6 +381,8 @@ public class GameState {
     ArrayList<Point> cinematicBossBody = new ArrayList<>();
     boolean cinematicExplosionTriggered = false;
     float cinematicCameraZoom = 1f;
+    // Shockwave visual — lifecycle managed by the renderer over wall-clock time
+    long cinematicShockwaveAt = 0;
 
     // Wall builder state
     ArrayList<WallCell> walls = new ArrayList<>();

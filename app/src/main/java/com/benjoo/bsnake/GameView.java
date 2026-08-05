@@ -227,8 +227,14 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     } else if (isCinematic) {
                 // Cinematic boss death sequence: drive phases by wall-clock time
                 long elapsed = now - state.cinematicStartMs;
-                long phase2End = GameState.BOSS_DEATH_HIT_STOP_MS + GameState.BOSS_DEATH_CAMERA_WINDUP_MS;
-                if (elapsed >= phase2End && !state.cinematicExplosionTriggered) {
+                long explosionAt = GameState.BOSS_DEATH_CAMERA_END_MS;
+                // Extra shake jolt during the compression phase just before explosion
+                long compressStart = explosionAt - GameState.BOSS_DEATH_COMPRESS_MS;
+                if (elapsed >= compressStart && elapsed < explosionAt) {
+                    state.shakeMagnitude = 10f;
+                    state.shakeUntilMs = now + 60;
+                }
+                if (elapsed >= explosionAt && !state.cinematicExplosionTriggered) {
                     state.cinematicExplosionTriggered = true;
                     engine.triggerBossDeathExplosion();
                 }
