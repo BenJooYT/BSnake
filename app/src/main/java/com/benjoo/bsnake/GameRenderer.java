@@ -95,13 +95,14 @@ class GameRenderer {
             canvas.translate((float) ((Math.random() * 2 - 1) * mag),
                              (float) ((Math.random() * 2 - 1) * mag));
         }
+        boolean isCinematic = state.currentState == GameState.State.BOSS_DEATH_CINEMATIC;
         boolean spectator = state.currentState == GameState.State.MP_GAME_OVER
                 || (state.currentState == GameState.State.MP_PLAYING
                 && !state.snakes[state.playerIndex].alive);
-        boolean fitVertical = !state.isClassicMode()
+        boolean fitVertical = !state.isClassicMode() && !isCinematic
                 && state.cameraMode == GameState.CameraMode.FIT_VERTICAL
                 && !spectator;
-        if (!state.isClassicMode() && (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM)) {
+        if (!state.isClassicMode() && !isCinematic && (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM)) {
             // FIT_VERTICAL fills the screen height exactly and scrolls
             // horizontally; everything else shows the whole play area.
             state.cellSize = fitVertical ? state.fitVerticalCellSize : state.fullAreaCellSize;
@@ -1683,39 +1684,39 @@ class GameRenderer {
         // Top row: rarity label (left) + stack counter (right).
         paint.setTypeface(Typeface.DEFAULT_BOLD);
         paint.setTextAlign(Paint.Align.LEFT);
-        fitTextSize(card.rarity.name(), h * 0.13f, maxTextW * 0.45f);
+        fitTextSize(card.rarity.name(), h * 0.12f, maxTextW * 0.45f);
         paint.setColor(Color.argb(cardAlpha, Color.red(rc), Color.green(rc), Color.blue(rc)));
-        canvas.drawText(card.rarity.name(), innerL, r.top + h * 0.15f, paint);
+        canvas.drawText(card.rarity.name(), innerL, r.top + h * 0.14f, paint);
 
         paint.setTextAlign(Paint.Align.RIGHT);
         String stackText = card.stack + " / " + card.maxStack;
-        fitTextSize(stackText, h * 0.13f, maxTextW * 0.45f);
+        fitTextSize(stackText, h * 0.12f, maxTextW * 0.45f);
         paint.setColor(Color.argb(cardAlpha, 230, 236, 244));
-        canvas.drawText(stackText, innerR, r.top + h * 0.15f, paint);
+        canvas.drawText(stackText, innerR, r.top + h * 0.14f, paint);
 
         // Name — the visual anchor.
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setTypeface(Typeface.DEFAULT_BOLD);
-        fitTextSize(card.name, h * 0.20f, maxTextW);
+        fitTextSize(card.name, h * 0.19f, maxTextW);
         paint.setColor(Color.argb(cardAlpha, 255, 255, 255));
-        canvas.drawText(card.name, cx, r.top + h * 0.40f, paint);
+        canvas.drawText(card.name, cx, r.top + h * 0.36f, paint);
 
         // Divider under the name.
-        paint.setStrokeWidth(Math.max(1.5f, h * 0.008f));
-        paint.setColor(Color.argb((int) (70 * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
-        canvas.drawLine(cx - maxTextW * 0.28f, r.top + h * 0.46f,
-                cx + maxTextW * 0.28f, r.top + h * 0.46f, paint);
+        paint.setStrokeWidth(Math.max(1.5f, h * 0.007f));
+        paint.setColor(Color.argb((int) (65 * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawLine(cx - maxTextW * 0.26f, r.top + h * 0.41f,
+                cx + maxTextW * 0.26f, r.top + h * 0.41f, paint);
         paint.setStrokeWidth(0);
         paint.setStyle(Paint.Style.FILL);
 
         // Effect description (1-2 lines, each width-fitted).
         String[] lines = card.description.split("\n");
-        float lineH = h * 0.13f;
-        float descTop = r.top + h * 0.52f;
+        float lineH = Math.min(h * 0.12f, h * 0.10f + 2f);
+        float descTop = r.top + h * 0.46f;
         paint.setTypeface(Typeface.DEFAULT_BOLD);
         paint.setColor(Color.argb(cardAlpha, 255, 255, 255));
         for (int i = 0; i < lines.length; i++) {
-            fitTextSize(lines[i], h * 0.11f, maxTextW);
+            fitTextSize(lines[i], Math.min(h * 0.10f, 30f), maxTextW);
             canvas.drawText(lines[i], cx, descTop + i * lineH, paint);
         }
 
@@ -1723,13 +1724,16 @@ class GameRenderer {
         paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC));
         paint.setColor(Color.argb(cardAlpha, 196, 202, 214));
         String flavor = "\u201C" + card.flavor + "\u201D";
-        fitTextSize(flavor, h * 0.085f, maxTextW);
-        canvas.drawText(flavor, cx, r.top + h * 0.885f, paint);
+        fitTextSize(flavor, Math.min(h * 0.08f, 24f), maxTextW);
+        // Position flavor text based on description line count so it never overlaps
+        float descBottom = descTop + lines.length * lineH;
+        float flavorY = Math.max(r.top + h * 0.82f, descBottom + h * 0.06f);
+        canvas.drawText(flavor, cx, flavorY, paint);
 
         // Stack pips along the bottom edge.
-        float pipR = h * 0.026f;
-        float pipGap = pipR * 3.4f;
-        float pipY = r.bottom - h * 0.05f;
+        float pipR = Math.min(h * 0.025f, 6f);
+        float pipGap = pipR * 3.2f;
+        float pipY = r.bottom - Math.max(8, h * 0.04f);
         float pipStart = cx - (card.maxStack - 1) * pipGap / 2f;
         for (int j = 0; j < card.maxStack; j++) {
             float px = pipStart + j * pipGap;
