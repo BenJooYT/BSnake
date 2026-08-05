@@ -5,6 +5,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Point;
+import android.os.Build;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -27,6 +28,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     Thread thread;
     SurfaceHolder holder;
     volatile boolean running = false;
+    // Set from the UI thread to request a single-player restart. The reset runs
+    // on the game thread (see run()) so list mutations never race the update /
+    // render loop that iterates the same collections.
+    volatile boolean restartPending = false;
+    // Same pattern for multiplayer game start / rematch.
+    volatile boolean mpStartPending = false;
 
     GameState state;
     PersistenceManager persistence;
@@ -70,11 +77,32 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         menuMusic.setVolume(state.musicVolume);
         persistence.loadColors(state);
         persistence.loadCameraMode(state);
+        persistence.loadDirectionButtons(state);
     }
 
     private void init() {
         holder = getHolder();
         holder.addCallback(this);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            // Keep bottom controls (e.g. the direction pad) above the Android
+            // nav bar / gesture pill on edge-to-edge (Android 15+) devices.
+            // Detects both the 3-button nav bar and the gesture pill: on
+            // Android 11+ WindowInsets.Type.navigationBars() reports either,
+            // with getSystemWindowInsetBottom() as the legacy fallback.
+            setOnApplyWindowInsetsListener((v, insets) -> {
+                int bottom = 0;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    bottom = insets.getInsets(
+                            android.view.WindowInsets.Type.navigationBars()).bottom;
+                }
+                bottom = Math.max(bottom, insets.getSystemWindowInsetBottom());
+                if (state.navBarBottom != bottom) {
+                    state.navBarBottom = bottom;
+                    state.layoutButtons();
+                }
+                return insets;
+            });
+        }
     }
 
     @Override
@@ -103,8 +131,49 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void run() {
         long lastTick = System.currentTimeMillis();
+        long lastFrameMs = System.currentTimeMillis();
+        GameState.State lastState = null;
         while (running) {
             long now = System.currentTimeMillis();
+
+            // Screen-transition fade and challenge-fail flash decay (per frame).
+            float frameDt = Math.min(80, now - lastFrameMs);
+            lastFrameMs = now;
+            if (state.transitionFade > 0) {
+                state.transitionFade = Math.max(0, state.transitionFade - frameDt / 350f);
+            }
+            if (state.flashAlpha > 0) {
+                state.flashAlpha = Math.max(0, state.flashAlpha - frameDt / 450f);
+            }
+            // Challenge HUD auto-collapses back to the dot strip once the reveal
+            // timer expires (skipped while the player has it pinned open).
+            if (state.challengeAutoHideUntil > 0 && now >= state.challengeAutoHideUntil) {
+                state.challengeAutoHideUntil = 0;
+                state.challengePanelOpen = false;
+            }
+
+            // A restart was requested from the UI thread — perform the state
+            // reset here on the game thread so it can't collide with the
+            // update/render iteration happening below.
+            if (restartPending) {
+                restartPending = false;
+                state.configureBoard();
+                engine.resetSinglePlayer();
+                state.currentState = GameState.State.PLAYING;
+            }
+
+            // Multiplayer start / rematch — reset and enter MP_PLAYING on the
+            // game thread for the same reason as restartPending.
+            if (mpStartPending) {
+                mpStartPending = false;
+                engine.resetGame();
+                state.currentState = GameState.State.MP_PLAYING;
+                if (!state.snakes[state.playerIndex].body.isEmpty()) {
+                    Point h = state.snakes[state.playerIndex].body.get(0);
+                    state.cameraX = h.x;
+                    state.cameraY = h.y;
+                }
+            }
 
             boolean isMpClient = state.currentState == GameState.State.MP_PLAYING && !state.isHost;
 
@@ -125,6 +194,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             // Game tick
             boolean isPlaying = state.currentState == GameState.State.PLAYING;
             boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
+            boolean isCinematic = state.currentState == GameState.State.BOSS_DEATH_CINEMATIC;
             if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
                 if (BOT_ENABLED) {
@@ -162,8 +232,43 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                         }
                         lastTick = now;
                         now = System.currentTimeMillis();
-                    } else if (!isPlaying && !isMpHost && !isMpClient) {
+                    } else if (isCinematic) {
+                // Cinematic boss death sequence: drive phases by wall-clock time
+                long elapsed = now - state.cinematicStartMs;
+                long explosionAt = GameState.BOSS_DEATH_CAMERA_END_MS;
+                // Extra shake jolt during the compression phase just before explosion
+                long compressStart = explosionAt - GameState.BOSS_DEATH_COMPRESS_MS;
+                if (elapsed >= compressStart && elapsed < explosionAt) {
+                    state.shakeMagnitude = 10f;
+                    state.shakeUntilMs = now + 60;
+                }
+                if (elapsed >= explosionAt && !state.cinematicExplosionTriggered) {
+                    state.cinematicExplosionTriggered = true;
+                    engine.triggerBossDeathExplosion();
+                }
+                long total = GameState.BOSS_DEATH_TOTAL_MS;
+                if (elapsed >= total) {
+                    engine.finishBossDefeatTransition();
+                    lastState = null; // force transition fade
+                }
                 lastTick = now;
+                    } else if (!isPlaying && !isMpHost && !isMpClient && !isCinematic) {
+                lastTick = now;
+            }
+
+            // Death dissolve finished — swap to the game-over panel.
+            if (state.deathPending && now - state.deathStartMs >= GameState.DEATH_ANIM_MS) {
+                state.deathPending = false;
+                if (state.isHost) {
+                    state.mpWinner = state.snakes[0].score > state.snakes[1].score ? 0 :
+                                     state.snakes[1].score > state.snakes[0].score ? 1 : -1;
+                    state.currentState = GameState.State.MP_GAME_OVER;
+                } else {
+                    if (!state.devMode)
+                        persistence.saveScore(state.snakes[0].score,
+                                state.speedLabels[state.speedIndex], state.gameMode.ordinal());
+                    state.currentState = GameState.State.GAME_OVER;
+                }
             }
 
             // TEMPORARY: keep the autoplayer running across deaths
@@ -184,6 +289,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
 
             float t = Math.min(1f, (now - lastTick) / (float) state.tickDelay);
+
+            // Fade-in on a screen change. Detected here — right before the
+            // render — so a state set earlier in this frame (e.g. a restart)
+            // fades from black on its very first drawn frame.
+            if (state.currentState != lastState) {
+                state.transitionFade = 1f;
+                lastState = state.currentState;
+            }
+
             Surface surface = holder.getSurface();
             boolean hardware = false;
             Canvas canvas = null;
@@ -472,9 +586,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         stopNetworking();
         state.lastPlayedMode = state.gameMode.ordinal();
         persistence.saveGameMode(state.lastPlayedMode);
-        state.configureBoard();
-        engine.resetSinglePlayer();
-        state.currentState = GameState.State.PLAYING;
+        // The actual reset (configureBoard + engine.resetSinglePlayer + entering
+        // PLAYING) is deferred to the game thread via restartPending to avoid
+        // racing the update/render loop.
+        restartPending = true;
     }
 
     @Override
@@ -603,6 +718,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     }
 
     @Override
+    public void toggleDirectionButtons() {
+        state.directionButtons = !state.directionButtons;
+        persistence.saveDirectionButtons(state.directionButtons);
+    }
+
+    @Override
     public void toggleDevMode() {
         state.devMode = !state.devMode;
         if (state.devMode) { state.devScoreText = "0"; showDevScoreInput(); }
@@ -647,6 +768,18 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void playBossDamage() { soundEffects.playBossDamage(); }
+
+    @Override
+    public void playPause() { soundEffects.playPause(); }
+
+    @Override
+    public void onUpgradeCardTap(int index) { engine.onUpgradeCardTap(index); }
+
+    @Override
+    public void onUpgradeChoose() { engine.onUpgradeChoose(); }
+
+    @Override
+    public void onUpgradeSkip() { engine.onUpgradeSkip(); }
 
     @Override
     public void setMusicVolume(float vol) {
@@ -799,14 +932,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         if (state.isHost && server != null) {
             server.send(NetworkMessage.startGame());
         }
-        engine.resetGame();
-        state.currentState = GameState.State.MP_PLAYING;
-        // Force camera to local player's head position
-        if (!state.snakes[state.playerIndex].body.isEmpty()) {
-            Point h = state.snakes[state.playerIndex].body.get(0);
-            state.cameraX = h.x;
-            state.cameraY = h.y;
-        }
+        // engine.resetGame() and the MP_PLAYING transition are deferred to the
+        // game thread via mpStartPending (startMpGame can be reached from the
+        // UI thread via ready/force-start/rematch).
+        mpStartPending = true;
     }
 
     @Override

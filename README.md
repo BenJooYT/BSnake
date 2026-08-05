@@ -27,12 +27,46 @@ Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your fr
 
 ## Changelog
 
-### 1.7.0 — Challenge Objectives
+### 1.7.0 — The Big Beautiful August Update
+
+**Challenges**
 - **Arcade challenges:** every run starts with 3 randomly selected objectives drawn from a pool of 20 — score goals, length goals, food collection, boss fights, and wall capture
-- **Challenge HUD:** objectives appear in the top-right corner with name, description, live progress, and point reward — red when untouched, yellow while in progress, green when completed
-- **Rewards:** completing an objective grants its points immediately and plays a chime plus a floating "+X" notification above the middle of the screen
+- **Challenge HUD:** redesigned into a collapsible status-dot strip (top-left) — one colored dot per objective (red untouched, amber in progress, green done, grey failed); tap to expand the full list with live progress and point rewards, tap again to collapse
+- **Auto-rotate:** completed or failed objectives linger briefly, then are replaced by a fresh objective not yet used this run (no repeats)
+- **Feedback:** completing an objective flashes the screen green, pops the score badge, and plays a chime plus a floating "+X"; failing one flashes red with a dedicated fail sound
+- **Direction Lock:** objectives now name the forbidden direction in the description (e.g. "without moving up")
 - **Boss Rush:** requires 5 consecutive boss defeats — dying resets the streak
 - **Extensible:** all challenge definitions live in a single data file (`ChallengeDefinitions.java`), so new objectives can be added with zero gameplay code changes
+
+**Visuals**
+- **Death dissolve:** the snake fades out cell-by-cell with a flashing white/red head for ~1.4s before the game-over panel; the camera freezes at the death site instead of snapping to center
+- **Food effects:** fruits scale in with a pulse and soft radial glow, then burst into arcing dots plus an expanding ring when eaten (green for healing fruit, red for normal)
+- **Boss spawn telegraph:** a much more transparent red vignette, a pulsing "BOSS INCOMING" banner, and a warning siren for 1 second before a boss appears
+- **Boss presence:** bosses spawn with a shockwave ring, white flash, and screen shake; their whole body pulses with a colored aura and their head glows
+- **Boss combat:** bosses flash white and burst into particles when hit, and explode into a big double-ring burst with screen shake plus a "BOSS DEFEATED +N" banner when defeated
+- **Boss health bar:** a top-center bar tracks the boss's remaining segments against its maximum length
+- **Transitions:** full-screen fades between screens; red/green flashes on challenge results
+- **Camera:** FIT VERTICAL mode now really works — it fills the screen height exactly and scrolls horizontally
+
+**HUD & Score**
+- **Coin meter:** the plain score text is replaced by a coin in your snake's head color (mid-left of the screen) that pops on every point and floats a "+1" when you eat food; multiplayer shows both players' coins plus a gold SUM; DEV mode shows as a small red tag
+- **Bigger touch targets:** the pause icon and the collapsed challenge strip each have a larger invisible tap area
+
+**Audio**
+- **Full sound redesign:** 7 new synthesized sounds — heal chime, boss warning siren, boss spawn growl, challenge-fail buzz, segment-lost snip, game-over descent, and a pause/resume blip — plus reworked eat (popping crunch), boss hit (punchy sub-thud), boss defeat (cascading explosion), wall shatter, challenge-complete arpeggio, and UI click
+- **Louder game-over sound**
+
+**Input & Controls**
+- **On-screen D-pad:** an optional 4-way direction pad (bottom-center) driven by taps, with a new persisted DIRECTION BUTTONS toggle in Settings; the button for the illegal 180° turn is hidden
+- **Forgiving taps:** D-pad presses are hit-tested at the press-down point with a wide 90px tolerance, so a small finger wobble no longer cancels them; swipes that start on the pad are ignored
+- **Challenge tab:** tap the collapsed strip to open the list, tap the open panel to close it — swipes still pass through as movement
+- **Pause feedback:** pausing and resuming play a dedicated blip
+
+**Stability**
+- Multiplayer start, restart, and rematch are deferred to the game thread (no crashes from racing the game loop)
+- Game over waits for the death dissolve animation to finish before saving scores
+- Stale boss, death, and particle effects are cleared between runs
+- Bottom UI stays above the system navigation bar / gesture pill on edge-to-edge devices
 
 ### 1.6.2 — Smash Through the Walls
 - **Wall Builder counterplay:** a player snake that completely surrounds a connected wall group with a closed loop destroys the whole group
@@ -203,6 +237,26 @@ Snake, but with teeth — dodge bosses, hoard healing fruit, and outgrow your fr
 ### 1.1.0
 - Settings screen with snake color customization
 - Colors save between sessions
+
+## Release builds (GitHub Actions)
+
+`.github/workflows/android-build.yml` builds the release APK on every push/PR and
+creates a GitHub Release for `v*` tags. The APK is signed with the release
+keystore, which is never committed — it's injected from repository secrets.
+
+Required repository secrets (Settings → Secrets and variables → Actions):
+
+- `KEYSTORE_BASE64` — the `bsnake-release.keystore` file encoded as base64
+- `KEYSTORE_PASSWORD` — keystore password
+- `KEY_ALIAS` — `bsnake`
+- `KEY_PASSWORD` — key password (same as the keystore password for PKCS12)
+
+To publish a version, bump `versionCode`/`versionName` in `app/build.gradle`,
+commit, then push a tag matching the version name (e.g. `v1.7.0`). The workflow
+builds, signs, and attaches `BSnake-v<tag>.apk` to a new GitHub Release.
+
+If the secrets are absent (e.g. PRs from forks), the workflow still builds but
+falls back to debug signing.
 
 ## AIDE Instructions
 

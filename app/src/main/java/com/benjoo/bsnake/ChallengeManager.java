@@ -3,9 +3,11 @@ package com.benjoo.bsnake;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 // Tracks the 3 active challenge objectives for the current Arcade run. All
 // logic is event driven — the engine reports gameplay events (food eaten, boss
@@ -14,9 +16,18 @@ import java.util.Random;
 // definitions come from ChallengeDefinitions.
 class ChallengeManager {
 
+    // A completed/failed challenge lingers in the HUD this long before it is
+    // removed and replaced by a fresh objective.
+    private static final long SETTLE_MS = 5000;
+
+    // How long the full challenge list stays open before collapsing to the
+    // dot strip when opened automatically (run start / challenge settled).
+    private static final long CHALLENGE_HUD_SHOW_MS = 4000;
+
     private final GameState state;
     private final Map<GameState.Fruit, Long> fruitSpawnTimes = new HashMap<>();
     private final ArrayList<ActiveChallenge> active = new ArrayList<>();
+    private final Set<String> usedIds = new HashSet<>();
     private SoundEffects sound;
 
     private boolean activeRun = false;
@@ -49,6 +60,7 @@ class ChallengeManager {
     // Called at the start of every Arcade run. Selects 3 random challenges.
     void startRun() {
         active.clear();
+        usedIds.clear();
         List<ChallengeDefinition> pool = new ArrayList<>(ChallengeDefinitions.getAll());
         Collections.shuffle(pool, new Random());
         int count = Math.min(3, pool.size());
@@ -58,6 +70,7 @@ class ChallengeManager {
             if (def.type == ChallengeDefinition.ChallengeType.DIRECTION_LOCK) {
                 ac.forbiddenDir = new Random().nextInt(4);
             }
+            usedIds.add(def.id);
             active.add(ac);
         }
         state.activeChallenges.clear();
@@ -71,14 +84,25 @@ class ChallengeManager {
         bossActive = false;
         fruitSpawnTimes.clear();
         state.challengePopups.clear();
+        revealChallengePanel();
+    }
+
+    // Opens the challenge HUD and schedules it to collapse back to the dot
+    // strip after a few seconds.
+    private void revealChallengePanel() {
+        state.challengePanelOpen = true;
+        state.challengeAutoHideUntil = System.currentTimeMillis() + CHALLENGE_HUD_SHOW_MS;
     }
 
     // Stops all tracking (new non-Arcade run, returning to menu, etc.)
     void reset() {
         activeRun = false;
         active.clear();
+        usedIds.clear();
         state.activeChallenges.clear();
         state.challengePopups.clear();
+        state.challengePanelOpen = false;
+        state.challengeAutoHideUntil = 0;
         fruitSpawnTimes.clear();
         bossActive = false;
         lastTickTime = 0;
@@ -113,7 +137,7 @@ class ChallengeManager {
             switch (ac.def.type) {
                 case SPEEDRUNNER:
                     if (elapsedMs > ac.def.params[0] && ac.progress < ac.def.requiredProgress) {
-                        ac.failed = true;
+                        failChallenge(ac);
                     }
                     break;
                 case EDGE_WALKER:
@@ -127,6 +151,9 @@ class ChallengeManager {
                     break;
             }
         }
+
+        // Completed/failed challenges linger briefly, then get replaced.
+        rotateSettledChallenges();
 
         if (!state.challengePopups.isEmpty()) {
             long t = System.currentTimeMillis();
@@ -171,12 +198,24 @@ class ChallengeManager {
         }
     }
 
+    // Marks a challenge as failed and triggers a red screen flash so the
+    // player sees the penalty moment.
+    private void failChallenge(ActiveChallenge ac) {
+        if (ac.failed) return;
+        ac.failed = true;
+        ac.settledAt = System.currentTimeMillis();
+        state.flashAlpha = 1f;
+        state.flashColor = android.graphics.Color.argb(140, 255, 50, 40);
+        if (sound != null) sound.playChallengeFailed();
+        revealChallengePanel();
+    }
+
     void onSegmentLost() {
         if (!activeRun) return;
         for (ActiveChallenge ac : active) {
             if (ac.def.type == ChallengeDefinition.ChallengeType.NO_MISTAKES) {
                 ac.lostSegment = true;
-                ac.failed = true;
+                failChallenge(ac);
             }
         }
     }
@@ -189,7 +228,7 @@ class ChallengeManager {
             if (ac.completed || ac.failed) continue;
             if (ac.def.type == ChallengeDefinition.ChallengeType.DIRECTION_LOCK
                     && dirIdx == ac.forbiddenDir) {
-                ac.failed = true;
+                failChallenge(ac);
             }
         }
     }
@@ -283,6 +322,43 @@ class ChallengeManager {
 
     // ----- internal helpers -----
 
+    // Removes challenges that have been settled (completed/failed) for more than
+    // SETTLE_MS and appends a fresh objective in their place, keeping the run's
+    // active list topped up. The remaining quests shift up; the new one goes on
+    // the bottom of the HUD list.
+    private void rotateSettledChallenges() {
+        long now = System.currentTimeMillis();
+        for (int i = active.size() - 1; i >= 0; i--) {
+            ActiveChallenge ac = active.get(i);
+            if (ac.settledAt >= 0 && now - ac.settledAt >= SETTLE_MS) {
+                active.remove(i);
+                state.activeChallenges.remove(ac);
+                ActiveChallenge replacement = pickNewChallenge();
+                if (replacement != null) {
+                    active.add(replacement);
+                    state.activeChallenges.add(replacement);
+                }
+            }
+        }
+    }
+
+    // Picks a challenge definition not yet used this run. Returns null when the
+    // whole pool has been cycled through.
+    private ActiveChallenge pickNewChallenge() {
+        List<ChallengeDefinition> pool = new ArrayList<>(ChallengeDefinitions.getAll());
+        Collections.shuffle(pool, new Random());
+        for (ChallengeDefinition def : pool) {
+            if (usedIds.contains(def.id)) continue;
+            ActiveChallenge ac = new ActiveChallenge(def);
+            if (def.type == ChallengeDefinition.ChallengeType.DIRECTION_LOCK) {
+                ac.forbiddenDir = new Random().nextInt(4);
+            }
+            usedIds.add(def.id);
+            return ac;
+        }
+        return null;
+    }
+
     private void onScoreChanged(int score) {
         for (ActiveChallenge ac : active) {
             if (ac.completed || ac.failed) continue;
@@ -313,7 +389,7 @@ class ChallengeManager {
                     break;
                 case TINY_SNAKE:
                     if (ac.maxLength < length) ac.maxLength = length;
-                    if (length > ac.def.params[0]) ac.failed = true;
+                    if (length > ac.def.params[0]) failChallenge(ac);
                     break;
             }
         }
@@ -335,11 +411,17 @@ class ChallengeManager {
     private void completeChallenge(ActiveChallenge ac) {
         if (ac.completed) return;
         ac.completed = true;
+        ac.settledAt = System.currentTimeMillis();
         // Reward is added straight to the run score (no separate bonus pool).
         state.snakes[0].score += ac.def.reward;
         state.score = state.snakes[0].score;
+        state.scorePulseMs = System.currentTimeMillis();
         if (sound != null) sound.playChallengeComplete();
         addPopup("+" + ac.def.reward);
+        // Green flash so the success moment is felt.
+        state.flashAlpha = 1f;
+        state.flashColor = android.graphics.Color.argb(140, 60, 255, 90);
+        revealChallengePanel();
     }
 
     private void addPopup(String text) {

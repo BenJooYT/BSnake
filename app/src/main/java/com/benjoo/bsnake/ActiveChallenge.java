@@ -9,6 +9,7 @@ class ActiveChallenge {
     int progress = 0;
     boolean completed = false;
     boolean failed = false;   // impossible to finish (e.g. timed out / rule broken)
+    long settledAt = -1;      // wall-clock ms when the challenge completed/failed (-1 = still active)
 
     // Per-challenge runtime state
     int forbiddenDir = -1;        // DIRECTION_LOCK: 0=up 1=right 2=down 3=left

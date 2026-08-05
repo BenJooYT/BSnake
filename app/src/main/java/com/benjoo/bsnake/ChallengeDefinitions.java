@@ -104,7 +104,7 @@ public class ChallengeDefinitions {
         // ---- 50 points ----
         list.add(new ChallengeDefinition(
                 "direction_lock", "Direction Lock",
-                "Reach 150 score without moving in one randomly selected direction",
+                "Reach 150 score without moving {dir}",
                 50, 150, ChallengeType.DIRECTION_LOCK));
 
         list.add(new ChallengeDefinition(
