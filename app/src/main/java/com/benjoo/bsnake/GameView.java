@@ -21,7 +21,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Callback, InputHandler.GameActions {
 
@@ -162,6 +164,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             // game thread for the same reason as restartPending.
             if (mpStartPending) {
                 mpStartPending = false;
+                state.inMp = true;
                 engine.resetGame();
                 state.currentState = GameState.State.MP_PLAYING;
                 if (!state.snakes[state.playerIndex].body.isEmpty()) {
@@ -194,7 +197,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
                 engine.update();
                 if (state.isHost) {
-                    if (state.currentState == GameState.State.MP_PLAYING) {
+                    if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC
+                            && !state.bossCinematicSynced) {
+                        state.bossCinematicSynced = true;
+                        String cm = NetworkMessage.bossCinematic(
+                                state.cinematicFocusX, state.cinematicFocusY,
+                                state.cinematicCameraStartX, state.cinematicCameraStartY,
+                                state.cinematicBossColor, state.cinematicBossBody);
+                        if (cm != null && server != null) server.send(cm);
+                    } else if (state.currentState == GameState.State.MP_PLAYING) {
                         sendHostState();
                     } else if (state.currentState == GameState.State.MP_GAME_OVER && !state.mpGameOverSent) {
                         int[] scores = new int[]{state.mpLastScore0, state.mpLastScore1};
@@ -241,6 +252,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 long total = GameState.BOSS_DEATH_TOTAL_MS;
                 if (elapsed >= total) {
                     engine.finishBossDefeatTransition();
+                    if (state.inMp && state.isHost && server != null) {
+                        String um = NetworkMessage.bossUpgrade(engine.upgradeOfferIds());
+                        if (um != null) server.send(um);
+                    }
                     lastState = null; // force transition fade
                 }
                 lastTick = now;
@@ -261,6 +276,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                                 state.speedLabels[state.speedIndex], state.gameMode.ordinal());
                     state.currentState = GameState.State.GAME_OVER;
                 }
+                state.inMp = false;
             }
 
             // Music
@@ -366,6 +382,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                         engine.clientHitBoss();
                     }
                     break;
+                case "upgradePick":
+                    // The client confirmed a card (or skipped). Host is authoritative:
+                    // apply it and resume the run.
+                    if (state.currentState == GameState.State.BOSS_UPGRADE) {
+                        engine.applyUpgrade(obj.getInt("index"));
+                    }
+                    break;
             }
         } catch (Exception e) { }
     }
@@ -387,15 +410,52 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     JSONArray scArr = obj.getJSONArray("scores");
                     state.mpLastScore0 = scArr.getInt(0);
                     state.mpLastScore1 = scArr.getInt(1);
+                    state.inMp = false;
                     state.currentState = GameState.State.MP_GAME_OVER;
                     break;
                 case "ready":
                     state.opponentReady = obj.optBoolean("ready", false);
                     break;
+                case "bossCinematic":
+                    // Host killed the boss — mirror the cinematic snapshot so the
+                    // remote renders the same death sequence.
+                    state.cinematicBossBody = NetworkMessage.jsonToBody(obj.getJSONArray("bossBody"));
+                    state.cinematicFocusX = (float) obj.getDouble("focusX");
+                    state.cinematicFocusY = (float) obj.getDouble("focusY");
+                    state.cinematicCameraStartX = (float) obj.getDouble("camX");
+                    state.cinematicCameraStartY = (float) obj.getDouble("camY");
+                    state.cinematicBossColor = obj.getInt("color");
+                    state.cinematicStartMs = System.currentTimeMillis();
+                    state.cinematicExplosionTriggered = false;
+                    state.cinematicCameraZoom = 1f;
+                    state.cinematicShockwaveAt = 0;
+                    state.boss.alive = false;
+                    state.shakeMagnitude = 14f;
+                    state.shakeUntilMs = System.currentTimeMillis() + 200;
+                    state.currentState = GameState.State.BOSS_DEATH_CINEMATIC;
+                    break;
+                case "bossUpgrade":
+                    // Host finished the cinematic and rolled the card offer. Build the
+                    // shared offer (empty list = resume play).
+                    JSONArray ids = obj.getJSONArray("ids");
+                    ArrayList<String> idList = new ArrayList<>();
+                    for (int i = 0; i < ids.length(); i++) idList.add(ids.getString(i));
+                    engine.applyExternalOffer(idList);
+                    state.currentState = idList.isEmpty()
+                            ? GameState.State.MP_PLAYING
+                            : GameState.State.BOSS_UPGRADE;
+                    break;
+                case "upgradePick":
+                    // The host confirmed a card. Apply the same pick to stay in sync.
+                    if (state.currentState == GameState.State.BOSS_UPGRADE) {
+                        engine.applyUpgrade(obj.getInt("index"));
+                    }
+                    break;
                 case "start":
                     state.opponentReady = true;
                     state.localReady = true;
                     state.mpGameOverSent = false;
+                    state.inMp = true;
                     engine.resetGame();
                     state.currentState = GameState.State.MP_PLAYING;
                     // Force camera to local player's head position
@@ -436,9 +496,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
             sd0.mpHostBody.clear();
             for (Point p : sd0.body) sd0.mpHostBody.add(new Point(p));
-            // Own snake: save prevBody for interpolation, keep local body
-            state.snakes[1].prevBody.clear();
-            for (Point p : state.snakes[1].body) state.snakes[1].prevBody.add(new Point(p));
+            // The client's own snake ([]1) is driven by local prediction, and the
+            // engine already maintains its prevBody/body for interpolation each
+            // tick. Resetting prevBody to body on every host state would snap the
+            // snake forward past its in-flight glide and make it stutter.
             JSONArray scArr = obj.getJSONArray("scores");
             state.snakes[0].score = scArr.getInt(0);
             state.snakes[1].score = scArr.getInt(1);
@@ -446,11 +507,21 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             state.snakes[0].dirX = drArr.getJSONArray(0).getInt(0);
             state.snakes[0].dirY = drArr.getJSONArray(0).getInt(1);
             JSONArray fdArr = obj.getJSONArray("foods");
+            // Rebuild with each food's existing bornMs preserved. Recreating fruit
+            // with a fresh bornMs on every host state would restart its spawn
+            // scale-in + pulse animation each message, making the food flicker.
+            Map<String, Long> bornByKey = new HashMap<>();
+            for (GameState.Fruit base : state.foods) {
+                bornByKey.put(base.type + ":" + base.x + ":" + base.y, base.bornMs);
+            }
             state.foods.clear();
             for (int i = 0; i < fdArr.length(); i++) {
                 JSONArray pt = fdArr.getJSONArray(i);
                 GameState.FruitType ft = GameState.FruitType.values()[pt.optInt(2, 0)];
-                state.foods.add(new GameState.Fruit(ft, pt.getInt(0), pt.getInt(1)));
+                GameState.Fruit f = new GameState.Fruit(ft, pt.getInt(0), pt.getInt(1));
+                Long prevBorn = bornByKey.get(ft + ":" + f.x + ":" + f.y);
+                if (prevBorn != null) f.bornMs = prevBorn;
+                state.foods.add(f);
             }
             if (obj.has("boss")) {
                 JSONObject bj = obj.getJSONObject("boss");
@@ -762,10 +833,27 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void onUpgradeCardTap(int index) { engine.onUpgradeCardTap(index); }
 
     @Override
-    public void onUpgradeChoose() { engine.onUpgradeChoose(); }
+    public void onUpgradeChoose() {
+        int idx = state.upgradeSelectedIndex;
+        engine.onUpgradeChoose();
+        broadcastUpgradePick(idx);
+    }
 
     @Override
-    public void onUpgradeSkip() { engine.onUpgradeSkip(); }
+    public void onUpgradeSkip() {
+        engine.onUpgradeSkip();
+        broadcastUpgradePick(-1);
+    }
+
+    // MP: tell the other player which card (index) was confirmed so both sides
+    // apply the same pick and return to MP_PLAYING together.
+    private void broadcastUpgradePick(int index) {
+        if (!state.inMp) return;
+        String m = NetworkMessage.upgradePick(index);
+        if (m == null) return;
+        if (state.isHost && server != null) server.send(m);
+        else if (client != null) client.send(m);
+    }
 
     @Override
     public void setMusicVolume(float vol) {
@@ -811,6 +899,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.opponentConnected = false;
                 state.opponentReady = false;
                 state.localReady = false;
+                state.inMp = false;
                 state.currentState = GameState.State.MENU;
             }
         });
@@ -870,6 +959,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             @Override
             public void onDisconnected() {
                 if (state.currentState == GameState.State.MP_PLAYING) {
+                    state.inMp = false;
                     state.currentState = GameState.State.MENU;
                 }
             }
@@ -963,6 +1053,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.opponentReady = false;
         state.localReady = false;
         state.isHost = false;
+        state.inMp = false;
         state.mpStatus = "";
         state.discoveredHosts.clear();
         state.hostItemRects.clear();

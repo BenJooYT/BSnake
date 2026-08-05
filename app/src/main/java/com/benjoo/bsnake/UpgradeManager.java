@@ -88,6 +88,24 @@ class UpgradeManager {
         state.upgradeOpenAt = System.currentTimeMillis();
     }
 
+    // The ids of the cards currently offered, for network sync to the client.
+    ArrayList<String> offeredIds() {
+        ArrayList<String> ids = new ArrayList<>();
+        for (GameState.UpgradeCard c : state.upgradeOffers) ids.add(c.id);
+        return ids;
+    }
+
+    // Rebuilds the current offer from a synced list of card ids (client side),
+    // referencing this manager's own card instances so applyPick works locally.
+    void offerByIds(ArrayList<String> ids) {
+        state.upgradeOffers.clear();
+        for (String id : ids) {
+            GameState.UpgradeCard c = findCard(id);
+            if (c != null) state.upgradeOffers.add(c);
+        }
+        state.upgradeOpenAt = System.currentTimeMillis();
+    }
+
     // Applies the picked card stack (0..2). Returns true if an upgrade applied.
     boolean applyPick(int index) {
         if (index < 0 || index >= state.upgradeOffers.size()) return false;

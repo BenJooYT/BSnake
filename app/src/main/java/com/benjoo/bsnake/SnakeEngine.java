@@ -90,6 +90,15 @@ public class SnakeEngine {
         state.tickCount = 0;
         challenges.reset();
         upgrades.reset();
+        if (state.inMp) {
+            // Multiplayer is an endless shooter over the shared run — give it the
+            // post-boss upgrade economy like arcade single-player.
+            challenges.startRun();
+            upgrades.startRun();
+        } else if (!state.isClassicMode()) {
+            challenges.startRun();
+            upgrades.startRun();
+        }
         state.bossWarningStartMs = 0;
         state.bossSpawnRingStartMs = 0;
         state.shakeUntilMs = 0;
@@ -170,6 +179,18 @@ public class SnakeEngine {
         update(false);
     }
 
+// Ids of the currently-offered upgrade cards, for syncing to the MP client.
+    ArrayList<String> upgradeOfferIds() {
+        return upgrades.offeredIds();
+    }
+
+    // Client-side: adopt the host's card offer verbatim so both players see the
+    // same cards and a shared index can be applied by either.
+    void applyExternalOffer(ArrayList<String> ids) {
+        upgrades.offerByIds(ids);
+        state.upgradeSelectedIndex = -1;
+    }
+
     // Tapping a card highlights it (and shows the Choose button). Tapping the
     // same card again drops the selection. No upgrade is applied yet.
     void onUpgradeCardTap(int index) {
@@ -195,13 +216,15 @@ public class SnakeEngine {
     }
 
     // Applies the picked card (index) or discard (index -1), recomputes any
-    // speed effects, and resumes the run.
-    private void applyUpgrade(int index) {
+    // speed effects, and resumes the run. Used both locally and (on the host)
+    // when the remote player confirms a pick.
+    void applyUpgrade(int index) {
         boolean picked = upgrades.applyPick(index);
         upgrades.clearOffer();
         recomputeSpeed();
         state.upgradeSelectedIndex = -1;
-        state.currentState = GameState.State.PLAYING;
+        state.currentState = state.inMp
+                ? GameState.State.MP_PLAYING : GameState.State.PLAYING;
         if (picked) {
             state.scorePulseMs = System.currentTimeMillis();
             state.scorePopMs = state.scorePulseMs;
@@ -746,6 +769,7 @@ public class SnakeEngine {
         state.cinematicCameraStartX = 0;
         state.cinematicCameraStartY = 0;
         state.cinematicShockwaveAt = 0;
+        state.bossCinematicSynced = false;
     }
 
     // Spawns the cinematic explosion particle burst. Called once when the
@@ -828,6 +852,10 @@ public class SnakeEngine {
     // Ends the cinematic sequence and transitions to the upgrade selection
     // screen. Called once the death animation has fully played out.
     void finishBossDefeatTransition() {
+        // On the MP client the transition is commanded by the host: it neither
+        // rolls its own offer nor changes state here — it waits for the host's
+        // bossUpgrade message to move off the cinematic.
+        if (state.inMp && !state.isHost) return;
         if (upgrades.isActive()) {
             upgrades.offer();
             boolean hasEpic = false;
@@ -844,7 +872,8 @@ public class SnakeEngine {
             state.currentState = GameState.State.BOSS_UPGRADE;
         } else {
             // If upgrades aren't active (e.g. classic mode), just go back to playing
-            state.currentState = GameState.State.PLAYING;
+            state.currentState = state.inMp
+                    ? GameState.State.MP_PLAYING : GameState.State.PLAYING;
         }
         resetCinematicState();
     }

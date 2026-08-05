@@ -294,6 +294,9 @@ public class GameState {
 
     // Multiplayer state
     volatile boolean isHost;
+    // True once an MP run is actually in progress (between start and game-over),
+    // so engine/game-view can branch on "is this a networked session".
+    volatile boolean inMp;
     String mpStatus = "";
     ArrayList<DiscoveredHost> discoveredHosts = new ArrayList<>();
     ArrayList<RectF> hostItemRects = new ArrayList<>();
@@ -382,6 +385,9 @@ public class GameState {
     ArrayList<Point> cinematicBossBody = new ArrayList<>();
     boolean cinematicExplosionTriggered = false;
     float cinematicCameraZoom = 1f;
+    // Host-only: whether the boss-death cinematic has already been pushed to the
+    // remote player for this death, so we don't re-send it every game tick.
+    volatile boolean bossCinematicSynced = false;
     // Shockwave visual — lifecycle managed by the renderer over wall-clock time
     long cinematicShockwaveAt = 0;
 
