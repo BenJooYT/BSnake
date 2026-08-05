@@ -477,11 +477,12 @@ class GameRenderer {
             float p = (now - state.scorePopMs) / 500f;
             if (p >= 1f) {
                 state.scorePopMs = 0;
+                state.scorePopAmount = 1;
             } else {
                 int alpha = (int) (255 * (1 - p));
                 paint.setColor(Color.argb(alpha, 255, 210, 90));
                 paint.setTextSize(28 * s);
-                canvas.drawText("+1", x + coinR * 2 + 6, centerY - 24 * s - 30 * s * p, paint);
+                canvas.drawText("+" + state.scorePopAmount, x + coinR * 2 + 6, centerY - 24 * s - 30 * s * p, paint);
                 paint.setTextSize(textSize);
             }
         }

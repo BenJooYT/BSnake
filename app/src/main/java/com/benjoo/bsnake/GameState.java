@@ -150,6 +150,7 @@ public class GameState {
     // badge, scorePopMs drives a "+1" rising off the badge when food is eaten.
     long scorePulseMs = 0;
     long scorePopMs = 0;
+    int scorePopAmount = 1;
 
     static class ChallengePopup {
         String text;

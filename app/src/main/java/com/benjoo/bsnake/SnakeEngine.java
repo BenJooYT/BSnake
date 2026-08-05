@@ -426,10 +426,12 @@ public class SnakeEngine {
                     } else {
                         ateFood = true;
                         int[] eat = upgrades.onEatNormal(si);
-                        sd.score += 1 + eat[0];
+                        int gained = 1 + eat[0];
+                        sd.score += gained;
                         state.score = sd.score;
                         state.scorePulseMs = System.currentTimeMillis();
                         state.scorePopMs = state.scorePulseMs;
+                        state.scorePopAmount = gained;
                         if (eat[2] > 0 && si == 0 && state.screenW > 0) {
                             state.challengePopups.add(new GameState.ChallengePopup(
                                     "+5 LUCKY!", System.currentTimeMillis(), 1000,
