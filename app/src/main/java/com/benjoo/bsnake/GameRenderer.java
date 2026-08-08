@@ -4,6 +4,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.RadialGradient;
 import android.graphics.RectF;
@@ -133,8 +134,11 @@ class GameRenderer {
             if (!sd.alive && !mpGameOver) continue;
             if (sd.body.isEmpty()) continue;
             int n = Math.min(sd.body.size(), sd.prevBody.size());
+            boolean mirrored = sd.mirrorUntilMs > System.currentTimeMillis();
+            int headCol = mirrored ? blendPurple(sd.headColor) : sd.headColor;
+            int bodyCol = mirrored ? blendPurple(sd.bodyColor) : sd.bodyColor;
             for (int i = 0; i < n; i++) {
-                paint.setColor(i == 0 ? sd.headColor : sd.bodyColor);
+                paint.setColor(i == 0 ? headCol : bodyCol);
                 Point cur = sd.body.get(i);
                 Point prev = sd.prevBody.size() > i ? sd.prevBody.get(i) : cur;
                 float dx = cur.x - prev.x;
@@ -196,6 +200,17 @@ class GameRenderer {
                         Shader.TileMode.CLAMP));
                 canvas.drawCircle(cx, cy, glowR, paint);
                 paint.setShader(null);
+            } else if (f.type == GameState.FruitType.MIRROR) {
+                paint.setColor(Color.rgb(150, 60, 255));
+                float r = Math.max(4, state.cellSize / 2f - 4) * scaleIn * pulse;
+                canvas.drawCircle(cx, cy, r, paint);
+                float glowR = Math.max(1f, Math.max(7, state.cellSize / 2f) * scaleIn * pulse);
+                paint.setColor(Color.WHITE);
+                paint.setShader(new RadialGradient(cx, cy, glowR,
+                        Color.argb(140, 170, 80, 255), Color.argb(0, 170, 80, 255),
+                        Shader.TileMode.CLAMP));
+                canvas.drawCircle(cx, cy, glowR, paint);
+                paint.setShader(null);
             } else {
                 paint.setColor(Color.RED);
                 float r = Math.max(4, state.cellSize / 2f - 4) * scaleIn * pulse;
@@ -216,11 +231,13 @@ class GameRenderer {
         if (state.boss.alive && !state.boss.body.isEmpty()) {
             boolean isWallBuilder = state.boss.type == GameState.BossType.WALL_BUILDER;
             boolean isHealer = state.boss.type == GameState.BossType.HEALER;
+            boolean isMirror = state.boss.type == GameState.BossType.MIRROR;
             boolean flashed = state.bossFlashTicks > 0;
             long now = System.currentTimeMillis();
             float auraPulse = 0.5f + 0.5f * (float) Math.sin(now * 0.006);
             int auraColor = isWallBuilder ? Color.rgb(0, 140, 255)
-                    : isHealer ? Color.rgb(0, 200, 90) : Color.rgb(200, 60, 220);
+                    : isHealer ? Color.rgb(0, 200, 90)
+                    : isMirror ? Color.rgb(170, 80, 255) : Color.rgb(200, 60, 220);
 
             // Pulsing aura glow behind the body
             for (int i = 0; i < state.boss.body.size(); i++) {
@@ -250,7 +267,8 @@ class GameRenderer {
                     paint.setColor(Color.argb(235, 255, 255, 255));
                 } else if (i == 0) {
                     paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255)
-                            : isHealer ? Color.rgb(0, 200, 90) : Color.rgb(200, 60, 220));
+                            : isHealer ? Color.rgb(0, 200, 90)
+                            : isMirror ? Color.rgb(170, 80, 255) : Color.rgb(200, 60, 220));
                 } else {
                     if (isWallBuilder) {
                         int dim = Math.max(120, 255 - i * 20);
@@ -258,6 +276,9 @@ class GameRenderer {
                     } else if (isHealer) {
                         int dim = Math.max(70, 190 - i * 15);
                         paint.setColor(Color.rgb(dim / 2, dim, dim / 2));
+                    } else if (isMirror) {
+                        int dim = Math.max(70, 190 - i * 15);
+                        paint.setColor(Color.rgb(dim / 2, dim / 4, dim));
                     } else {
                         int dim = Math.max(80, 180 - i * 15);
                         paint.setColor(Color.rgb(dim, dim / 3, dim));
@@ -441,6 +462,7 @@ class GameRenderer {
             paint.setStyle(Paint.Style.FILL);
         }
         drawBossWarning(canvas);
+        drawMirrorIndicator(canvas);
         drawDirectionPad(canvas);
 
         canvas.restore();
@@ -795,6 +817,7 @@ class GameRenderer {
         switch (state.boss.type) {
             case WALL_BUILDER: color = Color.rgb(0, 140, 255); break;
             case HEALER: color = Color.rgb(0, 200, 90); break;
+            case MIRROR: color = Color.rgb(170, 80, 255); break;
             default: color = Color.rgb(200, 60, 220);
         }
         paint.setColor(color);
@@ -836,6 +859,92 @@ class GameRenderer {
         int ta = (int) (255 * (0.6f + 0.4f * pulse));
         paint.setColor(Color.argb(ta, 255, 60, 60));
         canvas.drawText("BOSS INCOMING", state.screenW / 2f, state.screenH * 0.30f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTypeface(Typeface.DEFAULT);
+    }
+
+    // Blend a color partway toward the mirror purple, so a mirrored snake reads
+    // as "tainted" by the purple fruit.
+    private int blendPurple(int c) {
+        int r = Math.min(255, (int) (Color.red(c) * 0.4f + 170 * 0.6f));
+        int g = Math.min(255, (int) (Color.green(c) * 0.4f + 80 * 0.6f));
+        int b = Math.min(255, (int) (Color.blue(c) * 0.4f + 255 * 0.6f));
+        return Color.rgb(r, g, b);
+    }
+
+    // Filled triangle arrowhead pointing along `angle` (radians), tip at (tipX,tipY).
+    private void drawArrowHead(Canvas canvas, float tipX, float tipY, double angle, float size) {
+        float s = size;
+        float back = 0.72f * s;
+        Path tri = new Path();
+        tri.moveTo(tipX + (float) Math.cos(angle) * s, tipY + (float) Math.sin(angle) * s);
+        tri.lineTo(tipX + (float) Math.cos(angle + 2.4) * back, tipY + (float) Math.sin(angle + 2.4) * back);
+        tri.lineTo(tipX + (float) Math.cos(angle - 2.4) * back, tipY + (float) Math.sin(angle - 2.4) * back);
+        tri.close();
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawPath(tri, paint);
+    }
+
+    // Two opposing arrows ("reversal" glyph) drawn on a short ring.
+    private void drawReversalIcon(Canvas canvas, float cx, float cy, float r, int color) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(4, r * 0.16f));
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setColor(color);
+        float hw = r * 0.62f;
+        float gap = r * 0.42f;
+        // Top arrow -> pointing right
+        canvas.drawLine(cx - hw, cy - gap, cx + hw, cy - gap, paint);
+        drawArrowHead(canvas, cx + hw, cy - gap, 0, r * 0.30f);
+        // Bottom arrow -> pointing left
+        canvas.drawLine(cx + hw, cy + gap, cx - hw, cy + gap, paint);
+        drawArrowHead(canvas, cx - hw, cy + gap, Math.PI, r * 0.30f);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    // Mirror indicator: shown while a purple fruit has flipped the local player's
+    // controls, so the inversion is never a silent surprise. Adds a purple edge
+    // vignette, the reversal glyph, and a countdown label.
+    private void drawMirrorIndicator(Canvas canvas) {
+        GameState.SnakeData local = state.snakes[state.playerIndex];
+        long remainMs = local.mirrorUntilMs - System.currentTimeMillis();
+        if (remainMs <= 0) return;
+        long now = System.currentTimeMillis();
+        float pulse = 0.5f + 0.5f * (float) Math.sin(now * 0.014);
+        float w = state.screenW;
+        float h = state.screenH;
+
+        // Purple vignette pulsing around the edges.
+        float vigR = (float) Math.sqrt(w * w + h * h) * 0.5f;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(new RadialGradient(w / 2f, h / 2f, vigR,
+                Color.argb(0, 170, 80, 255), Color.argb(80, 170, 80, 255),
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, w, h, paint);
+        paint.setShader(null);
+
+        int ta = (int) (255 * (0.78f + 0.22f * pulse));
+        int iconCol = Color.argb(ta, 200, 120, 255);
+
+        // Reversal icon, left of the centered label.
+        String label = "CONTROLS MIRRORED " + ((remainMs + 999) / 1000) + "s";
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextSize(52);
+        float y = h * 0.18f;
+        float textW = paint.measureText(label);
+        float iconR = 42;
+        float cx = w / 2f - textW / 2f - iconR - 26;
+        float cy = y - 16;
+        drawReversalIcon(canvas, cx, cy, iconR, iconCol);
+
+        // Backing bar for legibility.
+        paint.setColor(Color.argb((int) (170 * (0.6f + 0.4f * pulse)), 0, 0, 0));
+        canvas.drawRoundRect(w / 2f - textW / 2f - 16, y - 44,
+                w / 2f + textW / 2f + 16, y + 14, 10, 10, paint);
+        paint.setColor(Color.argb(ta, 200, 120, 255));
+        canvas.drawText(label, w / 2f, y, paint);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setTypeface(Typeface.DEFAULT);
     }
@@ -1218,7 +1327,7 @@ class GameRenderer {
         if (state.devMode) {
             drawCenteredText(canvas, "DEV MODE", state.screenW / 2f, state.screenH * 0.17f, 28, Color.RED, true);
             drawButton(canvas, state.devScoreBtn, "START SCORE: " + state.devScoreText);
-            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER"};
+            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER", "BOSS: MIRROR"};
             drawButton(canvas, state.devBossBtn, bossLabels[state.devForcedBossType]);
             drawButton(canvas, state.devPathBtn, "PATH: " + (state.showBossPathfinding ? "ON" : "OFF"));
         }
@@ -1386,7 +1495,10 @@ class GameRenderer {
     // state each frame for touch hit-testing.
     private void drawUpgradeScreen(Canvas canvas) {
         long now = System.currentTimeMillis();
-        int n = state.upgradeOffers.size();
+        int n;
+        synchronized (state.upgradeOffers) {
+            n = Math.min(state.upgradeOffers.size(), state.upgradeCardRects.length);
+        }
         float w = state.screenW;
         float h = state.screenH;
         float cx = w / 2f;
@@ -1413,7 +1525,12 @@ class GameRenderer {
             RectF r = new RectF(left, cy - cardH / 2f, right, cy + cardH / 2f);
             state.upgradeCardRects[i] = r;
             boolean selected = i == state.upgradeSelectedIndex;
-            boolean epic = state.upgradeOffers.get(i).rarity == GameState.UpgradeRarity.EPIC;
+            GameState.UpgradeCard offer;
+            synchronized (state.upgradeOffers) {
+                if (i >= state.upgradeOffers.size()) break;
+                offer = state.upgradeOffers.get(i);
+            }
+            boolean epic = offer.rarity == GameState.UpgradeRarity.EPIC;
 
             // Staggered fly-in: cards rise and scale in one after another.
             float p = clamp01((now - state.upgradeOpenAt
@@ -1430,7 +1547,7 @@ class GameRenderer {
             canvas.save();
             canvas.translate(0, rise);
             canvas.scale(scale * selScale, scale * selScale, r.centerX(), r.centerY());
-            drawUpgradeCard(canvas, r, state.upgradeOffers.get(i), selected, alpha, now);
+            drawUpgradeCard(canvas, r, offer, selected, alpha, now);
             canvas.restore();
         }
 
@@ -1555,7 +1672,11 @@ class GameRenderer {
 
     private void drawChooseButton(Canvas canvas, RectF r, int cardIndex, long now) {
         if (r == null) return;
-        GameState.UpgradeCard card = state.upgradeOffers.get(cardIndex);
+        GameState.UpgradeCard card;
+        synchronized (state.upgradeOffers) {
+            if (cardIndex < 0 || cardIndex >= state.upgradeOffers.size()) return;
+            card = state.upgradeOffers.get(cardIndex);
+        }
         int rc = rarityColor(card.rarity);
         // Pop in with a touch of the rarity color.
         float p = clamp01((now - state.upgradeSelectMs) / 220f);
@@ -1816,10 +1937,13 @@ class GameRenderer {
     private void drawSelectBurst(Canvas canvas, RectF r, long now) {
         long age = now - state.upgradeSelectMs;
         if (age < 0 || age >= 520) return;
-        if (state.upgradeSelectedIndex < 0
-                || state.upgradeSelectedIndex >= state.upgradeOffers.size()) return;
+        if (state.upgradeSelectedIndex < 0) return;
+        GameState.UpgradeCard card;
+        synchronized (state.upgradeOffers) {
+            if (state.upgradeSelectedIndex >= state.upgradeOffers.size()) return;
+            card = state.upgradeOffers.get(state.upgradeSelectedIndex);
+        }
         float p = age / 520f;
-        GameState.UpgradeCard card = state.upgradeOffers.get(state.upgradeSelectedIndex);
         if (card == null) return;
         int rc = rarityColor(card.rarity);
         float cx = r.centerX();

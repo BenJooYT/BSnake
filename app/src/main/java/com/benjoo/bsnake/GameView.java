@@ -789,7 +789,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void cycleDevBossType() {
-        state.devForcedBossType = (state.devForcedBossType + 1) % 4;
+        state.devForcedBossType = (state.devForcedBossType + 1) % 5;
     }
 
     @Override

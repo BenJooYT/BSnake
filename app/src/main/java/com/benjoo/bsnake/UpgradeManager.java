@@ -82,10 +82,12 @@ class UpgradeManager {
             if (c.stack < c.maxStack) pool.add(c);
         }
         Collections.shuffle(pool);
-        state.upgradeOffers.clear();
-        int count = Math.min(3, pool.size());
-        for (int i = 0; i < count; i++) state.upgradeOffers.add(pool.get(i));
-        state.upgradeOpenAt = System.currentTimeMillis();
+        synchronized (state.upgradeOffers) {
+            state.upgradeOffers.clear();
+            int count = Math.min(3, pool.size());
+            for (int i = 0; i < count; i++) state.upgradeOffers.add(pool.get(i));
+            state.upgradeOpenAt = System.currentTimeMillis();
+        }
     }
 
     // The ids of the cards currently offered, for network sync to the client.
@@ -98,27 +100,33 @@ class UpgradeManager {
     // Rebuilds the current offer from a synced list of card ids (client side),
     // referencing this manager's own card instances so applyPick works locally.
     void offerByIds(ArrayList<String> ids) {
-        state.upgradeOffers.clear();
-        for (String id : ids) {
-            GameState.UpgradeCard c = findCard(id);
-            if (c != null) state.upgradeOffers.add(c);
+        synchronized (state.upgradeOffers) {
+            state.upgradeOffers.clear();
+            for (String id : ids) {
+                GameState.UpgradeCard c = findCard(id);
+                if (c != null) state.upgradeOffers.add(c);
+            }
+            state.upgradeOpenAt = System.currentTimeMillis();
         }
-        state.upgradeOpenAt = System.currentTimeMillis();
     }
 
     // Applies the picked card stack (0..2). Returns true if an upgrade applied.
     boolean applyPick(int index) {
-        if (index < 0 || index >= state.upgradeOffers.size()) return false;
-        GameState.UpgradeCard c = state.upgradeOffers.get(index);
-        if (c.stack >= c.maxStack) return false;
-        c.stack++;
-        return true;
+        synchronized (state.upgradeOffers) {
+            if (index < 0 || index >= state.upgradeOffers.size()) return false;
+            GameState.UpgradeCard c = state.upgradeOffers.get(index);
+            if (c.stack >= c.maxStack) return false;
+            c.stack++;
+            return true;
+        }
     }
 
     void clearOffer() {
-        state.upgradeOffers.clear();
-        state.upgradeOpenAt = 0;
-        state.upgradeSelectedIndex = -1;
+        synchronized (state.upgradeOffers) {
+            state.upgradeOffers.clear();
+            state.upgradeOpenAt = 0;
+            state.upgradeSelectedIndex = -1;
+        }
     }
 
     // ----- gameplay hooks -----
@@ -254,6 +262,7 @@ class UpgradeManager {
             int gain = 2 * patient.stack;
             state.snakes[0].score += gain;
             state.score = state.snakes[0].score;
+            state.triggerScorePop(gain);
             lastDamageTakenMs = now;
         }
     }
