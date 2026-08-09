@@ -145,8 +145,10 @@ class GameRenderer {
                 float dy = cur.y - prev.y;
                 boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
                 float worldX, worldY;
-                if (wrapped) { worldX = cur.x; worldY = cur.y; }
-                else { worldX = prev.x + dx * t; worldY = prev.y + dy * t; }
+                if (wrapped) {
+                    worldX = interpWrapped(prev.x, cur.x, t, state.cols);
+                    worldY = interpWrapped(prev.y, cur.y, t, state.rows);
+                } else { worldX = prev.x + dx * t; worldY = prev.y + dy * t; }
                 float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
                         + wrappedDelta(worldX - viewCameraX, state.cols));
                 float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
@@ -160,8 +162,12 @@ class GameRenderer {
                 float dx = cur.x - prev.x;
                 float dy = cur.y - prev.y;
                 boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
-                float worldX = wrapped ? cur.x : prev.x + dx * t;
-                float worldY = wrapped ? cur.y : prev.y + dy * t;
+                float worldX = wrapped
+                        ? interpWrapped(prev.x, cur.x, t, state.cols)
+                        : prev.x + dx * t;
+                float worldY = wrapped
+                        ? interpWrapped(prev.y, cur.y, t, state.rows)
+                        : prev.y + dy * t;
                 float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
                         + wrappedDelta(worldX - viewCameraX, state.cols));
                 float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
@@ -1246,18 +1252,34 @@ class GameRenderer {
         float dy = cur.y - prev.y;
         boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
         if (state.cameraMode == GameState.CameraMode.FIT_VERTICAL) {
-            state.cameraX = wrapped ? cur.x : prev.x + dx * t;
+            state.cameraX = wrapped
+                    ? interpWrapped(prev.x, cur.x, t, state.cols)
+                    : prev.x + dx * t;
             state.cameraY = state.rows / 2f - 0.5f;
             return;
         }
-        if (wrapped) { state.cameraX = cur.x; state.cameraY = cur.y; }
-        else { state.cameraX = prev.x + dx * t; state.cameraY = prev.y + dy * t; }
+        if (wrapped) {
+            state.cameraX = interpWrapped(prev.x, cur.x, t, state.cols);
+            state.cameraY = interpWrapped(prev.y, cur.y, t, state.rows);
+        } else { state.cameraX = prev.x + dx * t; state.cameraY = prev.y + dy * t; }
     }
 
     private float wrappedDelta(float delta, int size) {
         while (delta > size / 2f) delta -= size;
         while (delta < -size / 2f) delta += size;
         return delta;
+    }
+
+    /**
+     * Smooth toroidal interpolation from {@code a} to {@code b} over [0,1] on a
+     * ring of {@code size} cells. Uses the shortest arc so a segment crossing a
+     * map edge slides through the wall instead of teleporting to the far side.
+     */
+    private float interpWrapped(float a, float b, float t, int size) {
+        float d = b - a;
+        while (d > size / 2f) d -= size;
+        while (d < -size / 2f) d += size;
+        return a + d * t;
     }
 
     private boolean isWallPreviewAdjacentToPlayer(int wx, int wy) {

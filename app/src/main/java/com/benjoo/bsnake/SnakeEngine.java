@@ -496,7 +496,6 @@ public class SnakeEngine {
                 if (sound != null && si == 0) {
                     if (eatenFood.type == GameState.FruitType.HEAL) sound.playHeal();
                     else if (eatenFood.type == GameState.FruitType.MIRROR) sound.playUpgradeSelect();
-                    else sound.playCrunch();
                 }
             }
 
@@ -1060,6 +1059,16 @@ public class SnakeEngine {
             if (bestScore == Integer.MIN_VALUE) return;
         }
 
+        // No valid cell in any direction — the boss has boxed itself in, most
+        // commonly by wrapping into its own body or into its own walls. Rather
+        // than freezing in place, treat it like a collision: the boss hits its
+        // own body, takes damage, and teleports away (same handling as a player
+        // landing a hit on the boss head).
+        if (bestScore == Integer.MIN_VALUE) {
+            damageBoss(0, false);
+            return;
+        }
+
         // Execute best move
         int nx = head.x + bestDx;
         int ny = head.y + bestDy;
@@ -1078,7 +1087,6 @@ public class SnakeEngine {
             state.boss.body.remove(state.boss.body.size() - 1);
         }
     }
-
     private void updateBossEvasion(Point head) {
         if (state.boss.evasionCooldown > 0) state.boss.evasionCooldown--;
 
