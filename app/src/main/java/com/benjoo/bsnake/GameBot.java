@@ -70,7 +70,11 @@ class GameBot {
     /** Marks boss body and live walls as blocked — both are lethal to the player. */
     private void markHazards(boolean[] blocked) {
         if (state.boss.alive) {
-            for (Point p : state.boss.body) blocked[id(p.x, p.y)] = true;
+            // The boss HEAD is a valid target (hitting it damages the boss), so
+            // only its body segments are lethal and block pathing.
+            for (int i = 1; i < state.boss.body.size(); i++) {
+                blocked[id(state.boss.body.get(i).x, state.boss.body.get(i).y)] = true;
+            }
         }
         for (GameState.WallCell w : state.walls) {
             if (!w.dying) blocked[id(w.x, w.y)] = true;
@@ -231,15 +235,27 @@ class GameBot {
      */
     private int[] pathFirstStepIfSurvivable(ArrayList<Point> body, Point head,
                                             GameState.Fruit food, GameState.SnakeData sd) {
+        return pathFirstStepTo(body, head, new Point(food.x, food.y), sd, true);
+    }
+
+    /**
+     * Generalized version of {@link #pathFirstStepIfSurvivable}: returns the first
+     * step of a path to an arbitrary target cell, provided that walking the whole
+     * path still leaves the virtual snake able to reach its own tail afterwards.
+     * {@code growsAtEnd} models whether reaching the target lengthens the snake
+     * (food grows; boss head and trail do not).
+     */
+    private int[] pathFirstStepTo(ArrayList<Point> body, Point head, Point target,
+                                  GameState.SnakeData sd, boolean growsAtEnd) {
         boolean[] blocked = occupancy(body, true);
         blocked[id(head.x, head.y)] = false;
         int[] dist = bfs(id(head.x, head.y), blocked);
-        int target = id(food.x, food.y);
-        if (dist[target] < 0) return null;
+        int targetId = id(target.x, target.y);
+        if (dist[targetId] < 0) return null;
 
-        // Walk the path backwards from the food to recover it in order.
+        // Walk the path backwards from the target to recover it in order.
         ArrayList<Integer> path = new ArrayList<>();
-        int cur = target;
+        int cur = targetId;
         while (cur != id(head.x, head.y)) {
             path.add(0, cur);
             int cx = cur % cols, cy = cur / cols;
@@ -254,13 +270,13 @@ class GameBot {
         }
         if (path.isEmpty()) return null;
 
-        // Virtual walk: grow only on the final cell, which is the food.
+        // Virtual walk: grow only on the final cell when the target grows the snake.
         ArrayList<Point> virt = new ArrayList<>(body);
         int pending = sd.growthPending + state.bossGrowthPending;
         for (int i = 0; i < path.size(); i++) {
             int c = path.get(i);
             virt.add(0, new Point(c % cols, c / cols));
-            boolean grows = (i == path.size() - 1) || pending > 0;
+            boolean grows = (growsAtEnd && i == path.size() - 1) || pending > 0;
             if (pending > 0) pending--;
             if (!grows) virt.remove(virt.size() - 1);
         }
@@ -289,6 +305,43 @@ class GameBot {
             if (wrapX(head.x + DX[d]) == nx && wrapY(head.y + DY[d]) == ny) {
                 return new int[]{DX[d], DY[d]};
             }
+        }
+        return null;
+    }
+
+    /**
+     * Picks the bot's next move toward the highest-value goal that is reachable
+     * and still survivable: first the boss head (to kill the boss), then the
+     * nearest trail fruit, then a scored food. Returns null if no goal is worth
+     * chasing, so the caller falls back to a pure survival move.
+     */
+    private int[] chooseGoal(ArrayList<Point> body, Point head, GameState.SnakeData sd) {
+        // 1) Boss head — highest value: scores per hit and works toward defeating
+        //    the boss. Only pursued when the whole approach is survivable.
+        if (state.boss.alive && !state.boss.body.isEmpty()) {
+            Point bh = state.boss.body.get(0);
+            int[] step = pathFirstStepTo(body, head, bh, sd, false);
+            if (step != null) return step;
+        }
+
+        // 2) Trail fruit — nearest reachable one that is safe to collect.
+        if (!state.bossTrail.isEmpty()) {
+            int[] bestStep = null;
+            int bestDist = Integer.MAX_VALUE;
+            for (GameState.BossTrailCell tc : state.bossTrail) {
+                Point t = new Point(tc.x, tc.y);
+                int d = distTo(head, t);
+                if (d < 0 || d >= bestDist) continue;
+                int[] step = pathFirstStepTo(body, head, t, sd, false);
+                if (step != null) { bestDist = d; bestStep = step; }
+            }
+            if (bestStep != null) return bestStep;
+        }
+
+        // 3) Scored food.
+        GameState.Fruit food = pickFood();
+        if (food != null) {
+            return pathFirstStepIfSurvivable(body, head, food, sd);
         }
         return null;
     }
@@ -378,7 +431,6 @@ class GameBot {
 
         ArrayList<Point> body = new ArrayList<>(sd.body);
         Point head = body.get(0);
-        GameState.Fruit food = pickFood();
 
         // Candidate moves, minus the illegal reversal.
         ArrayList<int[]> safe = new ArrayList<>();     // {dx, dy, nx, ny}
@@ -398,16 +450,11 @@ class GameBot {
 
         int[] chosen = null;
 
-        // Chase the food only if walking the WHOLE path there still leaves the
-        // snake able to reach its own tail afterwards. A one-move-ahead check is
-        // what let the previous run seal itself in at length 138.
-        if (food != null && !safe.isEmpty()) {
-            int[] first = pathFirstStepIfSurvivable(body, head, food, sd);
-            if (first != null) {
-                for (int[] c : safe) {
-                    if (c[0] == first[0] && c[1] == first[1]) { chosen = c; break; }
-                }
-            }
+        // Chase the highest-value reachable goal only if walking the WHOLE path
+        // there still leaves the snake able to reach its own tail afterwards.
+        // Priority: boss head (kills the boss) -> trail fruit -> food.
+        if (!safe.isEmpty()) {
+            chosen = chooseGoal(body, head, sd);
         }
 
         // Not worth chasing: stay alive and keep the board open by taking the
