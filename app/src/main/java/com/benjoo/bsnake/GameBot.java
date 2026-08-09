@@ -384,7 +384,12 @@ class GameBot {
         }
 
         if (chosen != null && !(chosen[0] == sd.dirX && chosen[1] == sd.dirY)) {
-            view.sendSwipe(chosen[0], chosen[1]);
+            // The bot plans in world coordinates using sd.dirX/dirY, but while
+            // a MIRROR fruit is active the engine inverts the input direction.
+            // Send the negated swipe so the actual movement matches the plan.
+            boolean mirrored = sd.mirrorUntilMs > System.currentTimeMillis();
+            view.sendSwipe(mirrored ? -chosen[0] : chosen[0],
+                           mirrored ? -chosen[1] : chosen[1]);
         }
     }
 }

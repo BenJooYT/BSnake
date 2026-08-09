@@ -181,7 +181,7 @@ class GameRenderer {
             float foodDy = f.y - viewCameraY;
             if (Math.abs(foodDx) >= state.viewportWidthCells / 2f
                     || Math.abs(foodDy) >= state.viewportHeightCells / 2f) {
-                drawFoodArrow(canvas, foodDx, foodDy);
+                drawFoodArrow(canvas, foodDx, foodDy, foodColor(f.type));
                 continue;
             }
             float cx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + foodDx);
@@ -329,6 +329,12 @@ class GameRenderer {
                     paint.setStyle(Paint.Style.FILL);
                     paint.setStrokeWidth(0);
                 }
+            }
+
+            // Off-screen boss arrow, pointing at the boss head in its type color.
+            if (Math.abs(hDx) >= state.viewportWidthCells / 2f
+                    || Math.abs(hDy) >= state.viewportHeightCells / 2f) {
+                drawBossArrow(canvas, hDx, hDy);
             }
         }
 
@@ -1288,7 +1294,7 @@ class GameRenderer {
         return false;
     }
 
-    private void drawFoodArrow(Canvas canvas, float dx, float dy) {
+    private void drawFoodArrow(Canvas canvas, float dx, float dy, int color) {
         float length = Math.min(state.screenW, state.screenH) / 2f - state.cellSize;
         float distance = (float) Math.sqrt(dx * dx + dy * dy);
         if (distance == 0) return;
@@ -1307,9 +1313,90 @@ class GameRenderer {
         arrow.lineTo(backX + sideX, backY + sideY);
         arrow.lineTo(backX - sideX, backY - sideY);
         arrow.close();
-        paint.setColor(Color.RED);
+        paint.setColor(color);
         paint.setStyle(Paint.Style.FILL);
         canvas.drawPath(arrow, paint);
+    }
+
+    // Per-type off-screen arrow color so you can tell what's coming from afar.
+    private int foodColor(GameState.FruitType type) {
+        switch (type) {
+            case HEAL: return Color.rgb(0, 220, 90);
+            case MIRROR: return Color.rgb(170, 80, 255);
+            default: return Color.RED;
+        }
+    }
+
+    // Boss head color, matching the on-screen body.
+    private int bossColor() {
+        switch (state.boss.type) {
+            case WALL_BUILDER: return Color.rgb(0, 140, 255);
+            case HEALER: return Color.rgb(0, 200, 90);
+            case MIRROR: return Color.rgb(170, 80, 255);
+            default: return Color.rgb(200, 60, 220);
+        }
+    }
+
+    // Boss body color (the dimmed segments behind the head). Used for the
+    // arrow's tail so the part pointing toward the player reads as the body.
+    private int bossBodyColor() {
+        switch (state.boss.type) {
+            case WALL_BUILDER: return Color.rgb(255, 140, 0);
+            case HEALER: return Color.rgb(0, 180, 90);
+            case MIRROR: return Color.rgb(140, 60, 220);
+            default: return Color.rgb(180, 60, 200);
+        }
+    }
+
+    // Distinct boss arrow: a diamond/chevron with a white outline and a short
+    // tail line, drawn in the boss head color to stand out from food arrows.
+    private void drawBossArrow(Canvas canvas, float dx, float dy) {
+        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+        if (distance == 0) return;
+        float dirX = dx / distance;
+        float dirY = dy / distance;
+        float length = Math.min(state.screenW, state.screenH) / 2f - state.cellSize;
+        float centerX = state.boardLeft + state.screenW / 2f;
+        float centerY = state.boardTop + state.screenH / 2f;
+        float tipX = centerX + dirX * length;
+        float tipY = centerY + dirY * length;
+        float tailX = tipX - dirX * state.cellSize * 1.6f;
+        float tailY = tipY - dirY * state.cellSize * 1.6f;
+        float s = state.cellSize * 0.9f;
+        // If the boss body is gradiented, keep the whole arrow one color.
+        boolean gradiented = true;
+        int headColor = bossColor();
+        int tailColor = gradiented ? headColor : bossBodyColor();
+
+        // Tail line
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(3, state.cellSize * 0.14f));
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setColor(tailColor);
+        canvas.drawLine(tailX, tailY, tipX - dirX * state.cellSize * 0.6f, tipY - dirY * state.cellSize * 0.6f, paint);
+
+        // Diamond head (rotated square) for a distinct boss silhouette.
+        float cx = tipX + dirX * state.cellSize * 0.45f;
+        float cy = tipY + dirY * state.cellSize * 0.45f;
+        float px = -dirY, py = dirX;
+        android.graphics.Path dia = new android.graphics.Path();
+        dia.moveTo(cx + dirX * s, cy + dirY * s);
+        dia.lineTo(cx + px * s * 0.55f, cy + py * s * 0.55f);
+        dia.lineTo(cx - dirX * s, cy - dirY * s);
+        dia.lineTo(cx - px * s * 0.55f, cy - py * s * 0.55f);
+        dia.close();
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(headColor);
+        canvas.drawPath(dia, paint);
+
+        // White outline so the diamond reads even against dark background.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.WHITE);
+        canvas.drawPath(dia, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeWidth(0);
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawDim(Canvas canvas) {
