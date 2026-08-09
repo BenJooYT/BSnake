@@ -37,7 +37,7 @@ public class GameState {
 
     // Fruit types — add new special fruit types here and handle them in the
     // engine (eating effects) and renderer (appearance).
-    enum FruitType { NORMAL, HEAL }
+    enum FruitType { NORMAL, HEAL, MIRROR }
 
     static class Fruit {
         FruitType type;
@@ -107,8 +107,8 @@ public class GameState {
         int headColor = Color.GREEN;
         int bodyColor = Color.GREEN;
         boolean alive = true;
+        long mirrorUntilMs = 0; // >0 = controls inverted until this wall-clock time
     }
-
     // Two snakes: index 0 = host/local, index 1 = client/remote
     SnakeData[] snakes = new SnakeData[]{ new SnakeData(), new SnakeData() };
     int playerIndex = 0; // 0 or 1
@@ -151,6 +151,14 @@ public class GameState {
     long scorePulseMs = 0;
     long scorePopMs = 0;
     int scorePopAmount = 1;
+
+    // Sets off the coin-badge "pop" and shows a "+N" floating off it. Every
+    // score-gain event routes through here so the shown amount is always right.
+    void triggerScorePop(int amount) {
+        scorePulseMs = System.currentTimeMillis();
+        scorePopMs = scorePulseMs;
+        scorePopAmount = amount;
+    }
 
     static class ChallengePopup {
         String text;
@@ -294,6 +302,9 @@ public class GameState {
 
     // Multiplayer state
     volatile boolean isHost;
+    // True once an MP run is actually in progress (between start and game-over),
+    // so engine/game-view can branch on "is this a networked session".
+    volatile boolean inMp;
     String mpStatus = "";
     ArrayList<DiscoveredHost> discoveredHosts = new ArrayList<>();
     ArrayList<RectF> hostItemRects = new ArrayList<>();
@@ -321,6 +332,7 @@ public class GameState {
         int hesitationTicks = 0;
         int storedFruits = 0; // HEALER: normal fruits eaten but not respawned
         int healFruitCap = 6; // HEALER: max green healing fruits on the board
+        int mirrorFruitCap = 6; // MIRROR: max purple mirror fruits on the board
         // Highest length reached this fight — used for the health bar fraction.
         int maxSegments = 5;
         // Fractional move interval accumulator, so speed-modifying upgrades
@@ -328,7 +340,7 @@ public class GameState {
         float moveAccum = 0;
     }
 
-    enum BossType { CHASER, WALL_BUILDER, HEALER }
+    enum BossType { CHASER, WALL_BUILDER, HEALER, MIRROR }
 
     static class WallCell {
         int x, y;
@@ -351,6 +363,7 @@ public class GameState {
     int bossGrowthPending = 0;
     ArrayList<BossTrailCell> bossTrail = new ArrayList<>();
     int nextBossSpawnScore = 125;
+    int bossDefeats = 0;                       // bosses beaten this run — widens the next spawn gap
     int tickCount = 0;
 
     // Boss fight visuals
@@ -382,6 +395,9 @@ public class GameState {
     ArrayList<Point> cinematicBossBody = new ArrayList<>();
     boolean cinematicExplosionTriggered = false;
     float cinematicCameraZoom = 1f;
+    // Host-only: whether the boss-death cinematic has already been pushed to the
+    // remote player for this death, so we don't re-send it every game tick.
+    volatile boolean bossCinematicSynced = false;
     // Shockwave visual — lifecycle managed by the renderer over wall-clock time
     long cinematicShockwaveAt = 0;
 
@@ -400,7 +416,7 @@ public class GameState {
     String devScoreText = "0";
     boolean editingDevScore = false;
     RectF devScoreBtn;
-    int devForcedBossType = 0; // 0=RANDOM, 1=CHASER, 2=WALL_BUILDER
+    int devForcedBossType = 0; // 0=RANDOM, 1=CHASER, 2=WALL_BUILDER, 3=HEALER, 4=MIRROR
     boolean showBossPathfinding = false;
     RectF devBossBtn, devPathBtn;
     int bossTargetX = -1, bossTargetY = -1; // for pathfinding viz
