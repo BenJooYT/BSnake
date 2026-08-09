@@ -1337,19 +1337,8 @@ class GameRenderer {
         }
     }
 
-    // Boss body color (the dimmed segments behind the head). Used for the
-    // arrow's tail so the part pointing toward the player reads as the body.
-    private int bossBodyColor() {
-        switch (state.boss.type) {
-            case WALL_BUILDER: return Color.rgb(255, 140, 0);
-            case HEALER: return Color.rgb(0, 180, 90);
-            case MIRROR: return Color.rgb(140, 60, 220);
-            default: return Color.rgb(180, 60, 200);
-        }
-    }
-
-    // Distinct boss arrow: a diamond/chevron with a white outline and a short
-    // tail line, drawn in the boss head color to stand out from food arrows.
+    // Distinct boss arrow: a filled diamond with a white outline, drawn in the
+    // boss head color to stand out from the food arrows.
     private void drawBossArrow(Canvas canvas, float dx, float dy) {
         float distance = (float) Math.sqrt(dx * dx + dy * dy);
         if (distance == 0) return;
@@ -1360,22 +1349,10 @@ class GameRenderer {
         float centerY = state.boardTop + state.screenH / 2f;
         float tipX = centerX + dirX * length;
         float tipY = centerY + dirY * length;
-        float tailX = tipX - dirX * state.cellSize * 1.6f;
-        float tailY = tipY - dirY * state.cellSize * 1.6f;
         float s = state.cellSize * 0.9f;
-        // If the boss body is gradiented, keep the whole arrow one color.
-        boolean gradiented = true;
         int headColor = bossColor();
-        int tailColor = gradiented ? headColor : bossBodyColor();
 
-        // Tail line
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(Math.max(3, state.cellSize * 0.14f));
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setColor(tailColor);
-        canvas.drawLine(tailX, tailY, tipX - dirX * state.cellSize * 0.6f, tipY - dirY * state.cellSize * 0.6f, paint);
-
-        // Diamond head (rotated square) for a distinct boss silhouette.
+        // Diamond (rotated square) for a distinct boss silhouette.
         float cx = tipX + dirX * state.cellSize * 0.45f;
         float cy = tipY + dirY * state.cellSize * 0.45f;
         float px = -dirY, py = dirX;

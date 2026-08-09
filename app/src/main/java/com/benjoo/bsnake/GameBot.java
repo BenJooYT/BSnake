@@ -63,7 +63,18 @@ class GameBot {
         boolean[] occ = new boolean[cols * rows];
         int n = ignoreTail ? body.size() - 1 : body.size();
         for (int i = 0; i < n; i++) occ[id(body.get(i).x, body.get(i).y)] = true;
+        markHazards(occ);
         return occ;
+    }
+
+    /** Marks boss body and live walls as blocked — both are lethal to the player. */
+    private void markHazards(boolean[] blocked) {
+        if (state.boss.alive) {
+            for (Point p : state.boss.body) blocked[id(p.x, p.y)] = true;
+        }
+        for (GameState.WallCell w : state.walls) {
+            if (!w.dying) blocked[id(w.x, w.y)] = true;
+        }
     }
 
     /** BFS distance from a start cell to every reachable free cell (-1 if unreachable). */
@@ -112,6 +123,7 @@ class GameBot {
         Point tail = next.get(next.size() - 1);
         boolean[] blocked = new boolean[cols * rows];
         for (int i = 0; i < next.size() - 1; i++) blocked[id(next.get(i).x, next.get(i).y)] = true;
+        markHazards(blocked);
         blocked[head] = false;
         return bfs(head, blocked)[id(tail.x, tail.y)] != -1;
     }
@@ -257,6 +269,7 @@ class GameBot {
         Point vHead = virt.get(0), vTail = virt.get(virt.size() - 1);
         boolean[] vBlocked = new boolean[cols * rows];
         for (int i = 0; i < virt.size() - 1; i++) vBlocked[id(virt.get(i).x, virt.get(i).y)] = true;
+        markHazards(vBlocked);
         vBlocked[id(vHead.x, vHead.y)] = false;
         int[] vDist = bfs(id(vHead.x, vHead.y), vBlocked);
         if (vDist[id(vTail.x, vTail.y)] < 0) return null;
