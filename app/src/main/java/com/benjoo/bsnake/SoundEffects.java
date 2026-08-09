@@ -3,6 +3,8 @@ package com.benjoo.bsnake;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+
+import java.util.concurrent.LinkedBlockingQueue;
 import android.util.Log;
 
 import java.util.Random;
@@ -51,8 +53,15 @@ public class SoundEffects {
             bossWarningTrack, bossSpawnTrack, wallDestroyTrack, challengeTrack,
             challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack, upgradeTrack,
             upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack;
-    private float volume = 1.0f;
-    private boolean muted;
+    private volatile float volume = 1.0f;
+    private volatile boolean muted;
+
+    // AudioTrack playback is done on a dedicated background thread so the game
+    // thread never blocks on AudioTrack.stop()/reloadStaticData()/play(), which
+    // can stall for tens of milliseconds (causing visible stutter on rapid eats).
+    private final LinkedBlockingQueue<AudioTrack> pending = new LinkedBlockingQueue<>();
+    private Thread audioThread;
+    private volatile boolean keepAudioThread = true;
 
     public SoundEffects() {
         generateClick();
@@ -122,6 +131,10 @@ public class SoundEffects {
         upgradeSelectTrack.write(upgradeSelectBuffer, 0, upgradeSelectBuffer.length);
         upgradeEpicTrack = createTrack(upgradeEpicBuffer.length * 2);
         upgradeEpicTrack.write(upgradeEpicBuffer, 0, upgradeEpicBuffer.length);
+
+        audioThread = new Thread(this::audioLoop, "SoundFX");
+        audioThread.setDaemon(true);
+        audioThread.start();
     }
 
     // ----- sound generation -----
@@ -480,17 +493,31 @@ public class SoundEffects {
 
     // ----- shared play helper -----
 
+    // Enqueue a sound for the background thread — returns immediately so the
+    // game thread never blocks on audio.
     private void playTrack(AudioTrack track) {
-        if (track == null) return;
-        try {
-            if (track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
-                track.stop();
+        if (track == null || !keepAudioThread) return;
+        pending.offer(track);
+    }
+
+    private void audioLoop() {
+        while (keepAudioThread) {
+            AudioTrack track;
+            try {
+                track = pending.take();
+            } catch (InterruptedException e) {
+                break;
             }
-            track.reloadStaticData();
-            track.setVolume(volume);
-            track.play();
-        } catch (Exception e) {
-            Log.e("SoundEffects", "play failed", e);
+            try {
+                if (track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+                    track.stop();
+                }
+                track.reloadStaticData();
+                track.setVolume(volume);
+                track.play();
+            } catch (Exception e) {
+                Log.e("SoundEffects", "play failed", e);
+            }
         }
     }
 
@@ -520,6 +547,7 @@ public class SoundEffects {
     }
 
     public void stopAll() {
+        pending.clear();
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
                 challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
@@ -532,6 +560,13 @@ public class SoundEffects {
     }
 
     public void release() {
+        keepAudioThread = false;
+        pending.clear();
+        if (audioThread != null) {
+            audioThread.interrupt();
+            try { audioThread.join(200); } catch (InterruptedException e) { }
+            audioThread = null;
+        }
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
                 challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,

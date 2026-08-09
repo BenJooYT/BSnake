@@ -402,8 +402,21 @@ public class SnakeEngine {
             if (ny < 0) ny = state.rows - 1;
             if (ny >= state.rows) ny = 0;
 
-            // Self-collision
-            for (Point p : sd.body) {
+            // Detect food at the new head position first, so self-collision can
+            // account for the tail: if the snake won't grow this tick, the tail
+            // moves away and the cell it vacates is safe to move into.
+            GameState.Fruit eatenFood = null;
+            for (GameState.Fruit f : state.foods) {
+                if (nx == f.x && ny == f.y) { eatenFood = f; break; }
+            }
+            boolean willGrow = eatenFood != null || sd.growthPending > 0;
+
+            // Self-collision (a full loop into the tail is legal when the tail
+            // moves away this tick; it's fatal only if the snake grows instead).
+            int lastIdx = sd.body.size() - 1;
+            for (int bi = 0; bi < sd.body.size(); bi++) {
+                if (!willGrow && bi == lastIdx) continue;
+                Point p = sd.body.get(bi);
                 if (p.x == nx && p.y == ny) {
                     sd.alive = false;
                     break;
@@ -451,45 +464,41 @@ public class SnakeEngine {
             // Food eating (only snake[0] gets score for now; snake[1]'s score comes from host)
             boolean ateFood = false;
             int eatNetGrowth = 0; // upgrade-driven growth delta for this piece
-            GameState.Fruit eatenFood = null;
-            for (GameState.Fruit f : state.foods) {
-                if (nx == f.x && ny == f.y) { eatenFood = f; break; }
-            }
-                if (eatenFood != null) {
-                    state.foods.remove(eatenFood);
-                    spawnFoodBurst(nx, ny, eatenFood.type);
-                    if (eatenFood.type == GameState.FruitType.HEAL) {
-                        // Green healing fruit: grows the snake, gives no score
-                        sd.growthPending += 2;
-                    } else if (eatenFood.type == GameState.FruitType.MIRROR) {
-                        // Purple mirror fruit: big reward, but flips your controls.
-                        ateFood = true;
-                        sd.score += 3;
-                        state.score = sd.score;
-                        state.triggerScorePop(3);
-                        sd.growthPending += 2;
-                        sd.mirrorUntilMs = System.currentTimeMillis() + MIRROR_DURATION_MS;
-                    } else {
-                        ateFood = true;
-                        int[] eat = upgrades.onEatNormal(si);
-                        int gained = 1 + eat[0];
-                        sd.score += gained;
-                        state.score = sd.score;
-                        state.triggerScorePop(gained);
-                        if (eat[2] > 0 && si == 0 && state.screenW > 0) {
-                            state.challengePopups.add(new GameState.ChallengePopup(
-                                    "+5 LUCKY!", System.currentTimeMillis(), 1000,
-                                    state.screenW / 2f, state.screenH * 0.50f));
-                        }
-                        eatNetGrowth = eat[1];
+            if (eatenFood != null) {
+                state.foods.remove(eatenFood);
+                spawnFoodBurst(nx, ny, eatenFood.type);
+                if (eatenFood.type == GameState.FruitType.HEAL) {
+                    // Green healing fruit: grows the snake, gives no score
+                    sd.growthPending += 2;
+                } else if (eatenFood.type == GameState.FruitType.MIRROR) {
+                    // Purple mirror fruit: big reward, but flips your controls.
+                    ateFood = true;
+                    sd.score += 3;
+                    state.score = sd.score;
+                    state.triggerScorePop(3);
+                    sd.growthPending += 2;
+                    sd.mirrorUntilMs = System.currentTimeMillis() + MIRROR_DURATION_MS;
+                } else {
+                    ateFood = true;
+                    int[] eat = upgrades.onEatNormal(si);
+                    int gained = 1 + eat[0];
+                    sd.score += gained;
+                    state.score = sd.score;
+                    state.triggerScorePop(gained);
+                    if (eat[2] > 0 && si == 0 && state.screenW > 0) {
+                        state.challengePopups.add(new GameState.ChallengePopup(
+                                "+5 LUCKY!", System.currentTimeMillis(), 1000,
+                                state.screenW / 2f, state.screenH * 0.50f));
                     }
-                    if (si == 0) challenges.onFoodEaten(eatenFood, true);
-                    if (sound != null && si == 0) {
-                        if (eatenFood.type == GameState.FruitType.HEAL) sound.playHeal();
-                        else if (eatenFood.type == GameState.FruitType.MIRROR) sound.playUpgradeSelect();
-                        else sound.playCrunch();
-                    }
+                    eatNetGrowth = eat[1];
                 }
+                if (si == 0) challenges.onFoodEaten(eatenFood, true);
+                if (sound != null && si == 0) {
+                    if (eatenFood.type == GameState.FruitType.HEAL) sound.playHeal();
+                    else if (eatenFood.type == GameState.FruitType.MIRROR) sound.playUpgradeSelect();
+                    else sound.playCrunch();
+                }
+            }
 
             // Boss collision — head-on damages boss, body kills player
             boolean hitBoss = false;

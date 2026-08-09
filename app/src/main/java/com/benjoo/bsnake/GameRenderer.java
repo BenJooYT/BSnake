@@ -177,11 +177,12 @@ class GameRenderer {
         drawDeath(canvas, viewCameraX, viewCameraY);
 
         // Food — pulsing with a soft glow and a scale-in on spawn
-        for (GameState.Fruit f : state.foods) {            float foodDx = f.x - viewCameraX;
+        for (GameState.Fruit f : state.foods) {
+            float foodDx = f.x - viewCameraX;
             float foodDy = f.y - viewCameraY;
             if (Math.abs(foodDx) >= state.viewportWidthCells / 2f
                     || Math.abs(foodDy) >= state.viewportHeightCells / 2f) {
-                drawFoodArrow(canvas, foodDx, foodDy);
+                drawFoodArrow(canvas, foodDx, foodDy, foodColor(f.type));
                 continue;
             }
             float cx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + foodDx);
@@ -189,40 +190,27 @@ class GameRenderer {
             long bornAge = System.currentTimeMillis() - f.bornMs;
             float scaleIn = Math.min(1f, bornAge / 250f);
             float pulse = 1f + 0.1f * (float) Math.sin(bornAge * 0.008);
+            int core;
             if (f.type == GameState.FruitType.HEAL) {
-                paint.setColor(Color.rgb(0, 220, 90));
+                core = Color.rgb(0, 220, 90);
                 float r = Math.max(5, state.cellSize / 2f - 3) * scaleIn * pulse;
+                paint.setColor(core);
                 canvas.drawCircle(cx, cy, r, paint);
-                float glowR = Math.max(1f, Math.max(8, state.cellSize / 2f + 4) * scaleIn * pulse);
-                paint.setColor(Color.WHITE);
-                paint.setShader(new RadialGradient(cx, cy, glowR,
-                        Color.argb(150, 0, 255, 120), Color.argb(0, 0, 255, 120),
-                        Shader.TileMode.CLAMP));
-                canvas.drawCircle(cx, cy, glowR, paint);
-                paint.setShader(null);
             } else if (f.type == GameState.FruitType.MIRROR) {
-                paint.setColor(Color.rgb(150, 60, 255));
+                core = Color.rgb(150, 60, 255);
                 float r = Math.max(4, state.cellSize / 2f - 4) * scaleIn * pulse;
+                paint.setColor(core);
                 canvas.drawCircle(cx, cy, r, paint);
-                float glowR = Math.max(1f, Math.max(7, state.cellSize / 2f) * scaleIn * pulse);
-                paint.setColor(Color.WHITE);
-                paint.setShader(new RadialGradient(cx, cy, glowR,
-                        Color.argb(140, 170, 80, 255), Color.argb(0, 170, 80, 255),
-                        Shader.TileMode.CLAMP));
-                canvas.drawCircle(cx, cy, glowR, paint);
-                paint.setShader(null);
             } else {
-                paint.setColor(Color.RED);
+                core = Color.RED;
                 float r = Math.max(4, state.cellSize / 2f - 4) * scaleIn * pulse;
+                paint.setColor(core);
                 canvas.drawCircle(cx, cy, r, paint);
-                float glowR = Math.max(1f, Math.max(7, state.cellSize / 2f) * scaleIn * pulse);
-                paint.setColor(Color.WHITE);
-                paint.setShader(new RadialGradient(cx, cy, glowR,
-                        Color.argb(120, 255, 60, 40), Color.argb(0, 255, 60, 40),
-                        Shader.TileMode.CLAMP));
-                canvas.drawCircle(cx, cy, glowR, paint);
-                paint.setShader(null);
             }
+            // Soft glow via layered translucent circles — avoids allocating a new
+            // RadialGradient every frame, which caused a stutter on food spawn.
+            float glowR = Math.max(8, state.cellSize / 2f + 4) * scaleIn * pulse;
+            drawFoodGlow(canvas, cx, cy, glowR, core);
         }
 
         drawParticles(canvas, viewCameraX, viewCameraY);
@@ -244,8 +232,10 @@ class GameRenderer {
                 Point seg = state.boss.body.get(i);
                 float aDx = seg.x - viewCameraX;
                 float aDy = seg.y - viewCameraY;
-                if (Math.abs(aDx) >= state.viewportWidthCells / 2f
-                        || Math.abs(aDy) >= state.viewportHeightCells / 2f) continue;
+                // Keep cells that are at least partially visible (within half a
+                // viewport plus half a cell) so the boss aura doesn't pop in.
+                if (Math.abs(aDx) > state.viewportWidthCells / 2f + 0.5f
+                        || Math.abs(aDy) > state.viewportHeightCells / 2f + 0.5f) continue;
                 float ax = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + aDx);
                 float ay = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + aDy);
                 int aAlpha = (i == 0 ? 90 : 35) + (int) (30 * auraPulse);
@@ -259,8 +249,8 @@ class GameRenderer {
                 Point seg = state.boss.body.get(i);
                 float bDx = seg.x - viewCameraX;
                 float bDy = seg.y - viewCameraY;
-                if (Math.abs(bDx) >= state.viewportWidthCells / 2f
-                        || Math.abs(bDy) >= state.viewportHeightCells / 2f) continue;
+                if (Math.abs(bDx) > state.viewportWidthCells / 2f + 0.5f
+                        || Math.abs(bDy) > state.viewportHeightCells / 2f + 0.5f) continue;
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
                 float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
                 if (flashed) {
@@ -290,19 +280,6 @@ class GameRenderer {
             Point head = state.boss.body.get(0);
             float hDx = head.x - viewCameraX;
             float hDy = head.y - viewCameraY;
-            if (Math.abs(hDx) < state.viewportWidthCells / 2f
-                    && Math.abs(hDy) < state.viewportHeightCells / 2f) {
-                float hx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + hDx);
-                float hy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + hDy);
-                float glowR = state.cellSize * (1.2f + 0.3f * auraPulse);
-                paint.setColor(Color.WHITE);
-                paint.setShader(new RadialGradient(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR,
-                        Color.argb(120, Color.red(auraColor), Color.green(auraColor), Color.blue(auraColor)),
-                        Color.argb(0, Color.red(auraColor), Color.green(auraColor), Color.blue(auraColor)),
-                        Shader.TileMode.CLAMP));
-                canvas.drawCircle(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR, paint);
-                paint.setShader(null);
-            }
             // Boss segment count label above head
             if (Math.abs(hDx) < state.viewportWidthCells / 2f
                     && Math.abs(hDy) < state.viewportHeightCells / 2f) {
@@ -329,6 +306,12 @@ class GameRenderer {
                     paint.setStyle(Paint.Style.FILL);
                     paint.setStrokeWidth(0);
                 }
+            }
+
+            // Off-screen boss arrow, pointing at the boss head in its type color.
+            if (Math.abs(hDx) >= state.viewportWidthCells / 2f
+                    || Math.abs(hDy) >= state.viewportHeightCells / 2f) {
+                drawBossArrow(canvas, hDx, hDy);
             }
         }
 
@@ -1288,7 +1271,7 @@ class GameRenderer {
         return false;
     }
 
-    private void drawFoodArrow(Canvas canvas, float dx, float dy) {
+    private void drawFoodArrow(Canvas canvas, float dx, float dy, int color) {
         float length = Math.min(state.screenW, state.screenH) / 2f - state.cellSize;
         float distance = (float) Math.sqrt(dx * dx + dy * dy);
         if (distance == 0) return;
@@ -1307,9 +1290,113 @@ class GameRenderer {
         arrow.lineTo(backX + sideX, backY + sideY);
         arrow.lineTo(backX - sideX, backY - sideY);
         arrow.close();
-        paint.setColor(Color.RED);
+        paint.setColor(color);
         paint.setStyle(Paint.Style.FILL);
         canvas.drawPath(arrow, paint);
+    }
+
+    // Per-type off-screen arrow color so you can tell what's coming from afar.
+    private int foodColor(GameState.FruitType type) {
+        switch (type) {
+            case HEAL: return Color.rgb(0, 220, 90);
+            case MIRROR: return Color.rgb(170, 80, 255);
+            default: return Color.RED;
+        }
+    }
+
+    // Soft glow for food drawn as layered translucent circles so we never allocate
+    // a RadialGradient shader per frame (GC pressure caused a stutter on spawn).
+    private void drawFoodGlow(Canvas canvas, float cx, float cy, float glowR, int core) {
+        int r = Color.red(core), g = Color.green(core), b = Color.blue(core);
+        paint.setColor(Color.argb(35, r, g, b));
+        canvas.drawCircle(cx, cy, glowR, paint);
+        paint.setColor(Color.argb(70, r, g, b));
+        canvas.drawCircle(cx, cy, glowR * 0.66f, paint);
+        paint.setColor(Color.argb(120, r, g, b));
+        canvas.drawCircle(cx, cy, glowR * 0.38f, paint);
+        paint.setColor(Color.argb(180, r, g, b));
+        canvas.drawCircle(cx, cy, glowR * 0.18f, paint);
+    }
+
+    // Boss head color, matching the on-screen body.
+    private int bossColor() {
+        switch (state.boss.type) {
+            case WALL_BUILDER: return Color.rgb(0, 140, 255);
+            case HEALER: return Color.rgb(0, 200, 90);
+            case MIRROR: return Color.rgb(170, 80, 255);
+            default: return Color.rgb(200, 60, 220);
+        }
+    }
+
+    // Boss body color (the dimmed segments behind the head).
+    private int bossBodyColor() {
+        switch (state.boss.type) {
+            case WALL_BUILDER: return Color.rgb(255, 140, 0);
+            case HEALER: return Color.rgb(0, 180, 90);
+            case MIRROR: return Color.rgb(140, 60, 220);
+            default: return Color.rgb(180, 60, 200);
+        }
+    }
+
+    // Distinct boss arrow: a diamond with a white outline. The front half
+    // (facing the boss) uses the head color; the back half (facing the player)
+    // uses the body color, so the arrow reads as a head pointing at the boss.
+    private void drawBossArrow(Canvas canvas, float dx, float dy) {
+        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+        if (distance == 0) return;
+        float dirX = dx / distance;
+        float dirY = dy / distance;
+        float length = Math.min(state.screenW, state.screenH) / 2f - state.cellSize;
+        float centerX = state.boardLeft + state.screenW / 2f;
+        float centerY = state.boardTop + state.screenH / 2f;
+        float tipX = centerX + dirX * length;
+        float tipY = centerY + dirY * length;
+        float s = state.cellSize * 0.9f;
+        int headColor = bossColor();
+        int bodyColor = bossBodyColor();
+
+        // Diamond (rotated square) for a distinct boss silhouette.
+        float cx = tipX + dirX * state.cellSize * 0.45f;
+        float cy = tipY + dirY * state.cellSize * 0.45f;
+        float px = -dirY, py = dirX;
+        float fx = cx + dirX * s, fy = cy + dirY * s;               // tip (toward boss)
+        float bx = cx - dirX * s, by = cy - dirY * s;               // back (toward player)
+        float sx1 = cx + px * s * 0.55f, sy1 = cy + py * s * 0.55f; // side 1
+        float sx2 = cx - px * s * 0.55f, sy2 = cy - py * s * 0.55f; // side 2
+
+        paint.setStyle(Paint.Style.FILL);
+        // Back half (facing the player) in the body color.
+        android.graphics.Path back = new android.graphics.Path();
+        back.moveTo(bx, by);
+        back.lineTo(sx1, sy1);
+        back.lineTo(sx2, sy2);
+        back.close();
+        paint.setColor(bodyColor);
+        canvas.drawPath(back, paint);
+
+        // Front half (facing the boss) in the head color.
+        android.graphics.Path front = new android.graphics.Path();
+        front.moveTo(fx, fy);
+        front.lineTo(sx1, sy1);
+        front.lineTo(sx2, sy2);
+        front.close();
+        paint.setColor(headColor);
+        canvas.drawPath(front, paint);
+
+        // White outline so the diamond reads even against dark background.
+        android.graphics.Path dia = new android.graphics.Path();
+        dia.moveTo(fx, fy);
+        dia.lineTo(sx1, sy1);
+        dia.lineTo(bx, by);
+        dia.lineTo(sx2, sy2);
+        dia.close();
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.WHITE);
+        canvas.drawPath(dia, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeWidth(0);
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawDim(Canvas canvas) {
