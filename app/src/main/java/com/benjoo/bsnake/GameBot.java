@@ -116,6 +116,57 @@ class GameBot {
         return bfs(head, blocked)[id(tail.x, tail.y)] != -1;
     }
 
+    /**
+     * One-step lookahead on top of {@link #isSafe}: a move is an escape-route
+     * move when, after taking it, the snake still has at least one further move
+     * that keeps its head connected to its own tail. This stops the bot from
+     * picking a move that is survivable this tick but corners it the next,
+     * i.e. it always leaves itself a way to keep looping around.
+     */
+    private boolean keepsEscapeRoute(ArrayList<Point> body, int nx, int ny, GameState.SnakeData sd) {
+        boolean grows = growsInto(nx, ny, sd);
+        ArrayList<Point> next = new ArrayList<>();
+        next.add(new Point(nx, ny));
+        int keep = grows ? body.size() : body.size() - 1;
+        for (int i = 0; i < keep; i++) next.add(body.get(i));
+        int head = id(nx, ny);
+        for (int i = 1; i < next.size(); i++) {
+            if (id(next.get(i).x, next.get(i).y) == head) return false;
+        }
+        if (next.size() < 3) return true;
+        Point hd = next.get(0), tail = next.get(next.size() - 1);
+
+        // The snake must still be able to reach its own tail from this new head.
+        boolean[] baseBlocked = new boolean[cols * rows];
+        for (int i = 0; i < next.size() - 1; i++) baseBlocked[id(next.get(i).x, next.get(i).y)] = true;
+        baseBlocked[head] = false;
+        if (bfs(head, baseBlocked)[id(tail.x, tail.y)] == -1) return false;
+
+        // And there must be at least one next move from here that keeps the tail
+        // reachable, so the snake is never immediately cornered.
+        for (int d = 0; d < 4; d++) {
+            int nx2 = wrapX(hd.x + DX[d]), ny2 = wrapY(hd.y + DY[d]);
+            int head2 = id(nx2, ny2);
+            if (baseBlocked[head2]) continue;
+            ArrayList<Point> next2 = new ArrayList<>();
+            next2.add(new Point(nx2, ny2));
+            int keep2 = next.size() - 1;                    // assume tail keeps moving
+            for (int i = 0; i < keep2; i++) next2.add(next.get(i));
+            boolean collide = false;
+            for (int i = 1; i < next2.size(); i++) {
+                if (id(next2.get(i).x, next2.get(i).y) == head2) { collide = true; break; }
+            }
+            if (collide) continue;
+            if (next2.size() < 3) return true;
+            Point tail2 = next2.get(next2.size() - 1);
+            boolean[] blocked2 = new boolean[cols * rows];
+            for (int i = 0; i < next2.size() - 1; i++) blocked2[id(next2.get(i).x, next2.get(i).y)] = true;
+            blocked2[head2] = false;
+            if (bfs(head2, blocked2)[id(tail2.x, tail2.y)] != -1) return true;
+        }
+        return false;
+    }
+
     private GameState.Fruit pickFood() {
         GameState.Fruit best = null;
         if (perfectTimingActive) {
@@ -347,11 +398,13 @@ class GameBot {
         }
 
         // Not worth chasing: stay alive and keep the board open by taking the
-        // safe move with the most reachable space, breaking ties toward the
-        // tail (and toward the border when EDGE_WALKER is active).
+        // safe move that best preserves an escape route, then the most reachable
+        // space, breaking ties toward the tail (and toward the border when
+        // EDGE_WALKER is active).
         if (chosen == null && !safe.isEmpty()) {
             Point tail = body.get(body.size() - 1);
             int bestRoom = -1, bestBorder = Integer.MAX_VALUE, bestTailDist = Integer.MAX_VALUE;
+            boolean bestEscape = false;
             for (int[] c : safe) {
                 boolean[] blocked = occupancy(body, true);
                 int[] dist = bfs(id(c[2], c[3]), blocked);
@@ -360,13 +413,16 @@ class GameBot {
                 int td = dist[id(tail.x, tail.y)];
                 if (td < 0) td = Integer.MAX_VALUE;
                 int border = edgeWalkerActive ? distToBorder(c[2], c[3]) : 0;
+                boolean escape = keepsEscapeRoute(body, c[2], c[3], sd);
                 boolean better;
-                if (room != bestRoom) better = room > bestRoom;
+                if (escape != bestEscape) better = escape;
+                else if (room != bestRoom) better = room > bestRoom;
                 else if (edgeWalkerActive) better = border < bestBorder
                         || (border == bestBorder && td < bestTailDist);
                 else better = td < bestTailDist;
                 if (better) {
-                    bestRoom = room; bestBorder = border; bestTailDist = td; chosen = c;
+                    bestEscape = escape; bestRoom = room; bestBorder = border;
+                    bestTailDist = td; chosen = c;
                 }
             }
         }
