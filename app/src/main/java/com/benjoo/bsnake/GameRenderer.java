@@ -4,6 +4,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.RadialGradient;
 import android.graphics.RectF;
@@ -41,6 +42,10 @@ class GameRenderer {
             case MP_HOST: drawHostScreen(canvas); break;
             case MP_JOIN: drawJoinScreen(canvas); break;
             case MP_LOBBY: drawLobby(canvas); break;
+            case BOSS_DEATH_CINEMATIC:
+                drawGameField(canvas, 1f, false);
+                drawBossDeathCinematic(canvas);
+                break;
             case PLAYING:
                 drawGameField(canvas, t, false);
                 drawPauseIcon(canvas);
@@ -52,6 +57,10 @@ class GameRenderer {
                 drawGameField(canvas, 1f, false);
                 drawDim(canvas);
                 drawPausedOverlay(canvas);
+                break;
+            case BOSS_UPGRADE:
+                drawGameField(canvas, 1f, false);
+                drawUpgradeScreen(canvas);
                 break;
             case GAME_OVER:
                 drawGameField(canvas, 1f, false);
@@ -87,16 +96,23 @@ class GameRenderer {
             canvas.translate((float) ((Math.random() * 2 - 1) * mag),
                              (float) ((Math.random() * 2 - 1) * mag));
         }
+        boolean isCinematic = state.currentState == GameState.State.BOSS_DEATH_CINEMATIC;
         boolean spectator = state.currentState == GameState.State.MP_GAME_OVER
                 || (state.currentState == GameState.State.MP_PLAYING
                 && !state.snakes[state.playerIndex].alive);
-        boolean fitVertical = !state.isClassicMode()
+        boolean fitVertical = !state.isClassicMode() && !isCinematic
                 && state.cameraMode == GameState.CameraMode.FIT_VERTICAL
                 && !spectator;
-        if (!state.isClassicMode() && (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM)) {
+        if (!state.isClassicMode() && !isCinematic && (spectator || state.cameraMode != GameState.CameraMode.CLASSIC_ZOOM)) {
             // FIT_VERTICAL fills the screen height exactly and scrolls
             // horizontally; everything else shows the whole play area.
             state.cellSize = fitVertical ? state.fitVerticalCellSize : state.fullAreaCellSize;
+            state.viewportWidthCells = state.screenW / (float) state.cellSize;
+            state.viewportHeightCells = state.screenH / (float) state.cellSize;
+        }
+        // Apply cinematic camera zoom for boss death sequence
+        if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC && state.cinematicCameraZoom > 1f) {
+            state.cellSize = (int) (state.cellSize * state.cinematicCameraZoom);
             state.viewportWidthCells = state.screenW / (float) state.cellSize;
             state.viewportHeightCells = state.screenH / (float) state.cellSize;
         }
@@ -118,16 +134,21 @@ class GameRenderer {
             if (!sd.alive && !mpGameOver) continue;
             if (sd.body.isEmpty()) continue;
             int n = Math.min(sd.body.size(), sd.prevBody.size());
+            boolean mirrored = sd.mirrorUntilMs > System.currentTimeMillis();
+            int headCol = mirrored ? blendPurple(sd.headColor) : sd.headColor;
+            int bodyCol = mirrored ? blendPurple(sd.bodyColor) : sd.bodyColor;
             for (int i = 0; i < n; i++) {
-                paint.setColor(i == 0 ? sd.headColor : sd.bodyColor);
+                paint.setColor(i == 0 ? headCol : bodyCol);
                 Point cur = sd.body.get(i);
                 Point prev = sd.prevBody.size() > i ? sd.prevBody.get(i) : cur;
                 float dx = cur.x - prev.x;
                 float dy = cur.y - prev.y;
                 boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
                 float worldX, worldY;
-                if (wrapped) { worldX = cur.x; worldY = cur.y; }
-                else { worldX = prev.x + dx * t; worldY = prev.y + dy * t; }
+                if (wrapped) {
+                    worldX = interpWrapped(prev.x, cur.x, t, state.cols);
+                    worldY = interpWrapped(prev.y, cur.y, t, state.rows);
+                } else { worldX = prev.x + dx * t; worldY = prev.y + dy * t; }
                 float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
                         + wrappedDelta(worldX - viewCameraX, state.cols));
                 float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
@@ -141,8 +162,12 @@ class GameRenderer {
                 float dx = cur.x - prev.x;
                 float dy = cur.y - prev.y;
                 boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
-                float worldX = wrapped ? cur.x : prev.x + dx * t;
-                float worldY = wrapped ? cur.y : prev.y + dy * t;
+                float worldX = wrapped
+                        ? interpWrapped(prev.x, cur.x, t, state.cols)
+                        : prev.x + dx * t;
+                float worldY = wrapped
+                        ? interpWrapped(prev.y, cur.y, t, state.rows)
+                        : prev.y + dy * t;
                 float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f
                         + wrappedDelta(worldX - viewCameraX, state.cols));
                 float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f
@@ -158,11 +183,12 @@ class GameRenderer {
         drawDeath(canvas, viewCameraX, viewCameraY);
 
         // Food — pulsing with a soft glow and a scale-in on spawn
-        for (GameState.Fruit f : state.foods) {            float foodDx = f.x - viewCameraX;
+        for (GameState.Fruit f : state.foods) {
+            float foodDx = f.x - viewCameraX;
             float foodDy = f.y - viewCameraY;
             if (Math.abs(foodDx) >= state.viewportWidthCells / 2f
                     || Math.abs(foodDy) >= state.viewportHeightCells / 2f) {
-                drawFoodArrow(canvas, foodDx, foodDy);
+                drawFoodArrow(canvas, foodDx, foodDy, foodColor(f.type));
                 continue;
             }
             float cx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f + foodDx);
@@ -170,29 +196,27 @@ class GameRenderer {
             long bornAge = System.currentTimeMillis() - f.bornMs;
             float scaleIn = Math.min(1f, bornAge / 250f);
             float pulse = 1f + 0.1f * (float) Math.sin(bornAge * 0.008);
+            int core;
             if (f.type == GameState.FruitType.HEAL) {
-                paint.setColor(Color.rgb(0, 220, 90));
+                core = Color.rgb(0, 220, 90);
                 float r = Math.max(5, state.cellSize / 2f - 3) * scaleIn * pulse;
+                paint.setColor(core);
                 canvas.drawCircle(cx, cy, r, paint);
-                float glowR = Math.max(1f, Math.max(8, state.cellSize / 2f + 4) * scaleIn * pulse);
-                paint.setColor(Color.WHITE);
-                paint.setShader(new RadialGradient(cx, cy, glowR,
-                        Color.argb(150, 0, 255, 120), Color.argb(0, 0, 255, 120),
-                        Shader.TileMode.CLAMP));
-                canvas.drawCircle(cx, cy, glowR, paint);
-                paint.setShader(null);
-            } else {
-                paint.setColor(Color.RED);
+            } else if (f.type == GameState.FruitType.MIRROR) {
+                core = Color.rgb(150, 60, 255);
                 float r = Math.max(4, state.cellSize / 2f - 4) * scaleIn * pulse;
+                paint.setColor(core);
                 canvas.drawCircle(cx, cy, r, paint);
-                float glowR = Math.max(1f, Math.max(7, state.cellSize / 2f) * scaleIn * pulse);
-                paint.setColor(Color.WHITE);
-                paint.setShader(new RadialGradient(cx, cy, glowR,
-                        Color.argb(120, 255, 60, 40), Color.argb(0, 255, 60, 40),
-                        Shader.TileMode.CLAMP));
-                canvas.drawCircle(cx, cy, glowR, paint);
-                paint.setShader(null);
+            } else {
+                core = Color.RED;
+                float r = Math.max(4, state.cellSize / 2f - 4) * scaleIn * pulse;
+                paint.setColor(core);
+                canvas.drawCircle(cx, cy, r, paint);
             }
+            // Soft glow via layered translucent circles — avoids allocating a new
+            // RadialGradient every frame, which caused a stutter on food spawn.
+            float glowR = Math.max(8, state.cellSize / 2f + 4) * scaleIn * pulse;
+            drawFoodGlow(canvas, cx, cy, glowR, core);
         }
 
         drawParticles(canvas, viewCameraX, viewCameraY);
@@ -201,19 +225,23 @@ class GameRenderer {
         if (state.boss.alive && !state.boss.body.isEmpty()) {
             boolean isWallBuilder = state.boss.type == GameState.BossType.WALL_BUILDER;
             boolean isHealer = state.boss.type == GameState.BossType.HEALER;
+            boolean isMirror = state.boss.type == GameState.BossType.MIRROR;
             boolean flashed = state.bossFlashTicks > 0;
             long now = System.currentTimeMillis();
             float auraPulse = 0.5f + 0.5f * (float) Math.sin(now * 0.006);
             int auraColor = isWallBuilder ? Color.rgb(0, 140, 255)
-                    : isHealer ? Color.rgb(0, 200, 90) : Color.rgb(200, 60, 220);
+                    : isHealer ? Color.rgb(0, 200, 90)
+                    : isMirror ? Color.rgb(170, 80, 255) : Color.rgb(200, 60, 220);
 
             // Pulsing aura glow behind the body
             for (int i = 0; i < state.boss.body.size(); i++) {
                 Point seg = state.boss.body.get(i);
                 float aDx = seg.x - viewCameraX;
                 float aDy = seg.y - viewCameraY;
-                if (Math.abs(aDx) >= state.viewportWidthCells / 2f
-                        || Math.abs(aDy) >= state.viewportHeightCells / 2f) continue;
+                // Keep cells that are at least partially visible (within half a
+                // viewport plus half a cell) so the boss aura doesn't pop in.
+                if (Math.abs(aDx) > state.viewportWidthCells / 2f + 0.5f
+                        || Math.abs(aDy) > state.viewportHeightCells / 2f + 0.5f) continue;
                 float ax = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + aDx);
                 float ay = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + aDy);
                 int aAlpha = (i == 0 ? 90 : 35) + (int) (30 * auraPulse);
@@ -227,15 +255,16 @@ class GameRenderer {
                 Point seg = state.boss.body.get(i);
                 float bDx = seg.x - viewCameraX;
                 float bDy = seg.y - viewCameraY;
-                if (Math.abs(bDx) >= state.viewportWidthCells / 2f
-                        || Math.abs(bDy) >= state.viewportHeightCells / 2f) continue;
+                if (Math.abs(bDx) > state.viewportWidthCells / 2f + 0.5f
+                        || Math.abs(bDy) > state.viewportHeightCells / 2f + 0.5f) continue;
                 float bx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + bDx);
                 float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
                 if (flashed) {
                     paint.setColor(Color.argb(235, 255, 255, 255));
                 } else if (i == 0) {
                     paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255)
-                            : isHealer ? Color.rgb(0, 200, 90) : Color.rgb(200, 60, 220));
+                            : isHealer ? Color.rgb(0, 200, 90)
+                            : isMirror ? Color.rgb(170, 80, 255) : Color.rgb(200, 60, 220));
                 } else {
                     if (isWallBuilder) {
                         int dim = Math.max(120, 255 - i * 20);
@@ -243,6 +272,9 @@ class GameRenderer {
                     } else if (isHealer) {
                         int dim = Math.max(70, 190 - i * 15);
                         paint.setColor(Color.rgb(dim / 2, dim, dim / 2));
+                    } else if (isMirror) {
+                        int dim = Math.max(70, 190 - i * 15);
+                        paint.setColor(Color.rgb(dim / 2, dim / 4, dim));
                     } else {
                         int dim = Math.max(80, 180 - i * 15);
                         paint.setColor(Color.rgb(dim, dim / 3, dim));
@@ -254,19 +286,6 @@ class GameRenderer {
             Point head = state.boss.body.get(0);
             float hDx = head.x - viewCameraX;
             float hDy = head.y - viewCameraY;
-            if (Math.abs(hDx) < state.viewportWidthCells / 2f
-                    && Math.abs(hDy) < state.viewportHeightCells / 2f) {
-                float hx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + hDx);
-                float hy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + hDy);
-                float glowR = state.cellSize * (1.2f + 0.3f * auraPulse);
-                paint.setColor(Color.WHITE);
-                paint.setShader(new RadialGradient(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR,
-                        Color.argb(120, Color.red(auraColor), Color.green(auraColor), Color.blue(auraColor)),
-                        Color.argb(0, Color.red(auraColor), Color.green(auraColor), Color.blue(auraColor)),
-                        Shader.TileMode.CLAMP));
-                canvas.drawCircle(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR, paint);
-                paint.setShader(null);
-            }
             // Boss segment count label above head
             if (Math.abs(hDx) < state.viewportWidthCells / 2f
                     && Math.abs(hDy) < state.viewportHeightCells / 2f) {
@@ -293,6 +312,12 @@ class GameRenderer {
                     paint.setStyle(Paint.Style.FILL);
                     paint.setStrokeWidth(0);
                 }
+            }
+
+            // Off-screen boss arrow, pointing at the boss head in its type color.
+            if (Math.abs(hDx) >= state.viewportWidthCells / 2f
+                    || Math.abs(hDy) >= state.viewportHeightCells / 2f) {
+                drawBossArrow(canvas, hDx, hDy);
             }
         }
 
@@ -426,6 +451,7 @@ class GameRenderer {
             paint.setStyle(Paint.Style.FILL);
         }
         drawBossWarning(canvas);
+        drawMirrorIndicator(canvas);
         drawDirectionPad(canvas);
 
         canvas.restore();
@@ -463,11 +489,12 @@ class GameRenderer {
             float p = (now - state.scorePopMs) / 500f;
             if (p >= 1f) {
                 state.scorePopMs = 0;
+                state.scorePopAmount = 1;
             } else {
                 int alpha = (int) (255 * (1 - p));
                 paint.setColor(Color.argb(alpha, 255, 210, 90));
                 paint.setTextSize(28 * s);
-                canvas.drawText("+1", x + coinR * 2 + 6, centerY - 24 * s - 30 * s * p, paint);
+                canvas.drawText("+" + state.scorePopAmount, x + coinR * 2 + 6, centerY - 24 * s - 30 * s * p, paint);
                 paint.setTextSize(textSize);
             }
         }
@@ -741,8 +768,25 @@ class GameRenderer {
             } else {
                 int alpha = (int) (255 * (1 - prog));
                 float r = Math.max(1.5f, p.size * state.cellSize * (1f - 0.4f * prog));
-                paint.setColor(Color.argb(alpha, Color.red(p.color), Color.green(p.color), Color.blue(p.color)));
-                canvas.drawCircle(px, py, r, paint);
+
+                // Glow on large fragments and embers
+                if (p.glow && r > 2f) {
+                    paint.setColor(Color.argb(alpha / 2, Color.red(p.color), Color.green(p.color), Color.blue(p.color)));
+                    canvas.drawCircle(px, py, r * 2.2f, paint);
+                }
+
+                // Rotated fragments drawn as small oriented rectangles
+                if (p.rotSpeed != 0) {
+                    canvas.save();
+                    canvas.rotate(p.rotation + p.rotSpeed * age / 1000f, px, py);
+                    float half = r * 0.7f;
+                    paint.setColor(Color.argb(alpha, Color.red(p.color), Color.green(p.color), Color.blue(p.color)));
+                    canvas.drawRect(px - half, py - half, px + half, py + half, paint);
+                    canvas.restore();
+                } else {
+                    paint.setColor(Color.argb(alpha, Color.red(p.color), Color.green(p.color), Color.blue(p.color)));
+                    canvas.drawCircle(px, py, r, paint);
+                }
             }
         }
     }
@@ -762,6 +806,7 @@ class GameRenderer {
         switch (state.boss.type) {
             case WALL_BUILDER: color = Color.rgb(0, 140, 255); break;
             case HEALER: color = Color.rgb(0, 200, 90); break;
+            case MIRROR: color = Color.rgb(170, 80, 255); break;
             default: color = Color.rgb(200, 60, 220);
         }
         paint.setColor(color);
@@ -805,6 +850,288 @@ class GameRenderer {
         canvas.drawText("BOSS INCOMING", state.screenW / 2f, state.screenH * 0.30f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setTypeface(Typeface.DEFAULT);
+    }
+
+    // Blend a color partway toward the mirror purple, so a mirrored snake reads
+    // as "tainted" by the purple fruit.
+    private int blendPurple(int c) {
+        int r = Math.min(255, (int) (Color.red(c) * 0.4f + 170 * 0.6f));
+        int g = Math.min(255, (int) (Color.green(c) * 0.4f + 80 * 0.6f));
+        int b = Math.min(255, (int) (Color.blue(c) * 0.4f + 255 * 0.6f));
+        return Color.rgb(r, g, b);
+    }
+
+    // Filled triangle arrowhead pointing along `angle` (radians), tip at (tipX,tipY).
+    private void drawArrowHead(Canvas canvas, float tipX, float tipY, double angle, float size) {
+        float s = size;
+        float back = 0.72f * s;
+        Path tri = new Path();
+        tri.moveTo(tipX + (float) Math.cos(angle) * s, tipY + (float) Math.sin(angle) * s);
+        tri.lineTo(tipX + (float) Math.cos(angle + 2.4) * back, tipY + (float) Math.sin(angle + 2.4) * back);
+        tri.lineTo(tipX + (float) Math.cos(angle - 2.4) * back, tipY + (float) Math.sin(angle - 2.4) * back);
+        tri.close();
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawPath(tri, paint);
+    }
+
+    // Two opposing arrows ("reversal" glyph) drawn on a short ring.
+    private void drawReversalIcon(Canvas canvas, float cx, float cy, float r, int color) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(4, r * 0.16f));
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setColor(color);
+        float hw = r * 0.62f;
+        float gap = r * 0.42f;
+        // Top arrow -> pointing right
+        canvas.drawLine(cx - hw, cy - gap, cx + hw, cy - gap, paint);
+        drawArrowHead(canvas, cx + hw, cy - gap, 0, r * 0.30f);
+        // Bottom arrow -> pointing left
+        canvas.drawLine(cx + hw, cy + gap, cx - hw, cy + gap, paint);
+        drawArrowHead(canvas, cx - hw, cy + gap, Math.PI, r * 0.30f);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    // Mirror indicator: shown while a purple fruit has flipped the local player's
+    // controls, so the inversion is never a silent surprise. Adds a purple edge
+    // vignette, the reversal glyph, and a countdown label.
+    private void drawMirrorIndicator(Canvas canvas) {
+        GameState.SnakeData local = state.snakes[state.playerIndex];
+        long remainMs = local.mirrorUntilMs - System.currentTimeMillis();
+        if (remainMs <= 0) return;
+        long now = System.currentTimeMillis();
+        float pulse = 0.5f + 0.5f * (float) Math.sin(now * 0.014);
+        float w = state.screenW;
+        float h = state.screenH;
+
+        // Purple vignette pulsing around the edges.
+        float vigR = (float) Math.sqrt(w * w + h * h) * 0.5f;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(new RadialGradient(w / 2f, h / 2f, vigR,
+                Color.argb(0, 170, 80, 255), Color.argb(80, 170, 80, 255),
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, w, h, paint);
+        paint.setShader(null);
+
+        int ta = (int) (255 * (0.78f + 0.22f * pulse));
+        int iconCol = Color.argb(ta, 200, 120, 255);
+
+        // Reversal icon, left of the centered label.
+        String label = "CONTROLS MIRRORED " + ((remainMs + 999) / 1000) + "s";
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextSize(52);
+        float y = h * 0.18f;
+        float textW = paint.measureText(label);
+        float iconR = 42;
+        float cx = w / 2f - textW / 2f - iconR - 26;
+        float cy = y - 16;
+        drawReversalIcon(canvas, cx, cy, iconR, iconCol);
+
+        // Backing bar for legibility.
+        paint.setColor(Color.argb((int) (170 * (0.6f + 0.4f * pulse)), 0, 0, 0));
+        canvas.drawRoundRect(w / 2f - textW / 2f - 16, y - 44,
+                w / 2f + textW / 2f + 16, y + 14, 10, 10, paint);
+        paint.setColor(Color.argb(ta, 200, 120, 255));
+        canvas.drawText(label, w / 2f, y, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTypeface(Typeface.DEFAULT);
+    }
+
+    // Cinematic boss death sequence overlay. Rendered on top of the frozen
+    // game field. Emotional rhythm: impact → freeze → build-up → rush →
+    // compression → explosion → shockwave → debris → calm → reward.
+    private void drawBossDeathCinematic(Canvas canvas) {
+        long now = System.currentTimeMillis();
+        long elapsed = now - state.cinematicStartMs;
+        float w = state.screenW;
+        float h = state.screenH;
+        float cx = w / 2f;
+        float cy = h / 2f;
+        float viewX = state.cameraX;
+        float viewY = state.cameraY;
+
+        long ht = GameState.BOSS_DEATH_HIT_STOP_MS;
+        long le = GameState.BOSS_DEATH_CAMERA_END_MS;
+        long ex = le;
+        long hd = ex + GameState.BOSS_DEATH_EXPLOSION_MS;
+        long tr = hd + GameState.BOSS_DEATH_HOLD_MS;
+        int bossColor = state.cinematicBossColor;
+
+        // ------ Phase 1 & 2: boss visible (hit stop, lunge, compression) ------
+        if (elapsed < le && !state.cinematicBossBody.isEmpty()) {
+            canvas.save();
+            // Compression squash: X = 1.18, Y = 0.82 during the last COMPRESS_MS
+            // before the explosion, centered on the boss head
+            long compressStart = le - GameState.BOSS_DEATH_COMPRESS_MS;
+            if (elapsed >= compressStart) {
+                float cp = (elapsed - compressStart) / (float) GameState.BOSS_DEATH_COMPRESS_MS;
+                float easeIn = cp * cp;
+                float sx = 1f + 0.18f * easeIn;
+                float sy = 1f - 0.18f * easeIn;
+                Point head = state.cinematicBossBody.get(0);
+                float hDx = wrappedDelta(head.x - viewX, state.cols);
+                float hDy = wrappedDelta(head.y - viewY, state.rows);
+                float hpx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + hDx);
+                float hpy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + hDy);
+                canvas.scale(sx, sy, hpx + state.cellSize / 2f, hpy + state.cellSize / 2f);
+            }
+
+            // Draw boss body from the cinematic snapshot
+            for (int i = 0; i < state.cinematicBossBody.size(); i++) {
+                Point seg = state.cinematicBossBody.get(i);
+                float dDx = wrappedDelta(seg.x - viewX, state.cols);
+                float dDy = wrappedDelta(seg.y - viewY, state.rows);
+                if (Math.abs(dDx) >= state.viewportWidthCells / 2f
+                        || Math.abs(dDy) >= state.viewportHeightCells / 2f) continue;
+                float px = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + dDx);
+                float py = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + dDy);
+
+                // Base body colour — dim toward the tail
+                int dim = (i == 0) ? 255 : Math.max(80, 180 - i * 15);
+                int segColor = Color.rgb(
+                        Color.red(bossColor) * dim / 255,
+                        Color.green(bossColor) * dim / 255,
+                        Color.blue(bossColor) * dim / 255);
+
+                if (elapsed < ht) {
+                    // Hit stop: bright white flash blended with boss colour
+                    float flashP = 1f - elapsed / (float) ht;
+                    int flashWhite = (int) (200 * flashP);
+                    paint.setColor(Color.argb(235,
+                            Math.min(255, Color.red(segColor) + flashWhite),
+                            Math.min(255, Color.green(segColor) + flashWhite),
+                            Math.min(255, Color.blue(segColor) + flashWhite)));
+                } else {
+                    // Lunge phase: boss colour with a white energy glow build-up
+                    float lungeP = (elapsed - ht) / (float) GameState.BOSS_DEATH_CAMERA_WINDUP_MS;
+                    int glowAdd = (int) (60 * lungeP);
+                    paint.setColor(Color.argb(235,
+                            Math.min(255, Color.red(segColor) + glowAdd),
+                            Math.min(255, Color.green(segColor) + glowAdd),
+                            Math.min(255, Color.blue(segColor) + glowAdd)));
+                }
+                canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
+            }
+
+            // Head glow ramp-up during the lunge
+            if (elapsed >= ht) {
+                drawBossHeadGlow(canvas, viewX, viewY, bossColor,
+                        (elapsed - ht) / (float) GameState.BOSS_DEATH_CAMERA_WINDUP_MS);
+            }
+            canvas.restore();
+        }
+
+        // ------ Phase 3–5: explosion, debris, transition ------
+        if (elapsed >= le) {
+            // Background dim (subtle, ramps up quickly)
+            float dimP = Math.min(1f, (elapsed - le) / 150f);
+            int dimAlpha = (int) (110 * dimP);
+            paint.setColor(Color.argb(dimAlpha, 0, 0, 0));
+            canvas.drawRect(0, 0, w, h, paint);
+
+            // Brief chromatic aberration flash at the explosion moment
+            if (elapsed < le + 100) {
+                float caP = 1f - (elapsed - le) / 100f;
+                int caA = (int) (80 * caP);
+                float offset = 8 * caP;
+                paint.setColor(Color.argb(caA, 255, 0, 0));
+                canvas.drawRect(-offset, 0, w - offset, h, paint);
+                paint.setColor(Color.argb(caA, 0, 0, 255));
+                canvas.drawRect(offset, 0, w + offset, h, paint);
+                paint.setColor(Color.argb(caA, 0, 255, 0));
+                canvas.drawRect(0, 0, w, h, paint);
+            }
+
+            // Draw explosion particles on top of dim so they pop
+            drawParticles(canvas, viewX, viewY);
+
+            // Shockwave ring at explosion center
+            if (state.cinematicShockwaveAt > 0) {
+                long swAge = now - state.cinematicShockwaveAt;
+                if (swAge < 550) {
+                    float swP = swAge / 550f;
+                    float fx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f
+                            + wrappedDelta(state.cinematicFocusX - viewX, state.cols));
+                    float fy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f
+                            + wrappedDelta(state.cinematicFocusY - viewY, state.rows));
+                    float radius = state.cellSize * (0.5f + swP * 5f);
+                    int swAlpha = (int) (200 * (1f - swP));
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(Math.max(3, state.cellSize * 0.12f) * (1f - swP * 0.5f));
+                    paint.setColor(Color.argb(swAlpha,
+                            Color.red(bossColor), Color.green(bossColor), Color.blue(bossColor)));
+                    canvas.drawCircle(fx, fy, radius, paint);
+                    // Outer glow ring
+                    paint.setStrokeWidth(paint.getStrokeWidth() * 1.8f);
+                    paint.setColor(Color.argb(swAlpha / 3,
+                            Color.red(bossColor), Color.green(bossColor), Color.blue(bossColor)));
+                    canvas.drawCircle(fx, fy + 1, radius + 2, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setStrokeWidth(0);
+                }
+            }
+
+            // Coloured explosion flash (fades quickly)
+            if (elapsed < le + 250) {
+                float fp = 1f - (elapsed - le) / 250f;
+                int fa = (int) (100 * fp * fp);
+                paint.setColor(Color.argb(fa,
+                        Color.red(bossColor), Color.green(bossColor), Color.blue(bossColor)));
+                canvas.drawRect(0, 0, w, h, paint);
+            }
+
+            // "BOSS DEFEATED" text
+            if (elapsed < hd) {
+                float textP = Math.min(1f, (elapsed - le) / 250f);
+                float rise = (1f - textP) * 30f;
+                int ta = (int) (255 * textP);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTypeface(Typeface.DEFAULT_BOLD);
+                paint.setTextSize(48);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(6);
+                paint.setColor(Color.argb(ta, 0, 0, 0));
+                canvas.drawText("BOSS DEFEATED", cx, cy * 0.45f - rise, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.argb(ta, 255, 215, 80));
+                canvas.drawText("BOSS DEFEATED", cx, cy * 0.45f - rise, paint);
+                paint.setTextAlign(Paint.Align.LEFT);
+                paint.setTypeface(Typeface.DEFAULT);
+                paint.setStrokeWidth(0);
+            }
+
+            // Transition fade to black
+            if (elapsed >= tr) {
+                float fadeP = Math.min(1f, (elapsed - tr) / (float) GameState.BOSS_DEATH_TRANSITION_MS);
+                paint.setColor(Color.argb((int) (255 * fadeP), 0, 0, 0));
+                canvas.drawRect(0, 0, w, h, paint);
+            }
+        }
+
+        paint.setAlpha(255);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    // Draws the pulsing head glow during the camera lunge phase
+    private void drawBossHeadGlow(Canvas canvas, float viewX, float viewY, int color, float progress) {
+        if (state.cinematicBossBody.isEmpty()) return;
+        Point head = state.cinematicBossBody.get(0);
+        float hDx = wrappedDelta(head.x - viewX, state.cols);
+        float hDy = wrappedDelta(head.y - viewY, state.rows);
+        if (Math.abs(hDx) >= state.viewportWidthCells / 2f
+                || Math.abs(hDy) >= state.viewportHeightCells / 2f) return;
+        float hx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + hDx);
+        float hy = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + hDy);
+        float glowR = state.cellSize * (1.5f + progress * 1.5f);
+        int glowA = (int) (80 + 120 * progress);
+        paint.setColor(Color.WHITE);
+        paint.setShader(new RadialGradient(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR,
+                Color.argb(glowA, Color.red(color), Color.green(color), Color.blue(color)),
+                Color.argb(0, Color.red(color), Color.green(color), Color.blue(color)),
+                Shader.TileMode.CLAMP));
+        canvas.drawCircle(hx + state.cellSize / 2f, hy + state.cellSize / 2f, glowR, paint);
+        paint.setShader(null);
     }
 
     // Floating reward notifications (e.g. "+30") that rise above the middle of
@@ -873,6 +1200,37 @@ class GameRenderer {
     }
 
     private void updateCamera(float t) {
+        if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC) {
+            long now = System.currentTimeMillis();
+            long elapsed = now - state.cinematicStartMs;
+            float cameraZoom = 1f;
+
+            // Smoothly pan from the player's position to the boss head over
+            // the hit stop and camera lunge phases combined.
+            long panDuration = GameState.BOSS_DEATH_HIT_STOP_MS + GameState.BOSS_DEATH_CAMERA_WINDUP_MS;
+            float panP = Math.min(1f, elapsed / (float) panDuration);
+            // Ease-out cubic for a "lunging" feel that rushes in and settles
+            float panEase = 1f - (1f - panP) * (1f - panP) * (1f - panP);
+            float fromX = state.cinematicCameraStartX;
+            float fromY = state.cinematicCameraStartY;
+            state.cameraX = fromX + (state.cinematicFocusX - fromX) * panEase;
+            state.cameraY = fromY + (state.cinematicFocusY - fromY) * panEase;
+
+            // Camera zoom — only during the lunge phase (after hit stop),
+            // using an ease-out-back overshoot for momentum
+            if (elapsed > GameState.BOSS_DEATH_HIT_STOP_MS) {
+                float windupElapsed = elapsed - GameState.BOSS_DEATH_HIT_STOP_MS;
+                float windupP = Math.min(1f, windupElapsed / (float) GameState.BOSS_DEATH_CAMERA_WINDUP_MS);
+                // easeOutBack for overshoot: rushes past target then settles back
+                float c1 = 1.70158f;
+                float c3 = c1 + 1f;
+                float u = windupP - 1f;
+                float ease = 1f + c3 * u * u * u + c1 * u * u;
+                cameraZoom = 1f + 0.18f * ease;
+            }
+            state.cinematicCameraZoom = cameraZoom;
+            return;
+        }
         if (state.isClassicMode()) {
             state.cameraX = state.cols / 2f - 0.5f;
             state.cameraY = state.rows / 2f - 0.5f;
@@ -894,18 +1252,34 @@ class GameRenderer {
         float dy = cur.y - prev.y;
         boolean wrapped = Math.abs(dx) > 1 || Math.abs(dy) > 1;
         if (state.cameraMode == GameState.CameraMode.FIT_VERTICAL) {
-            state.cameraX = wrapped ? cur.x : prev.x + dx * t;
+            state.cameraX = wrapped
+                    ? interpWrapped(prev.x, cur.x, t, state.cols)
+                    : prev.x + dx * t;
             state.cameraY = state.rows / 2f - 0.5f;
             return;
         }
-        if (wrapped) { state.cameraX = cur.x; state.cameraY = cur.y; }
-        else { state.cameraX = prev.x + dx * t; state.cameraY = prev.y + dy * t; }
+        if (wrapped) {
+            state.cameraX = interpWrapped(prev.x, cur.x, t, state.cols);
+            state.cameraY = interpWrapped(prev.y, cur.y, t, state.rows);
+        } else { state.cameraX = prev.x + dx * t; state.cameraY = prev.y + dy * t; }
     }
 
     private float wrappedDelta(float delta, int size) {
         while (delta > size / 2f) delta -= size;
         while (delta < -size / 2f) delta += size;
         return delta;
+    }
+
+    /**
+     * Smooth toroidal interpolation from {@code a} to {@code b} over [0,1] on a
+     * ring of {@code size} cells. Uses the shortest arc so a segment crossing a
+     * map edge slides through the wall instead of teleporting to the far side.
+     */
+    private float interpWrapped(float a, float b, float t, int size) {
+        float d = b - a;
+        while (d > size / 2f) d -= size;
+        while (d < -size / 2f) d += size;
+        return a + d * t;
     }
 
     private boolean isWallPreviewAdjacentToPlayer(int wx, int wy) {
@@ -919,7 +1293,7 @@ class GameRenderer {
         return false;
     }
 
-    private void drawFoodArrow(Canvas canvas, float dx, float dy) {
+    private void drawFoodArrow(Canvas canvas, float dx, float dy, int color) {
         float length = Math.min(state.screenW, state.screenH) / 2f - state.cellSize;
         float distance = (float) Math.sqrt(dx * dx + dy * dy);
         if (distance == 0) return;
@@ -938,9 +1312,113 @@ class GameRenderer {
         arrow.lineTo(backX + sideX, backY + sideY);
         arrow.lineTo(backX - sideX, backY - sideY);
         arrow.close();
-        paint.setColor(Color.RED);
+        paint.setColor(color);
         paint.setStyle(Paint.Style.FILL);
         canvas.drawPath(arrow, paint);
+    }
+
+    // Per-type off-screen arrow color so you can tell what's coming from afar.
+    private int foodColor(GameState.FruitType type) {
+        switch (type) {
+            case HEAL: return Color.rgb(0, 220, 90);
+            case MIRROR: return Color.rgb(170, 80, 255);
+            default: return Color.RED;
+        }
+    }
+
+    // Soft glow for food drawn as layered translucent circles so we never allocate
+    // a RadialGradient shader per frame (GC pressure caused a stutter on spawn).
+    private void drawFoodGlow(Canvas canvas, float cx, float cy, float glowR, int core) {
+        int r = Color.red(core), g = Color.green(core), b = Color.blue(core);
+        paint.setColor(Color.argb(35, r, g, b));
+        canvas.drawCircle(cx, cy, glowR, paint);
+        paint.setColor(Color.argb(70, r, g, b));
+        canvas.drawCircle(cx, cy, glowR * 0.66f, paint);
+        paint.setColor(Color.argb(120, r, g, b));
+        canvas.drawCircle(cx, cy, glowR * 0.38f, paint);
+        paint.setColor(Color.argb(180, r, g, b));
+        canvas.drawCircle(cx, cy, glowR * 0.18f, paint);
+    }
+
+    // Boss head color, matching the on-screen body.
+    private int bossColor() {
+        switch (state.boss.type) {
+            case WALL_BUILDER: return Color.rgb(0, 140, 255);
+            case HEALER: return Color.rgb(0, 200, 90);
+            case MIRROR: return Color.rgb(170, 80, 255);
+            default: return Color.rgb(200, 60, 220);
+        }
+    }
+
+    // Boss body color (the dimmed segments behind the head).
+    private int bossBodyColor() {
+        switch (state.boss.type) {
+            case WALL_BUILDER: return Color.rgb(255, 140, 0);
+            case HEALER: return Color.rgb(0, 180, 90);
+            case MIRROR: return Color.rgb(140, 60, 220);
+            default: return Color.rgb(180, 60, 200);
+        }
+    }
+
+    // Distinct boss arrow: a diamond with a white outline. The front half
+    // (facing the boss) uses the head color; the back half (facing the player)
+    // uses the body color, so the arrow reads as a head pointing at the boss.
+    private void drawBossArrow(Canvas canvas, float dx, float dy) {
+        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+        if (distance == 0) return;
+        float dirX = dx / distance;
+        float dirY = dy / distance;
+        float length = Math.min(state.screenW, state.screenH) / 2f - state.cellSize;
+        float centerX = state.boardLeft + state.screenW / 2f;
+        float centerY = state.boardTop + state.screenH / 2f;
+        float tipX = centerX + dirX * length;
+        float tipY = centerY + dirY * length;
+        float s = state.cellSize * 0.9f;
+        int headColor = bossColor();
+        int bodyColor = bossBodyColor();
+
+        // Diamond (rotated square) for a distinct boss silhouette.
+        float cx = tipX + dirX * state.cellSize * 0.45f;
+        float cy = tipY + dirY * state.cellSize * 0.45f;
+        float px = -dirY, py = dirX;
+        float fx = cx + dirX * s, fy = cy + dirY * s;               // tip (toward boss)
+        float bx = cx - dirX * s, by = cy - dirY * s;               // back (toward player)
+        float sx1 = cx + px * s * 0.55f, sy1 = cy + py * s * 0.55f; // side 1
+        float sx2 = cx - px * s * 0.55f, sy2 = cy - py * s * 0.55f; // side 2
+
+        paint.setStyle(Paint.Style.FILL);
+        // Back half (facing the player) in the body color.
+        android.graphics.Path back = new android.graphics.Path();
+        back.moveTo(bx, by);
+        back.lineTo(sx1, sy1);
+        back.lineTo(sx2, sy2);
+        back.close();
+        paint.setColor(bodyColor);
+        canvas.drawPath(back, paint);
+
+        // Front half (facing the boss) in the head color.
+        android.graphics.Path front = new android.graphics.Path();
+        front.moveTo(fx, fy);
+        front.lineTo(sx1, sy1);
+        front.lineTo(sx2, sy2);
+        front.close();
+        paint.setColor(headColor);
+        canvas.drawPath(front, paint);
+
+        // White outline so the diamond reads even against dark background.
+        android.graphics.Path dia = new android.graphics.Path();
+        dia.moveTo(fx, fy);
+        dia.lineTo(sx1, sy1);
+        dia.lineTo(bx, by);
+        dia.lineTo(sx2, sy2);
+        dia.close();
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.WHITE);
+        canvas.drawPath(dia, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeWidth(0);
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawDim(Canvas canvas) {
@@ -958,7 +1436,7 @@ class GameRenderer {
         if (state.devMode) {
             drawCenteredText(canvas, "DEV MODE", state.screenW / 2f, state.screenH * 0.17f, 28, Color.RED, true);
             drawButton(canvas, state.devScoreBtn, "START SCORE: " + state.devScoreText);
-            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER"};
+            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER", "BOSS: MIRROR"};
             drawButton(canvas, state.devBossBtn, bossLabels[state.devForcedBossType]);
             drawButton(canvas, state.devPathBtn, "PATH: " + (state.showBossPathfinding ? "ON" : "OFF"));
         }
@@ -1118,6 +1596,477 @@ class GameRenderer {
         drawCenteredText(canvas, "PAUSED", state.screenW / 2f, state.screenH * 0.36f, 64, Color.GREEN, true);
         drawButton(canvas, state.resumeBtn, "RESUME");
         drawButton(canvas, state.pauseMenuBtn, "MENU");
+    }
+
+    // Post-boss upgrade selection: a reward-chest moment. Cards fly in one by
+    // one over a dimmed, breathing backdrop; tapping a card highlights it and
+    // reveals a Choose button; the Skip option lands last. Rects are stored on
+    // state each frame for touch hit-testing.
+    private void drawUpgradeScreen(Canvas canvas) {
+        long now = System.currentTimeMillis();
+        int n;
+        synchronized (state.upgradeOffers) {
+            n = Math.min(state.upgradeOffers.size(), state.upgradeCardRects.length);
+        }
+        float w = state.screenW;
+        float h = state.screenH;
+        float cx = w / 2f;
+
+        drawUpgradeBackdrop(canvas, now);
+
+        // Title fades in with a gentle rise.
+        float titleP = clamp01((now - state.upgradeOpenAt) / 300f);
+        drawUpgradeTitle(canvas, "CHOOSE AN UPGRADE",
+                cx, h * 0.115f + (1f - titleP) * 26f, titleP);
+
+        // Card column.
+        float margin = Math.max(24f, w * 0.06f);
+        float top = h * 0.19f;
+        float bottom = h * 0.76f;
+        float gap = h * 0.012f;
+        float cardH = n > 0 ? (bottom - top - gap * (n - 1)) / n : 0;
+        float left = margin;
+        float right = w - margin;
+        float cardW = right - left;
+
+        for (int i = 0; i < n; i++) {
+            float cy = top + cardH * i + gap * i + cardH / 2f;
+            RectF r = new RectF(left, cy - cardH / 2f, right, cy + cardH / 2f);
+            state.upgradeCardRects[i] = r;
+            boolean selected = i == state.upgradeSelectedIndex;
+            GameState.UpgradeCard offer;
+            synchronized (state.upgradeOffers) {
+                if (i >= state.upgradeOffers.size()) break;
+                offer = state.upgradeOffers.get(i);
+            }
+            boolean epic = offer.rarity == GameState.UpgradeRarity.EPIC;
+
+            // Staggered fly-in: cards rise and scale in one after another.
+            float p = clamp01((now - state.upgradeOpenAt
+                    - i * GameState.UPGRADE_CARD_DELAY_MS) / (float) GameState.UPGRADE_CARD_ENTRY_MS);
+            float ease = easeOut(p);
+            float rise = (1f - ease) * 44f;
+            float scale = epic ? entranceScale(p) : 0.88f + 0.12f * ease;
+            float alpha = p;
+
+            // Selection pop: quick overshoot that settles slightly enlarged.
+            float pop = selected ? clamp01((now - state.upgradeSelectMs) / 220f) : 0f;
+            float selScale = 1f + 0.05f * easeOutBack(pop);
+
+            canvas.save();
+            canvas.translate(0, rise);
+            canvas.scale(scale * selScale, scale * selScale, r.centerX(), r.centerY());
+            drawUpgradeCard(canvas, r, offer, selected, alpha, now);
+            canvas.restore();
+        }
+
+        // Choose + Skip buttons live in reserved bands below the cards so the
+        // layout never jumps when a card is highlighted.
+        float btnW = cardW * 0.5f;
+        float btnH = h * 0.048f;
+        state.upgradeChooseBtn = new RectF(cx - btnW / 2f, h * 0.772f,
+                cx + btnW / 2f, h * 0.772f + btnH);
+        float skipW = cardW * 0.56f;
+        state.upgradeSkipBtn = new RectF(cx - skipW / 2f, h * 0.852f,
+                cx + skipW / 2f, h * 0.852f + btnH);
+
+        // Skip button — lands after the cards.
+        float skipAt = (n - 1) * GameState.UPGRADE_CARD_DELAY_MS
+                + GameState.UPGRADE_CARD_ENTRY_MS + GameState.UPGRADE_SKIP_EXTRA_MS;
+        float skipP = clamp01((now - state.upgradeOpenAt - skipAt) / 220f);
+        drawSkipButton(canvas, state.upgradeSkipBtn, skipP);
+
+        // Choose button — once a card is highlighted.
+        if (state.upgradeSelectedIndex >= 0 && state.upgradeSelectedIndex < n) {
+            drawChooseButton(canvas, state.upgradeChooseBtn, state.upgradeSelectedIndex, now);
+        }
+
+        paint.setAlpha(255);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTypeface(Typeface.DEFAULT);
+        paint.setColor(Color.WHITE);
+    }
+
+    // Dim veil + breathing radial glow + slow ambient motes. The paused game
+    // stays dimly visible so the player remembers they're mid-run.
+    private void drawUpgradeBackdrop(Canvas canvas, long now) {
+        float w = state.screenW;
+        float h = state.screenH;
+        float cx = w / 2f;
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(178, 0, 0, 0));
+        canvas.drawRect(0, 0, w, h, paint);
+
+        // Breathing radial glow behind the card stack.
+        float pulse = 0.5f + 0.5f * (float) Math.sin(now * 0.0012);
+        float glowR = Math.max(w, h) * (0.6f + 0.10f * pulse);
+        int glowA = (int) (26 + 18 * pulse);
+        paint.setShader(new RadialGradient(cx, h * 0.5f, glowR,
+                Color.argb(glowA, 255, 215, 90), Color.argb(0, 255, 215, 90),
+                Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, w, h, paint);
+        paint.setShader(null);
+
+        // Epic reveal flash rides above the veil so it reads as a reward pop.
+        if (state.flashAlpha > 0) {
+            paint.setColor(Color.argb(
+                    (int) (255 * state.flashAlpha),
+                    Color.red(state.flashColor),
+                    Color.green(state.flashColor),
+                    Color.blue(state.flashColor)));
+            canvas.drawRect(0, 0, w, h, paint);
+        }
+
+        drawAmbientMotes(canvas, now);
+    }
+
+    // Slow drifting dust motes, fully deterministic from wall-clock time so
+    // there is no particle state to update or prune.
+    private void drawAmbientMotes(Canvas canvas, long now) {
+        float w = state.screenW;
+        float h = state.screenH;
+        paint.setStyle(Paint.Style.FILL);
+        float t = now * 0.00016f;
+        for (int i = 0; i < 16; i++) {
+            float x = w * frac(i * 0.618f + t * (0.4f + (i % 5) * 0.10f));
+            float y = h * frac(i * 0.314f - t * (0.3f + (i % 4) * 0.08f));
+            float tw = 0.5f + 0.5f * (float) Math.sin(now * 0.002f + i * 1.7f);
+            int alpha = (int) (20 + 30 * tw);
+            float size = 1.6f + (i % 3) * 1.3f;
+            paint.setColor(Color.argb(alpha, 255, 238, 180));
+            canvas.drawCircle(x, y, size, paint);
+        }
+    }
+
+    private void drawUpgradeTitle(Canvas canvas, String text, float cx, float cy, float alpha) {
+        paint.setAlpha((int) (255 * alpha));
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        fitTextSize(text, 42f, state.screenW * 0.92f);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = cy - (fm.ascent + fm.descent) / 2f;
+        // Dark halo so the gold title reads over the dimmed game.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(7);
+        paint.setColor(Color.argb((int) (200 * alpha), 0, 0, 0));
+        canvas.drawText(text, cx, textY, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(255, 216, 96));
+        canvas.drawText(text, cx, textY, paint);
+        paint.setAlpha(255);
+    }
+
+    private void drawSkipButton(Canvas canvas, RectF r, float alpha) {
+        if (r == null) return;
+        paint.setAlpha((int) (255 * alpha));
+        float radius = 12;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(30, 33, 39));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2);
+        paint.setColor(Color.rgb(130, 140, 150));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(200, 206, 214));
+        paint.setTextSize(22);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = r.centerY() - (fm.ascent + fm.descent) / 2f;
+        canvas.drawText("SKIP — NO UPGRADE", r.centerX(), textY, paint);
+        paint.setAlpha(255);
+    }
+
+    private void drawChooseButton(Canvas canvas, RectF r, int cardIndex, long now) {
+        if (r == null) return;
+        GameState.UpgradeCard card;
+        synchronized (state.upgradeOffers) {
+            if (cardIndex < 0 || cardIndex >= state.upgradeOffers.size()) return;
+            card = state.upgradeOffers.get(cardIndex);
+        }
+        int rc = rarityColor(card.rarity);
+        // Pop in with a touch of the rarity color.
+        float p = clamp01((now - state.upgradeSelectMs) / 220f);
+        float scale = 0.92f + 0.08f * easeOutBack(p);
+        canvas.save();
+        canvas.scale(scale, scale, r.centerX(), r.centerY());
+        float radius = 12;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(blend(Color.rgb(28, 30, 36), rc, 0.16f));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(9);
+        paint.setColor(Color.argb(70, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStrokeWidth(3);
+        paint.setColor(rc);
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.WHITE);
+        paint.setTextSize(22);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = paint.getFontMetrics();
+        float textY = r.centerY() - (fm.ascent + fm.descent) / 2f - 1;
+        canvas.drawText("CHOOSE", r.centerX(), textY, paint);
+        // Little chevron pointing up at the cards.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.5f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setColor(rc);
+        canvas.drawLine(r.centerX(), r.top - 8, r.centerX() - 6, r.top, paint);
+        canvas.drawLine(r.centerX(), r.top - 8, r.centerX() + 6, r.top, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        canvas.restore();
+        paint.setAlpha(255);
+    }
+
+    private int rarityColor(GameState.UpgradeRarity rarity) {
+        switch (rarity) {
+            case EPIC: return Color.rgb(200, 90, 255);
+            case RARE: return Color.rgb(80, 150, 255);
+            default:   return Color.rgb(175, 185, 195);
+        }
+    }
+
+    // Shrinks textSize until `text` fits within maxWidth, so long card strings
+    // never spill past the card edges regardless of screen size/card shape.
+    private float fitTextSize(String text, float textSize, float maxWidth) {
+        float size = textSize;
+        paint.setTextSize(textSize);
+        while (size > 1f && paint.measureText(text) > maxWidth) {
+            size *= 0.9f;
+            if (size < 1f) break;
+        }
+        paint.setTextSize(size);
+        return size;
+    }
+
+    // --- small animation/color helpers (shared by the upgrade screen) ---
+
+    private float clamp01(float v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+    private float frac(float v) { return v - (float) Math.floor(v); }
+    private float easeOut(float p) { return 1f - (1f - p) * (1f - p); }
+    private float easeOutBack(float p) {
+        float c1 = 1.70158f;
+        float c3 = c1 + 1f;
+        float u = p - 1f;
+        return 1f + c3 * u * u * u + c1 * u * u;
+    }
+    // Epic cards bounce in with an overshoot, then settle at exactly 1.0.
+    private float entranceScale(float p) {
+        float base = 0.78f + 0.22f * easeOut(p);
+        float pop = (float) Math.sin(Math.min(1f, p) * Math.PI);
+        return base + 0.08f * pop;
+    }
+    private int blend(int c1, int c2, float t) {
+        int r = (int) (Color.red(c1) + (Color.red(c2) - Color.red(c1)) * t);
+        int g = (int) (Color.green(c1) + (Color.green(c2) - Color.green(c1)) * t);
+        int b = (int) (Color.blue(c1) + (Color.blue(c2) - Color.blue(c1)) * t);
+        return Color.rgb(r, g, b);
+    }
+
+    private void drawUpgradeCard(Canvas canvas, RectF r, GameState.UpgradeCard card,
+                                 boolean selected, float alpha, long now) {
+        int rc = rarityColor(card.rarity);
+        boolean epic = card.rarity == GameState.UpgradeRarity.EPIC;
+        float h = r.height();
+        float cx = r.centerX();
+        float radius = Math.max(12f, h * 0.10f);
+        int cardAlpha = (int) (255 * alpha);
+
+        paint.setAlpha(cardAlpha);
+
+        drawCardShadow(canvas, r, radius);
+
+        // Body gradient — brightens slightly while selected.
+        int topC = selected ? Color.rgb(58, 64, 78) : Color.rgb(35, 39, 49);
+        int botC = selected ? Color.rgb(28, 32, 40) : Color.rgb(16, 18, 24);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(new LinearGradient(r.left, r.top, r.left, r.bottom,
+                topC, botC, Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setShader(null);
+
+        // Rarity glow halo — thicker and brighter when selected, strongest for
+        // Epic.
+        int haloW = epic ? (selected ? 22 : 15) : (selected ? 13 : 9);
+        int haloA = epic ? (selected ? 95 : 60) : (selected ? 75 : 40);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(haloW);
+        paint.setColor(Color.argb((int) (haloA * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawRoundRect(r, radius, radius, paint);
+
+        // Thin bright border.
+        paint.setStrokeWidth(selected ? 4 : 3);
+        paint.setColor(Color.argb(cardAlpha, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawRoundRect(r, radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        float pad = h * 0.10f;
+        float innerL = r.left + pad * 1.4f;
+        float innerR = r.right - pad * 1.4f;
+        float maxTextW = innerR - innerL;
+
+        // Top row: rarity label (left) + stack counter (right).
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.LEFT);
+        fitTextSize(card.rarity.name(), h * 0.12f, maxTextW * 0.45f);
+        paint.setColor(Color.argb(cardAlpha, Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawText(card.rarity.name(), innerL, r.top + h * 0.14f, paint);
+
+        paint.setTextAlign(Paint.Align.RIGHT);
+        String stackText = card.stack + " / " + card.maxStack;
+        fitTextSize(stackText, h * 0.12f, maxTextW * 0.45f);
+        paint.setColor(Color.argb(cardAlpha, 230, 236, 244));
+        canvas.drawText(stackText, innerR, r.top + h * 0.14f, paint);
+
+        // Name — the visual anchor.
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        fitTextSize(card.name, h * 0.19f, maxTextW);
+        paint.setColor(Color.argb(cardAlpha, 255, 255, 255));
+        canvas.drawText(card.name, cx, r.top + h * 0.36f, paint);
+
+        // Divider under the name.
+        paint.setStrokeWidth(Math.max(1.5f, h * 0.007f));
+        paint.setColor(Color.argb((int) (65 * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
+        canvas.drawLine(cx - maxTextW * 0.26f, r.top + h * 0.41f,
+                cx + maxTextW * 0.26f, r.top + h * 0.41f, paint);
+        paint.setStrokeWidth(0);
+        paint.setStyle(Paint.Style.FILL);
+
+        // Effect description (1-2 lines, each width-fitted).
+        String[] lines = card.description.split("\n");
+        float lineH = Math.min(h * 0.12f, h * 0.10f + 2f);
+        float descTop = r.top + h * 0.46f;
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setColor(Color.argb(cardAlpha, 255, 255, 255));
+        for (int i = 0; i < lines.length; i++) {
+            fitTextSize(lines[i], Math.min(h * 0.10f, 30f), maxTextW);
+            canvas.drawText(lines[i], cx, descTop + i * lineH, paint);
+        }
+
+        // Flavor text — italic, visible.
+        paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.ITALIC));
+        paint.setColor(Color.argb(cardAlpha, 196, 202, 214));
+        String flavor = "\u201C" + card.flavor + "\u201D";
+        fitTextSize(flavor, Math.min(h * 0.08f, 24f), maxTextW);
+        // Position flavor text based on description line count so it never overlaps
+        float descBottom = descTop + lines.length * lineH;
+        float flavorY = Math.max(r.top + h * 0.82f, descBottom + h * 0.06f);
+        canvas.drawText(flavor, cx, flavorY, paint);
+
+        // Stack pips along the bottom edge.
+        float pipR = Math.min(h * 0.025f, 6f);
+        float pipGap = pipR * 3.2f;
+        float pipY = r.bottom - Math.max(8, h * 0.04f);
+        float pipStart = cx - (card.maxStack - 1) * pipGap / 2f;
+        for (int j = 0; j < card.maxStack; j++) {
+            float px = pipStart + j * pipGap;
+            if (j < card.stack) {
+                paint.setColor(Color.argb(cardAlpha, Color.red(rc), Color.green(rc), Color.blue(rc)));
+            } else {
+                paint.setColor(Color.argb((int) (55 * alpha), Color.red(rc), Color.green(rc), Color.blue(rc)));
+            }
+            canvas.drawCircle(px, pipY, pipR, paint);
+        }
+
+        // Rarity ambience around the highlighted card.
+        if (selected) drawCardSparkles(canvas, r, card, now);
+
+        paint.setAlpha(255);
+    }
+
+    // Two offset translucent rounds fake a soft drop shadow cheaply.
+    private void drawCardShadow(Canvas canvas, RectF r, float radius) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(150, 0, 0, 0));
+        canvas.drawRoundRect(r.left + 2, r.top + 4, r.right + 2, r.bottom + 4,
+                radius, radius, paint);
+        paint.setColor(Color.argb(80, 0, 0, 0));
+        canvas.drawRoundRect(r.left + 5, r.top + 8, r.right + 5, r.bottom + 8,
+                radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    // Continuous rarity ambience around the highlighted card, plus the one-shot
+    // burst when it was just tapped. Everything is time-driven — no state.
+    private void drawCardSparkles(Canvas canvas, RectF r, GameState.UpgradeCard card, long now) {
+        int rc = rarityColor(card.rarity);
+        float cx = r.centerX();
+        float cy = r.centerY();
+        if (card.rarity == GameState.UpgradeRarity.EPIC) {
+            // Rising purple embers.
+            for (int i = 0; i < 6; i++) {
+                float t = frac(now * 0.0007f + i * 0.29f);
+                float ex = cx + (float) Math.sin(i * 1.9f + t * 9.0f) * r.width() * 0.20f;
+                float ey = r.bottom - 6 - t * r.height() * 1.05f;
+                int a = (int) (130 * (1f - t));
+                paint.setColor(Color.argb(a, 200, 130, 255));
+                canvas.drawCircle(ex, ey, 2.2f + (i % 3) * 0.8f, paint);
+            }
+            // Bright glitter ring.
+            for (int i = 0; i < 5; i++) {
+                float a = now * 0.0014f + i * (float) (Math.PI * 2 / 5);
+                float ox = cx + r.width() * 0.56f * (float) Math.cos(a);
+                float oy = cy + r.height() * 0.64f * (float) Math.sin(a) * 0.7f;
+                int aa = 60 + (int) (50 * (0.5 + 0.5 * Math.sin(now * 0.005 + i * 2.1)));
+                paint.setColor(Color.argb(aa, Color.red(rc), Color.green(rc), Color.blue(rc)));
+                canvas.drawCircle(ox, oy, 2.2f, paint);
+            }
+        } else if (card.rarity == GameState.UpgradeRarity.RARE) {
+            // Subtle blue drifting sparks.
+            for (int i = 0; i < 4; i++) {
+                float t = frac(now * 0.0011f + i * 0.37f);
+                float ox = cx + r.width() * 0.52f * (float) Math.cos(i * 2.4f + t * 4f);
+                float oy = cy + r.height() * 0.60f * (float) Math.sin(i * 1.7f + t * 5f) * 0.7f;
+                int aa = 50 + (int) (45 * (0.5 + 0.5 * Math.sin(now * 0.004 + i * 2.6)));
+                paint.setColor(Color.argb(aa, Color.red(rc), Color.green(rc), Color.blue(rc)));
+                canvas.drawCircle(ox, oy, 1.8f, paint);
+            }
+        } else {
+            // COMMON: subtle gray drift so these cards don't look empty.
+            for (int i = 0; i < 3; i++) {
+                float t = frac(now * 0.0009f + i * 0.41f);
+                float ox = cx + r.width() * 0.48f * (float) Math.cos(i * 2.7f + t * 3f);
+                float oy = cy + r.height() * 0.55f * (float) Math.sin(i * 1.9f + t * 4f) * 0.7f;
+                int aa = 30 + (int) (25 * (0.5 + 0.5 * Math.sin(now * 0.003 + i * 3.1)));
+                paint.setColor(Color.argb(aa, Color.red(rc), Color.green(rc), Color.blue(rc)));
+                canvas.drawCircle(ox, oy, 1.4f, paint);
+            }
+        }
+        drawSelectBurst(canvas, r, now);
+    }
+
+    // One-shot spark burst radiating from the card the instant it's tapped.
+    private void drawSelectBurst(Canvas canvas, RectF r, long now) {
+        long age = now - state.upgradeSelectMs;
+        if (age < 0 || age >= 520) return;
+        if (state.upgradeSelectedIndex < 0) return;
+        GameState.UpgradeCard card;
+        synchronized (state.upgradeOffers) {
+            if (state.upgradeSelectedIndex >= state.upgradeOffers.size()) return;
+            card = state.upgradeOffers.get(state.upgradeSelectedIndex);
+        }
+        float p = age / 520f;
+        if (card == null) return;
+        int rc = rarityColor(card.rarity);
+        float cx = r.centerX();
+        float cy = r.centerY();
+        float seed = state.upgradeSelectSeed;
+        for (int i = 0; i < 10; i++) {
+            float ang = (float) (i / 10.0 * Math.PI * 2 + seed * 0.001f);
+            float dist = 26 + 70 * p * (0.5f + 0.5f * (float) Math.sin(i * 2.4f + seed));
+            float x = cx + (float) Math.cos(ang) * dist;
+            float y = cy + (float) Math.sin(ang) * dist * 0.6f;
+            int a = (int) (220 * (1f - p));
+            paint.setColor(Color.argb(a, Color.red(rc), Color.green(rc), Color.blue(rc)));
+            canvas.drawCircle(x, y, 3f * (1f - 0.5f * p), paint);
+        }
     }
 
     private void drawGameOverOverlay(Canvas canvas) {

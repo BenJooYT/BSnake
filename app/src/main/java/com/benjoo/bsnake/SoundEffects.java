@@ -3,6 +3,8 @@ package com.benjoo.bsnake;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+
+import java.util.concurrent.LinkedBlockingQueue;
 import android.util.Log;
 
 import java.util.Random;
@@ -24,6 +26,10 @@ public class SoundEffects {
     private static final int SEGMENT_LOST_MS = 180;
     private static final int DEATH_MS = 900;
     private static final int PAUSE_MS = 150;
+    private static final int UPGRADE_MS = 650;
+    private static final int UPGRADE_PICK_MS = 220;
+    private static final int UPGRADE_SELECT_MS = 110;
+    private static final int UPGRADE_EPIC_MS = 1400;
 
     private short[] clickBuffer;
     private short[] crunchBuffer;
@@ -38,12 +44,24 @@ public class SoundEffects {
     private short[] segmentLostBuffer;
     private short[] deathBuffer;
     private short[] pauseBuffer;
+    private short[] upgradeBuffer;
+    private short[] upgradePickBuffer;
+    private short[] upgradeSelectBuffer;
+    private short[] upgradeEpicBuffer;
 
     private AudioTrack clickTrack, crunchTrack, healTrack, bossDamageTrack, bossDefeatTrack,
             bossWarningTrack, bossSpawnTrack, wallDestroyTrack, challengeTrack,
-            challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack;
-    private float volume = 1.0f;
-    private boolean muted;
+            challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack, upgradeTrack,
+            upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack;
+    private volatile float volume = 1.0f;
+    private volatile boolean muted;
+
+    // AudioTrack playback is done on a dedicated background thread so the game
+    // thread never blocks on AudioTrack.stop()/reloadStaticData()/play(), which
+    // can stall for tens of milliseconds (causing visible stutter on rapid eats).
+    private final LinkedBlockingQueue<AudioTrack> pending = new LinkedBlockingQueue<>();
+    private Thread audioThread;
+    private volatile boolean keepAudioThread = true;
 
     public SoundEffects() {
         generateClick();
@@ -59,6 +77,10 @@ public class SoundEffects {
         generateSegmentLost();
         generateDeath();
         generatePause();
+        generateUpgrade();
+        generateUpgradePick();
+        generateUpgradeSelect();
+        generateUpgradeEpic();
         initTracks();
     }
 
@@ -101,6 +123,18 @@ public class SoundEffects {
         deathTrack.write(deathBuffer, 0, deathBuffer.length);
         pauseTrack = createTrack(pauseBuffer.length * 2);
         pauseTrack.write(pauseBuffer, 0, pauseBuffer.length);
+        upgradeTrack = createTrack(upgradeBuffer.length * 2);
+        upgradeTrack.write(upgradeBuffer, 0, upgradeBuffer.length);
+        upgradePickTrack = createTrack(upgradePickBuffer.length * 2);
+        upgradePickTrack.write(upgradePickBuffer, 0, upgradePickBuffer.length);
+        upgradeSelectTrack = createTrack(upgradeSelectBuffer.length * 2);
+        upgradeSelectTrack.write(upgradeSelectBuffer, 0, upgradeSelectBuffer.length);
+        upgradeEpicTrack = createTrack(upgradeEpicBuffer.length * 2);
+        upgradeEpicTrack.write(upgradeEpicBuffer, 0, upgradeEpicBuffer.length);
+
+        audioThread = new Thread(this::audioLoop, "SoundFX");
+        audioThread.setDaemon(true);
+        audioThread.start();
     }
 
     // ----- sound generation -----
@@ -364,19 +398,126 @@ public class SoundEffects {
         }
     }
 
+    // Upgrade reveal: a warm C-E-G-C octave arpeggio with a sparkle tail.
+    private void generateUpgrade() {
+        int n = SAMPLE_RATE * UPGRADE_MS / 1000;
+        upgradeBuffer = new short[n];
+        double[] notes = { 523.25, 659.25, 783.99, 1046.50 };
+        double[] starts = { 0.0, 0.10, 0.20, 0.30 };
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double s = 0;
+            for (int k = 0; k < 4; k++) {
+                double lt = t - starts[k];
+                if (lt < 0) continue;
+                double env = Math.min(1.0, lt / 0.005) * Math.exp(-lt * 9.0);
+                s += Math.sin(2 * Math.PI * notes[k] * lt) * env;
+            }
+            double sp = t - 0.40;
+            if (sp >= 0) {
+                s += Math.sin(2 * Math.PI * 1567.98 * sp) * Math.exp(-sp * 10.0) * 0.4;
+            }
+            double a = Math.min(1.0, t / 0.004);
+            upgradeBuffer[i] = (short) (s * a * 0.28 * Short.MAX_VALUE);
+        }
+    }
+
+    // Upgrade picked: a short bright rising blip with a shimmer.
+    private void generateUpgradePick() {
+        int n = SAMPLE_RATE * UPGRADE_PICK_MS / 1000;
+        upgradePickBuffer = new short[n];
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double a = Math.min(1.0, t / 0.004);
+            double d = Math.exp(-t * 14.0);
+            double freq = 660.0 + 500.0 * Math.min(1.0, t / 0.10);
+            double tone = Math.sin(2 * Math.PI * freq * t) * 0.7;
+            double shimmer = Math.sin(2 * Math.PI * 1800.0 * t) * Math.exp(-t * 40.0) * 0.3;
+            double s = (tone + shimmer) * a * d * 0.4;
+            upgradePickBuffer[i] = (short) (s * Short.MAX_VALUE);
+        }
+    }
+
+    // Card tapped: a soft, bright "marble" tick — a quick two-tone pluck.
+    private void generateUpgradeSelect() {
+        int n = SAMPLE_RATE * UPGRADE_SELECT_MS / 1000;
+        upgradeSelectBuffer = new short[n];
+        double[] notes = { 880.0, 1318.5 };
+        double[] starts = { 0.0, 0.035 };
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double s = 0;
+            for (int k = 0; k < 2; k++) {
+                double lt = t - starts[k];
+                if (lt < 0) continue;
+                double env = Math.min(1.0, lt / 0.002) * Math.exp(-lt * 45.0);
+                s += Math.sin(2 * Math.PI * notes[k] * lt) * env;
+            }
+            double a = Math.min(1.0, t / 0.003);
+            upgradeSelectBuffer[i] = (short) (s * a * 0.35 * Short.MAX_VALUE);
+        }
+    }
+
+    // Epic reveal: a low boom that blossoms into a rising, shimmering chord —
+    // reserved for the rarest cards so they genuinely feel special.
+    private void generateUpgradeEpic() {
+        int n = SAMPLE_RATE * UPGRADE_EPIC_MS / 1000;
+        upgradeEpicBuffer = new short[n];
+        double[] notes = { 261.63, 329.63, 392.00, 523.25, 659.25, 783.99 };
+        double[] starts = { 0.10, 0.12, 0.14, 0.22, 0.30, 0.40 };
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double s = 0;
+            // Low boom underneath.
+            if (t < 0.35) {
+                s += Math.sin(2 * Math.PI * 90.0 * t) * Math.exp(-t * 12.0) * 0.9;
+            }
+            for (int k = 0; k < 6; k++) {
+                double lt = t - starts[k];
+                if (lt < 0) continue;
+                double env = Math.min(1.0, lt / 0.004) * Math.exp(-lt * (k < 3 ? 5.0 : 6.0));
+                s += Math.sin(2 * Math.PI * notes[k] * lt) * env;
+            }
+            // Bright sparkle tail.
+            double sp = t - 0.50;
+            if (sp >= 0) {
+                double st = Math.min(1.0, sp / 0.01) * Math.exp(-sp * 7.0);
+                s += Math.sin(2 * Math.PI * 1567.98 * sp) * st * 0.35;
+                s += Math.sin(2 * Math.PI * 2093.0 * sp) * st * 0.2;
+            }
+            double a = Math.min(1.0, t / 0.02);
+            double d = Math.min(1.0, (n / (double) SAMPLE_RATE - t) / 0.25);
+            upgradeEpicBuffer[i] = (short) (s * a * d * 0.32 * Short.MAX_VALUE);
+        }
+    }
+
     // ----- shared play helper -----
 
+    // Enqueue a sound for the background thread — returns immediately so the
+    // game thread never blocks on audio.
     private void playTrack(AudioTrack track) {
-        if (track == null) return;
-        try {
-            if (track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
-                track.stop();
+        if (track == null || !keepAudioThread) return;
+        pending.offer(track);
+    }
+
+    private void audioLoop() {
+        while (keepAudioThread) {
+            AudioTrack track;
+            try {
+                track = pending.take();
+            } catch (InterruptedException e) {
+                break;
             }
-            track.reloadStaticData();
-            track.setVolume(volume);
-            track.play();
-        } catch (Exception e) {
-            Log.e("SoundEffects", "play failed", e);
+            try {
+                if (track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+                    track.stop();
+                }
+                track.reloadStaticData();
+                track.setVolume(volume);
+                track.play();
+            } catch (Exception e) {
+                Log.e("SoundEffects", "play failed", e);
+            }
         }
     }
 
@@ -395,6 +536,10 @@ public class SoundEffects {
     public void playSegmentLost() { if (!muted) playTrack(segmentLostTrack); }
     public void playDeath()      { if (!muted) playTrack(deathTrack); }
     public void playPause()      { if (!muted) playTrack(pauseTrack); }
+    public void playUpgrade()    { if (!muted) playTrack(upgradeTrack); }
+    public void playUpgradePick(){ if (!muted) playTrack(upgradePickTrack); }
+    public void playUpgradeSelect(){ if (!muted) playTrack(upgradeSelectTrack); }
+    public void playUpgradeEpic(){ if (!muted) playTrack(upgradeEpicTrack); }
     public void setMuted(boolean m) { muted = m; }
 
     public void setVolume(float vol) {
@@ -402,9 +547,11 @@ public class SoundEffects {
     }
 
     public void stopAll() {
+        pending.clear();
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
-                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack };
+                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
+        upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); } catch (Exception e) { }
@@ -413,9 +560,17 @@ public class SoundEffects {
     }
 
     public void release() {
+        keepAudioThread = false;
+        pending.clear();
+        if (audioThread != null) {
+            audioThread.interrupt();
+            try { audioThread.join(200); } catch (InterruptedException e) { }
+            audioThread = null;
+        }
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
-                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack };
+                challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
+        upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); t.release(); } catch (Exception e) { }
@@ -426,6 +581,8 @@ public class SoundEffects {
         bossWarningTrack = null; bossSpawnTrack = null;
         wallDestroyTrack = null; challengeTrack = null;
         challengeFailTrack = null; segmentLostTrack = null;
-        deathTrack = null; pauseTrack = null;
+        deathTrack = null; pauseTrack = null; upgradeTrack = null;
+        upgradePickTrack = null; upgradeSelectTrack = null;
+        upgradeEpicTrack = null;
     }
 }

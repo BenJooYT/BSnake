@@ -165,6 +165,47 @@ class NetworkMessage {
         } catch (Exception e) { return null; }
     }
 
+    // Host -> client: boss death cinematic started. Carries the rendered
+    // snapshot so the remote and the host render the same scene.
+    static String bossCinematic(float focusX, float focusY,
+                                float cameraStartX, float cameraStartY,
+                                int color, ArrayList<Point> bossBody) {
+        try {
+            return new JSONObject()
+                    .put("type", "bossCinematic")
+                    .put("focusX", focusX)
+                    .put("focusY", focusY)
+                    .put("camX", cameraStartX)
+                    .put("camY", cameraStartY)
+                    .put("color", color)
+                    .put("bossBody", bodyToJson(bossBody))
+                    .toString() + "\n";
+        } catch (Exception e) { return null; }
+    }
+
+    // Host -> client: the post-boss card offer is ready (ids in offer order).
+    // An empty id list means "skip, resume play".
+    static String bossUpgrade(ArrayList<String> cardIds) {
+        try {
+            JSONArray arr = new JSONArray();
+            if (cardIds != null) for (String id : cardIds) arr.put(id);
+            return new JSONObject()
+                    .put("type", "bossUpgrade")
+                    .put("ids", arr)
+                    .toString() + "\n";
+        } catch (Exception e) { return null; }
+    }
+
+    // Either player -> the other: the pick (index into the shared offer, -1 = skip).
+    static String upgradePick(int index) {
+        try {
+            return new JSONObject()
+                    .put("type", "upgradePick")
+                    .put("index", index)
+                    .toString() + "\n";
+        } catch (Exception e) { return null; }
+    }
+
     static JSONArray bodyToJson(ArrayList<Point> body) {
         JSONArray arr = new JSONArray();
         for (Point p : body) arr.put(new JSONArray().put(p.x).put(p.y));

@@ -10,7 +10,7 @@ public class GameState {
 
     enum State { MENU, PLAYING, PAUSED, GAME_OVER, LEADERBOARD, SETTINGS,
                  MP_MENU, MP_HOST, MP_JOIN, MP_LOBBY, MP_PLAYING, MP_GAME_OVER,
-                 COLOR_PICKER, PLAY_MENU, MODE_SELECT }
+                 COLOR_PICKER, PLAY_MENU, MODE_SELECT, BOSS_UPGRADE, BOSS_DEATH_CINEMATIC }
     volatile State currentState = State.MENU;
 
     enum SortMode { HIGH_SCORE, RECENT }
@@ -37,7 +37,7 @@ public class GameState {
 
     // Fruit types — add new special fruit types here and handle them in the
     // engine (eating effects) and renderer (appearance).
-    enum FruitType { NORMAL, HEAL }
+    enum FruitType { NORMAL, HEAL, MIRROR }
 
     static class Fruit {
         FruitType type;
@@ -60,8 +60,15 @@ public class GameState {
         int color;
         float size;
         boolean ring;
+        float rotation, rotSpeed;
+        boolean glow;
         Particle(float x, float y, float vx, float vy, long startMs, long lifeMs,
                  int color, float size, boolean ring) {
+            this(x, y, vx, vy, startMs, lifeMs, color, size, ring, 0, 0, false);
+        }
+        Particle(float x, float y, float vx, float vy, long startMs, long lifeMs,
+                 int color, float size, boolean ring,
+                 float rotation, float rotSpeed, boolean glow) {
             this.x = x;
             this.y = y;
             this.vx = vx;
@@ -71,6 +78,9 @@ public class GameState {
             this.color = color;
             this.size = size;
             this.ring = ring;
+            this.rotation = rotation;
+            this.rotSpeed = rotSpeed;
+            this.glow = glow;
         }
     }
 
@@ -97,8 +107,8 @@ public class GameState {
         int headColor = Color.GREEN;
         int bodyColor = Color.GREEN;
         boolean alive = true;
+        long mirrorUntilMs = 0; // >0 = controls inverted until this wall-clock time
     }
-
     // Two snakes: index 0 = host/local, index 1 = client/remote
     SnakeData[] snakes = new SnakeData[]{ new SnakeData(), new SnakeData() };
     int playerIndex = 0; // 0 or 1
@@ -140,6 +150,15 @@ public class GameState {
     // badge, scorePopMs drives a "+1" rising off the badge when food is eaten.
     long scorePulseMs = 0;
     long scorePopMs = 0;
+    int scorePopAmount = 1;
+
+    // Sets off the coin-badge "pop" and shows a "+N" floating off it. Every
+    // score-gain event routes through here so the shown amount is always right.
+    void triggerScorePop(int amount) {
+        scorePulseMs = System.currentTimeMillis();
+        scorePopMs = scorePulseMs;
+        scorePopAmount = amount;
+    }
 
     static class ChallengePopup {
         String text;
@@ -154,6 +173,52 @@ public class GameState {
             this.y = y;
         }
     }
+
+    // Rarity tiers for the post-boss upgrade cards. Colors used by the renderer.
+    enum UpgradeRarity { COMMON, RARE, EPIC }
+
+    // A single post-boss upgrade card: immutable flavor + mutable stack count.
+    static class UpgradeCard {
+        final String id;
+        final String name;
+        final String description;
+        final String flavor;
+        final UpgradeRarity rarity;
+        final int maxStack;
+        int stack = 0;
+        UpgradeCard(String id, String name, String description, String flavor,
+                    UpgradeRarity rarity, int maxStack) {
+            this.id = id;
+            this.name = name;
+            this.description = description;
+            this.flavor = flavor;
+            this.rarity = rarity;
+            this.maxStack = maxStack;
+        }
+    }
+
+    // Entrance animation pacing for the post-boss upgrade cards. Shared between
+    // the renderer (which drives the visuals) and the input handler (which
+    // refuses taps until a card has actually landed).
+    static final long UPGRADE_CARD_DELAY_MS = 90;   // stagger between cards
+    static final long UPGRADE_CARD_ENTRY_MS = 320;  // per-card fly-in
+    static final long UPGRADE_SKIP_EXTRA_MS = 160;  // skip appears after cards
+
+    // Post-boss upgrade selection screen.
+    ArrayList<UpgradeCard> upgradeOffers = new ArrayList<>();
+    RectF[] upgradeCardRects = new RectF[3];
+    RectF upgradeChooseBtn;   // appears below the cards once one is selected
+    RectF upgradeSkipBtn;     // always-present "skip" option at the bottom
+    // Wall-clock time the offer first appeared, driving the cards' entry
+    // animation. Reset to 0 when closed.
+    long upgradeOpenAt = 0;
+    // Index of the highlighted card (-1 = none). Picking only happens after
+    // the player confirms with the Choose button.
+    volatile int upgradeSelectedIndex = -1;
+    // When the current selection changed + a seed for the one-shot particle
+    // burst, so the pop animation and sparks are deterministic per selection.
+    long upgradeSelectMs = 0;
+    int upgradeSelectSeed = 0;
     int cellSize = 40;
     int uiCellSize = 40;
     int cols = 32, rows = 32;
@@ -237,6 +302,9 @@ public class GameState {
 
     // Multiplayer state
     volatile boolean isHost;
+    // True once an MP run is actually in progress (between start and game-over),
+    // so engine/game-view can branch on "is this a networked session".
+    volatile boolean inMp;
     String mpStatus = "";
     ArrayList<DiscoveredHost> discoveredHosts = new ArrayList<>();
     ArrayList<RectF> hostItemRects = new ArrayList<>();
@@ -264,11 +332,15 @@ public class GameState {
         int hesitationTicks = 0;
         int storedFruits = 0; // HEALER: normal fruits eaten but not respawned
         int healFruitCap = 6; // HEALER: max green healing fruits on the board
+        int mirrorFruitCap = 6; // MIRROR: max purple mirror fruits on the board
         // Highest length reached this fight — used for the health bar fraction.
         int maxSegments = 5;
+        // Fractional move interval accumulator, so speed-modifying upgrades
+        // (Slow Pressure) work even at sub-tick precision.
+        float moveAccum = 0;
     }
 
-    enum BossType { CHASER, WALL_BUILDER, HEALER }
+    enum BossType { CHASER, WALL_BUILDER, HEALER, MIRROR }
 
     static class WallCell {
         int x, y;
@@ -291,6 +363,7 @@ public class GameState {
     int bossGrowthPending = 0;
     ArrayList<BossTrailCell> bossTrail = new ArrayList<>();
     int nextBossSpawnScore = 125;
+    int bossDefeats = 0;                       // bosses beaten this run — widens the next spawn gap
     int tickCount = 0;
 
     // Boss fight visuals
@@ -300,6 +373,33 @@ public class GameState {
     float shakeMagnitude = 0f;                  // screen shake intensity (px)
     long shakeUntilMs = 0;                      // when the shake stops
     int bossFlashTicks = 0;                     // frames the boss renders white after a hit
+
+    // Cinematic boss death sequence timing (total ~1.6s)
+    static final long BOSS_DEATH_HIT_STOP_MS = 140;
+    static final long BOSS_DEATH_CAMERA_WINDUP_MS = 250;  // camera lunge
+    static final long BOSS_DEATH_COMPRESS_MS = 50;         // squash before explosion
+    static final long BOSS_DEATH_EXPLOSION_MS = 700;
+    static final long BOSS_DEATH_HOLD_MS = 160;
+    static final long BOSS_DEATH_TRANSITION_MS = 300;
+    static final long BOSS_DEATH_CAMERA_END_MS = BOSS_DEATH_HIT_STOP_MS
+            + BOSS_DEATH_CAMERA_WINDUP_MS;
+    static final long BOSS_DEATH_TOTAL_MS = BOSS_DEATH_CAMERA_END_MS
+            + BOSS_DEATH_EXPLOSION_MS + BOSS_DEATH_HOLD_MS
+            + BOSS_DEATH_TRANSITION_MS;
+
+    // Cinematic state
+    long cinematicStartMs = 0;
+    float cinematicFocusX, cinematicFocusY;
+    float cinematicCameraStartX, cinematicCameraStartY;
+    int cinematicBossColor;
+    ArrayList<Point> cinematicBossBody = new ArrayList<>();
+    boolean cinematicExplosionTriggered = false;
+    float cinematicCameraZoom = 1f;
+    // Host-only: whether the boss-death cinematic has already been pushed to the
+    // remote player for this death, so we don't re-send it every game tick.
+    volatile boolean bossCinematicSynced = false;
+    // Shockwave visual — lifecycle managed by the renderer over wall-clock time
+    long cinematicShockwaveAt = 0;
 
     // Wall builder state
     ArrayList<WallCell> walls = new ArrayList<>();
@@ -316,7 +416,7 @@ public class GameState {
     String devScoreText = "0";
     boolean editingDevScore = false;
     RectF devScoreBtn;
-    int devForcedBossType = 0; // 0=RANDOM, 1=CHASER, 2=WALL_BUILDER
+    int devForcedBossType = 0; // 0=RANDOM, 1=CHASER, 2=WALL_BUILDER, 3=HEALER, 4=MIRROR
     boolean showBossPathfinding = false;
     RectF devBossBtn, devPathBtn;
     int bossTargetX = -1, bossTargetY = -1; // for pathfinding viz

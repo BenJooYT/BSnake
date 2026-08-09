@@ -416,6 +416,7 @@ class ChallengeManager {
         state.snakes[0].score += ac.def.reward;
         state.score = state.snakes[0].score;
         state.scorePulseMs = System.currentTimeMillis();
+        state.triggerScorePop(ac.def.reward);
         if (sound != null) sound.playChallengeComplete();
         addPopup("+" + ac.def.reward);
         // Green flash so the success moment is felt.
