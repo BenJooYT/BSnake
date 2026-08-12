@@ -17,7 +17,8 @@ public class SoundEffects {
     private static final int HEAL_MS = 160;
     private static final int DAMAGE_MS = 120;
     private static final int BOSS_DAMAGE_MS = 450;
-    private static final int BOSS_DEFEAT_MS = 2600;
+    private static final int BOSS_DEFEAT_MS = 800;
+    private static final int BOSS_WINDUP_MS = 250;
     private static final int BOSS_WARNING_MS = 1000;
     private static final int BOSS_SPAWN_MS = 700;
     private static final int WALL_DESTROY_MS = 260;
@@ -36,6 +37,7 @@ public class SoundEffects {
     private short[] healBuffer;
     private short[] bossDamageBuffer;
     private short[] bossDefeatBuffer;
+    private short[] bossWindupBuffer;
     private short[] bossWarningBuffer;
     private short[] bossSpawnBuffer;
     private short[] wallDestroyBuffer;
@@ -50,7 +52,7 @@ public class SoundEffects {
     private short[] upgradeEpicBuffer;
 
     private AudioTrack clickTrack, crunchTrack, healTrack, bossDamageTrack, bossDefeatTrack,
-            bossWarningTrack, bossSpawnTrack, wallDestroyTrack, challengeTrack,
+            bossWindupTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack, challengeTrack,
             challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack, upgradeTrack,
             upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack;
     private volatile float volume = 1.0f;
@@ -69,6 +71,7 @@ public class SoundEffects {
         generateHeal();
         generateBossDamage();
         generateBossDefeat();
+        generateBossWindup();
         generateBossWarning();
         generateBossSpawn();
         generateWallDestroyed();
@@ -107,6 +110,8 @@ public class SoundEffects {
         bossDamageTrack.write(bossDamageBuffer, 0, bossDamageBuffer.length);
         bossDefeatTrack = createTrack(bossDefeatBuffer.length * 2);
         bossDefeatTrack.write(bossDefeatBuffer, 0, bossDefeatBuffer.length);
+        bossWindupTrack = createTrack(bossWindupBuffer.length * 2);
+        bossWindupTrack.write(bossWindupBuffer, 0, bossWindupBuffer.length);
         bossWarningTrack = createTrack(bossWarningBuffer.length * 2);
         bossWarningTrack.write(bossWarningBuffer, 0, bossWarningBuffer.length);
         bossSpawnTrack = createTrack(bossSpawnBuffer.length * 2);
@@ -215,21 +220,43 @@ public class SoundEffects {
         double[] mix = new double[n];
         Random rng = new Random(3);
         addDamageHit(mix, 0, 1.00, 1.00, 1.0, rng);
-        for (int e = 0; e < 6; e++) {
-            int delay = 160 + e * 300;
+        for (int e = 0; e < 4; e++) {
+            int delay = 120 + e * 130;
             double vol = 0.60 * Math.pow(0.6, e);
             double pitch = 0.97 - e * 0.04;
             double alpha = 0.30 * Math.pow(0.45, e);
             addDamageHit(mix, delay, vol, pitch, alpha, rng);
         }
         // final bright boom
-        addDamageHit(mix, 1900, 0.9, 1.2, 0.5, rng);
+        addDamageHit(mix, 620, 0.9, 1.2, 0.5, rng);
         double max = 0;
         for (double v : mix) if (Math.abs(v) > max) max = Math.abs(v);
         double scale = 0.95 / Math.max(max, 0.001);
         bossDefeatBuffer = new short[n];
         for (int i = 0; i < n; i++) {
             bossDefeatBuffer[i] = (short) (mix[i] * scale * Short.MAX_VALUE);
+        }
+    }
+
+    // Boss death wind-up: a rising charge building tension right before the
+    // explosive finish. Runs during the camera lunge before the shockwave.
+    // It ends on the same note (150 Hz) the defeat's opening thud starts on,
+    // so the rise hands off smoothly into the explosion.
+    private void generateBossWindup() {
+        int n = SAMPLE_RATE * BOSS_WINDUP_MS / 1000;
+        bossWindupBuffer = new short[n];
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double p = Math.min(1.0, t / (BOSS_WINDUP_MS / 1000.0));
+            double a = Math.min(1.0, t / 0.03);
+            double d = Math.min(1.0, (1.0 - t) / 0.05);
+            // Rise from ~70 Hz up to the explosion's opening 150 Hz thud.
+            double freq = 70.0 + 80.0 * p;
+            double tremolo = 0.8 + 0.2 * Math.sin(2 * Math.PI * 16.0 * t);
+            double growl = Math.sin(2 * Math.PI * freq * t) * 0.7
+                         + Math.sin(2 * Math.PI * freq * 1.5 * t) * 0.3;
+            double s = growl * tremolo * a * d * 0.42;
+            bossWindupBuffer[i] = (short) (s * Short.MAX_VALUE);
         }
     }
 
@@ -528,6 +555,7 @@ public class SoundEffects {
     public void playHeal()       { if (!muted) playTrack(healTrack); }
     public void playBossDamage() { if (!muted) playTrack(bossDamageTrack); }
     public void playBossDefeat() { if (!muted) playTrack(bossDefeatTrack); }
+    public void playBossWindup(){ if (!muted) playTrack(bossWindupTrack); }
     public void playBossWarning(){ if (!muted) playTrack(bossWarningTrack); }
     public void playBossSpawn()  { if (!muted) playTrack(bossSpawnTrack); }
     public void playWallDestroyed() { if (!muted) playTrack(wallDestroyTrack); }
@@ -549,7 +577,7 @@ public class SoundEffects {
     public void stopAll() {
         pending.clear();
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
-                bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
+                bossDefeatTrack, bossWindupTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
                 challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
         upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack };
         for (AudioTrack t : tracks) {
@@ -568,7 +596,7 @@ public class SoundEffects {
             audioThread = null;
         }
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
-                bossDefeatTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
+                bossDefeatTrack, bossWindupTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
                 challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
         upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack };
         for (AudioTrack t : tracks) {
@@ -578,6 +606,7 @@ public class SoundEffects {
         }
         clickTrack = null; crunchTrack = null; healTrack = null;
         bossDamageTrack = null; bossDefeatTrack = null;
+        bossWindupTrack = null;
         bossWarningTrack = null; bossSpawnTrack = null;
         wallDestroyTrack = null; challengeTrack = null;
         challengeFailTrack = null; segmentLostTrack = null;

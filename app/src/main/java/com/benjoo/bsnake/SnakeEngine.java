@@ -1,5 +1,9 @@
 package com.benjoo.bsnake;
 
+import com.benjoo.bsnake.openworld.OpenWorldGenerator;
+import com.benjoo.bsnake.openworld.OpenWorldSaveData;
+import com.benjoo.bsnake.openworld.WorldSeed;
+
 import android.graphics.Point;
 
 import java.util.ArrayList;
@@ -122,6 +126,10 @@ public class SnakeEngine {
         for (int i = 0; i < 2; i++) {
             state.snakes[i] = new GameState.SnakeData();
         }
+        if (state.isOpenWorldMode()) {
+            resetOpenWorldRun();
+            return;
+        }
         state.snakes[0].headColor = state.headColor;
         state.snakes[0].bodyColor = state.bodyColor;
         state.score = state.devMode ? state.devStartScore : 0;
@@ -176,6 +184,144 @@ public class SnakeEngine {
             state.snakes[0].prevBody.add(new Point(p));
         state.snakes[0].alive = true;
         state.snakes[1].alive = false;
+    }
+
+    // Number of normal food items kept near the player in Open World.
+    private static final int OPEN_WORLD_FOOD_TARGET = 4;
+
+    // Sets up a fresh Open World run. If no world exists yet, one is created
+    // (seed generated + valid player position established). Otherwise the run
+    // restarts at the saved world position within the same persistent world.
+    private void resetOpenWorldRun() {
+        // Restore a persisted world if one exists; otherwise create a fresh one.
+        OpenWorldSaveData saved = persistence.loadOpenWorld();
+        if (saved != null) {
+            saved.applyTo(state.openWorld);
+        } else if (!state.openWorld.initialized) {
+            state.openWorld.seed = WorldSeed.generate();
+            state.openWorld.playerX = 0;
+            state.openWorld.playerY = 0;
+            state.openWorld.initialized = true;
+        }
+        state.openWorld.resetRun();
+        // Bind the world's seed to the chunk generator so all chunk generation
+        // (now and in later prompts) is deterministic from this seed.
+        state.openWorldChunks.setGenerator(new OpenWorldGenerator(state.openWorld.seed));
+        state.openWorldChunks.clear();
+
+        int startX = state.openWorld.playerX;
+        int startY = state.openWorld.playerY;
+
+        state.snakes[0].headColor = state.headColor;
+        state.snakes[0].bodyColor = state.bodyColor;
+        state.score = state.devMode ? state.devStartScore : 0;
+        state.snakes[0].score = state.score;
+        for (int i = 0; i < 3; i++) {
+            state.snakes[0].body.add(new Point(startX - Math.min(i, 2), startY));
+        }
+        state.snakes[0].dirX = 1;
+        state.snakes[0].dirY = 0;
+        state.snakes[0].inputQueue.clear();
+        state.cameraX = startX;
+        state.cameraY = startY;
+        state.cameraInitialized = true;
+        state.openWorldCamera.snapTo(startX, startY);
+
+        state.boss.alive = false;
+        state.bossGrowthPending = 0;
+        state.boss.storedFruits = 0;
+        state.bossTrail.clear();
+        state.walls.clear();
+        state.wallPreviewPositions.clear();
+        state.wallPreviewActive = false;
+        state.wallsDying = false;
+        state.nextWallTick = 0;
+        state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
+        state.bossDefeats = 0;
+        state.tickCount = 0;
+        challenges.reset();
+        upgrades.reset();
+        state.bossWarningStartMs = 0;
+        state.bossSpawnRingStartMs = 0;
+        state.shakeUntilMs = 0;
+        state.bossFlashTicks = 0;
+        state.death.body.clear();
+        state.deathPending = false;
+        state.particles.clear();
+        resetCinematicState();
+
+        state.foods.clear();
+        spawnOpenWorldFood(state.snakes[0].body.get(0));
+        state.snakes[0].prevBody.clear();
+        for (Point p : state.snakes[0].body)
+            state.snakes[0].prevBody.add(new Point(p));
+        state.snakes[0].alive = true;
+        state.snakes[1].alive = false;
+        state.openWorldChunks.update(startX, startY);
+    }
+
+    // Host-side maintenance for the Open World run: sync the player's world
+    // position and score, keep food stocked near the player, keep the loaded
+    // chunk set around the player, and detect the end of the run.
+    private void updateOpenWorld() {
+        GameState.SnakeData sd = state.snakes[0];
+        if (sd.alive && !sd.body.isEmpty()) {
+            Point head = sd.body.get(0);
+            state.openWorld.playerX = head.x;
+            state.openWorld.playerY = head.y;
+            state.openWorld.length = sd.body.size();
+        }
+        state.openWorld.score = state.snakes[0].score;
+
+        refillOpenWorldFood();
+        state.openWorldChunks.update(state.openWorld.playerX, state.openWorld.playerY);
+
+        if (!state.snakes[0].alive && !state.deathPending) {
+            state.deathPending = true;
+            state.openWorld.lifetimeScore += state.openWorld.score;
+            persistOpenWorld();
+            if (sound != null) sound.playDeath();
+            state.lastScore = state.snakes[0].score;
+            state.mpLastScore0 = state.snakes[0].score;
+            state.mpLastScore1 = state.snakes[1].score;
+        }
+    }
+
+    // Persists the Open World progression (seed, position, lifetime score,
+    // currency, XP, exploration, ...). Terrain is intentionally not written;
+    // it is rebuilt deterministically from the seed on load.
+    private void persistOpenWorld() {
+        persistence.saveOpenWorld(state.openWorld);
+    }
+
+    // Keeps OPEN_WORLD_FOOD_TARGET normal fruits scattered around the player's
+    // world position. Food spawns in world coordinates (may be negative), so it
+    // works everywhere in the unbounded world.
+    private void refillOpenWorldFood() {
+        GameState.SnakeData sd = state.snakes[0];
+        Point center = (sd.alive && !sd.body.isEmpty())
+                ? sd.body.get(0)
+                : new Point(state.openWorld.playerX, state.openWorld.playerY);
+        int normalCount = 0;
+        for (GameState.Fruit f : state.foods) {
+            if (f.type == GameState.FruitType.NORMAL) normalCount++;
+        }
+        int need = OPEN_WORLD_FOOD_TARGET - normalCount;
+        for (int i = 0; i < need; i++) {
+            spawnOpenWorldFood(center);
+        }
+    }
+
+    private void spawnOpenWorldFood(Point center) {
+        for (int attempts = 0; attempts < 80; attempts++) {
+            int r = 8 + rand.nextInt(16);
+            int fx = center.x + rand.nextInt(2 * r + 1) - r;
+            int fy = center.y + rand.nextInt(2 * r + 1) - r;
+            if (overlapsSnake(fx, fy) || overlapsFood(fx, fy)
+                    || overlapsBoss(fx, fy) || overlapsWall(fx, fy)) continue;
+            state.foods.add(new GameState.Fruit(GameState.FruitType.NORMAL, fx, fy));
+            return;
+        }
     }
 
     void update() {
@@ -392,15 +538,18 @@ public class SnakeEngine {
             sd.prevBody.clear();
             for (Point p : sd.body) sd.prevBody.add(new Point(p));
 
-            // Compute new head position with toroidal wrap
+            // Compute new head position. Arcade/Classic wrap toroidally at the
+            // arena edges; Open World uses unbounded world coordinates (no wrap).
             if (sd.body.isEmpty()) { killSnake(sd); continue; }
             Point head = sd.body.get(0);
             int nx = head.x + sd.dirX;
             int ny = head.y + sd.dirY;
-            if (nx < 0) nx = state.cols - 1;
-            if (nx >= state.cols) nx = 0;
-            if (ny < 0) ny = state.rows - 1;
-            if (ny >= state.rows) ny = 0;
+            if (!state.isOpenWorldMode()) {
+                if (nx < 0) nx = state.cols - 1;
+                if (nx >= state.cols) nx = 0;
+                if (ny < 0) ny = state.rows - 1;
+                if (ny >= state.rows) ny = 0;
+            }
 
             // Detect food at the new head position first, so self-collision can
             // account for the tail: if the snake won't grow this tick, the tail
@@ -496,6 +645,7 @@ public class SnakeEngine {
                 if (sound != null && si == 0) {
                     if (eatenFood.type == GameState.FruitType.HEAL) sound.playHeal();
                     else if (eatenFood.type == GameState.FruitType.MIRROR) sound.playUpgradeSelect();
+                    else sound.playCrunch();
                 }
             }
 
@@ -589,6 +739,13 @@ public class SnakeEngine {
 
         // Boss auto-movement, spawn, and food refill: host only
         if (!predict) {
+            // Open World is an isolated subsystem: it does not run the arcade
+            // boss/wall/challenge/upgrade economy and never wraps. Handle its
+            // own host-side maintenance and return before the arcade systems.
+            if (state.isOpenWorldMode()) {
+                updateOpenWorld();
+                return;
+            }
             challenges.update();
             upgrades.tick();
             if (state.boss.alive) {
@@ -809,6 +966,7 @@ public class SnakeEngine {
         state.cinematicStartMs = 0;
         state.cinematicBossBody.clear();
         state.cinematicExplosionTriggered = false;
+        state.cinematicWindupTriggered = false;
         state.cinematicCameraZoom = 1f;
         state.cinematicCameraStartX = 0;
         state.cinematicCameraStartY = 0;

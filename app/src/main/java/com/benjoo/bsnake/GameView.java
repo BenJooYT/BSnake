@@ -165,6 +165,14 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             if (mpStartPending) {
                 mpStartPending = false;
                 state.inMp = true;
+                // Host: apply the shared board derived from the smallest screen.
+                if (state.isHost && state.mpBoardCols > 0 && state.mpBoardRows > 0) {
+                    state.gameMode = state.mpModeSel == 1
+                            ? GameState.GameMode.CLASSIC : GameState.GameMode.ARCADE;
+                    state.cols = state.mpBoardCols;
+                    state.rows = state.mpBoardRows;
+                    state.configureBoard();
+                }
                 engine.resetGame();
                 state.currentState = GameState.State.MP_PLAYING;
                 if (!state.snakes[state.playerIndex].body.isEmpty()) {
@@ -244,6 +252,11 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 if (elapsed >= compressStart && elapsed < explosionAt) {
                     state.shakeMagnitude = 10f;
                     state.shakeUntilMs = now + 60;
+                }
+                // Wind-up charge plays once as the camera lunge begins.
+                if (elapsed >= GameState.BOSS_DEATH_HIT_STOP_MS && !state.cinematicWindupTriggered) {
+                    state.cinematicWindupTriggered = true;
+                    soundEffects.playBossWindup();
                 }
                 if (elapsed >= explosionAt && !state.cinematicExplosionTriggered) {
                     state.cinematicExplosionTriggered = true;
@@ -343,6 +356,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 case "hello":
                     state.clientColor = obj.optInt("color", state.headColor);
                     state.clientBodyColor = obj.optInt("bodyColor", state.bodyColor);
+                    state.clientScreenW = obj.optInt("screenW", state.clientScreenW);
+                    state.clientScreenH = obj.optInt("screenH", state.clientScreenH);
                     state.opponentConnected = true;
                     break;
                 case "ready":
@@ -416,6 +431,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 case "ready":
                     state.opponentReady = obj.optBoolean("ready", false);
                     break;
+                case "mode":
+                    // The host chose a multiplayer mode — mirror it so the client
+                    // shows and plays the same Arcade/Classic ruleset.
+                    state.mpModeSel = obj.optInt("mode", 0);
+                    state.gameMode = state.mpModeSel == 1
+                            ? GameState.GameMode.CLASSIC : GameState.GameMode.ARCADE;
+                    break;
                 case "bossCinematic":
                     // Host killed the boss — mirror the cinematic snapshot so the
                     // remote renders the same death sequence.
@@ -427,6 +449,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     state.cinematicBossColor = obj.getInt("color");
                     state.cinematicStartMs = System.currentTimeMillis();
                     state.cinematicExplosionTriggered = false;
+                    state.cinematicWindupTriggered = false;
                     state.cinematicCameraZoom = 1f;
                     state.cinematicShockwaveAt = 0;
                     state.boss.alive = false;
@@ -456,6 +479,14 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     state.localReady = true;
                     state.mpGameOverSent = false;
                     state.inMp = true;
+                    // Apply the host-authoritative mode and shared board size
+                    state.mpModeSel = obj.optInt("mode", 0);
+                    state.gameMode = state.mpModeSel == 1
+                            ? GameState.GameMode.CLASSIC : GameState.GameMode.ARCADE;
+                    state.mpBoardCols = obj.optInt("cols", 32);
+                    state.mpBoardRows = obj.optInt("rows", 32);
+                    state.cols = state.mpBoardCols;
+                    state.rows = state.mpBoardRows;
                     engine.resetGame();
                     state.currentState = GameState.State.MP_PLAYING;
                     // Force camera to local player's head position
@@ -888,7 +919,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             @Override
             public void onClientConnected() {
                 state.mpStatus = "Client connected!";
-                server.send(NetworkMessage.hello(state.headColor, state.bodyColor));
+                server.send(NetworkMessage.hello(state.headColor, state.bodyColor, state.screenW, state.screenH));
+                server.send(NetworkMessage.modeSel(state.mpModeSel));
                 state.currentState = GameState.State.MP_LOBBY;
             }
             @Override
@@ -947,7 +979,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             public void onConnected() {
                 state.opponentConnected = true;
                 state.mpStatus = "Connected!";
-                client.send(NetworkMessage.hello(state.headColor, state.bodyColor));
+                client.send(NetworkMessage.hello(state.headColor, state.bodyColor, state.screenW, state.screenH));
                 state.currentState = GameState.State.MP_LOBBY;
             }
             @Override
@@ -973,6 +1005,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     public void cancelMp() {
         stopNetworking();
         state.currentState = GameState.State.MENU;
+    }
+
+    @Override
+    public void cycleMpMode() {
+        // Host only: switch the multiplayer ruleset and broadcast it so the client
+        // mirrors the same Arcade/Classic choice in the lobby.
+        state.mpModeSel = state.mpModeSel == 1 ? 0 : 1;
+        String msg = NetworkMessage.modeSel(state.mpModeSel);
+        if (msg != null && state.isHost && server != null) server.send(msg);
     }
 
     @Override
@@ -1005,13 +1046,37 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     private void startMpGame() {
         state.mpGameOverSent = false;
-        if (state.isHost && server != null) {
-            server.send(NetworkMessage.startGame());
+        if (state.isHost) {
+            computeMpBoard();
+            if (server != null) {
+                server.send(NetworkMessage.startGame(
+                        state.gameMode.ordinal(), state.mpBoardCols, state.mpBoardRows));
+            }
         }
         // engine.resetGame() and the MP_PLAYING transition are deferred to the
         // game thread via mpStartPending (startMpGame can be reached from the
         // UI thread via ready/force-start/rematch).
         mpStartPending = true;
+    }
+
+    // Determinesthe shared multiplayer board. The grid is sized from whichever
+    // of the two players' screens is smaller so both devices can fit it, then the
+    // chosen (host-selected) Arcade/Classic ruleset is applied.
+    private void computeMpBoard() {
+        int minW = state.screenW;
+        int minH = state.screenH;
+        if (state.clientScreenW > 0) minW = Math.min(minW, state.clientScreenW);
+        if (state.clientScreenH > 0) minH = Math.min(minH, state.clientScreenH);
+        state.gameMode = state.mpModeSel == 1
+                ? GameState.GameMode.CLASSIC : GameState.GameMode.ARCADE;
+        if (state.gameMode == GameState.GameMode.CLASSIC) {
+            int cellSz = Math.max(8, Math.min(minW, minH) / 18);
+            state.mpBoardCols = Math.max(8, minW / cellSz);
+            state.mpBoardRows = Math.max(8, minH / cellSz);
+        } else {
+            state.mpBoardCols = 32;
+            state.mpBoardRows = 32;
+        }
     }
 
     @Override

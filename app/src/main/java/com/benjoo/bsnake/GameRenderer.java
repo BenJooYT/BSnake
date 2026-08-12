@@ -1,5 +1,8 @@
 package com.benjoo.bsnake;
 
+import com.benjoo.bsnake.openworld.OpenWorldChunkManager;
+import com.benjoo.bsnake.openworld.OpenWorldCoords;
+
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -47,14 +50,22 @@ class GameRenderer {
                 drawBossDeathCinematic(canvas);
                 break;
             case PLAYING:
-                drawGameField(canvas, t, false);
-                drawPauseIcon(canvas);
+                if (state.isOpenWorldMode()) {
+                    drawOpenWorld(canvas, t);
+                } else {
+                    drawGameField(canvas, t, false);
+                    drawPauseIcon(canvas);
+                }
                 break;
             case MP_PLAYING:
                 drawGameField(canvas, t, false);
                 break;
             case PAUSED:
-                drawGameField(canvas, 1f, false);
+                if (state.isOpenWorldMode()) {
+                    drawOpenWorld(canvas, 1f);
+                } else {
+                    drawGameField(canvas, 1f, false);
+                }
                 drawDim(canvas);
                 drawPausedOverlay(canvas);
                 break;
@@ -63,7 +74,11 @@ class GameRenderer {
                 drawUpgradeScreen(canvas);
                 break;
             case GAME_OVER:
-                drawGameField(canvas, 1f, false);
+                if (state.isOpenWorldMode()) {
+                    drawOpenWorld(canvas, 1f);
+                } else {
+                    drawGameField(canvas, 1f, false);
+                }
                 drawDim(canvas);
                 drawGameOverOverlay(canvas);
                 break;
@@ -460,6 +475,176 @@ class GameRenderer {
         state.viewportHeightCells = savedViewportH;
     }
 
+    // -------------------------------------------------------------------
+    // OPEN WORLD RENDERING
+    // -------------------------------------------------------------------
+    // The existing game-field renderer is heavily toroidal (every transform is
+    // wrapped to a fixed cols x rows arena), so it cannot render unbounded world
+    // coordinates. Open World therefore gets its own camera-relative render path
+    // within the same renderer, sharing the paint/board/hud helpers but using
+    // non-wrapping world -> screen transforms (world -> camera -> screen).
+    // -------------------------------------------------------------------
+
+    // World x -> screen x (camera-relative, no wrapping).
+    private float owScreenX(float worldX) {
+        return state.boardLeft + state.cellSize
+                * (state.viewportWidthCells / 2f - 0.5f + (worldX - state.cameraX));
+    }
+
+    // World y -> screen y (camera-relative, no wrapping).
+    private float owScreenY(float worldY) {
+        return state.boardTop + state.cellSize
+                * (state.viewportHeightCells / 2f - 0.5f + (worldY - state.cameraY));
+    }
+
+    private void drawOpenWorld(Canvas canvas, float t) {
+        int savedCellSize = state.cellSize;
+        float savedViewportW = state.viewportWidthCells;
+        float savedViewportH = state.viewportHeightCells;
+
+        canvas.save();
+        updateCamera(t);
+        drawOpenWorldChunks(canvas);
+
+        // Player snake
+        for (int si = 0; si < 2; si++) {
+            GameState.SnakeData sd = state.snakes[si];
+            if (!sd.alive) continue;
+            if (sd.body.isEmpty()) continue;
+            int n = Math.min(sd.body.size(), sd.prevBody.size());
+            boolean mirrored = sd.mirrorUntilMs > System.currentTimeMillis();
+            int headCol = mirrored ? blendPurple(sd.headColor) : sd.headColor;
+            int bodyCol = mirrored ? blendPurple(sd.bodyColor) : sd.bodyColor;
+            for (int i = 0; i < n; i++) {
+                paint.setColor(i == 0 ? headCol : bodyCol);
+                Point cur = sd.body.get(i);
+                Point prev = sd.prevBody.size() > i ? sd.prevBody.get(i) : cur;
+                float wx = prev.x + (cur.x - prev.x) * t;
+                float wy = prev.y + (cur.y - prev.y) * t;
+                if (Math.abs(wx - state.cameraX) > state.viewportWidthCells / 2f + 1f
+                        || Math.abs(wy - state.cameraY) > state.viewportHeightCells / 2f + 1f) continue;
+                float px = owScreenX(wx);
+                float py = owScreenY(wy);
+                canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
+            }
+        }
+
+        // Dissolving body of a snake that just died
+        drawOpenWorldDeath(canvas);
+
+        // Food
+        for (GameState.Fruit f : state.foods) {
+            float foodDx = f.x - state.cameraX;
+            float foodDy = f.y - state.cameraY;
+            if (Math.abs(foodDx) >= state.viewportWidthCells / 2f
+                    || Math.abs(foodDy) >= state.viewportHeightCells / 2f) {
+                drawFoodArrow(canvas, foodDx, foodDy, foodColor(f.type));
+                continue;
+            }
+            float cx = owScreenX(f.x) + state.cellSize / 2f;
+            float cy = owScreenY(f.y) + state.cellSize / 2f;
+            long bornAge = System.currentTimeMillis() - f.bornMs;
+            float scaleIn = Math.min(1f, bornAge / 250f);
+            float pulse = 1f + 0.1f * (float) Math.sin(bornAge * 0.008);
+            int core = foodColor(f.type);
+            float r = Math.max(4, state.cellSize / 2f - 4) * scaleIn * pulse;
+            paint.setColor(core);
+            canvas.drawCircle(cx, cy, r, paint);
+            drawFoodGlow(canvas, cx, cy, Math.max(8, state.cellSize / 2f + 4) * scaleIn * pulse, core);
+        }
+
+        drawParticles(canvas, state.cameraX, state.cameraY);
+
+        canvas.restore();
+
+        drawScoreMeter(canvas);
+        drawChallengePopups(canvas);
+        if (state.flashAlpha > 0) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.argb(
+                    (int) (255 * state.flashAlpha),
+                    Color.red(state.flashColor),
+                    Color.green(state.flashColor),
+                    Color.blue(state.flashColor)));
+            canvas.drawRect(0, 0, state.screenW, state.screenH, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+        drawMirrorIndicator(canvas);
+        drawDirectionPad(canvas);
+
+        canvas.restore();
+        state.cellSize = savedCellSize;
+        state.viewportWidthCells = savedViewportW;
+        state.viewportHeightCells = savedViewportH;
+    }
+
+    // Draws grid lines for the currently loaded chunks that are on screen, so
+    // chunk boundaries are visible. Content generation itself is a later phase;
+    // for now this makes the loaded region explicit.
+    private void drawOpenWorldChunks(Canvas canvas) {
+        int leftChunk = OpenWorldCoords.worldToChunk(
+                (int) (state.cameraX - state.viewportWidthCells / 2f - 1));
+        int rightChunk = OpenWorldCoords.worldToChunk(
+                (int) (state.cameraX + state.viewportWidthCells / 2f + 1));
+        int topChunk = OpenWorldCoords.worldToChunk(
+                (int) (state.cameraY - state.viewportHeightCells / 2f - 1));
+        int bottomChunk = OpenWorldCoords.worldToChunk(
+                (int) (state.cameraY + state.viewportHeightCells / 2f + 1));
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        for (int cx = leftChunk; cx <= rightChunk; cx++) {
+            for (int cy = topChunk; cy <= bottomChunk; cy++) {
+                OpenWorldChunkManager.ChunkState st = state.openWorldChunks.stateOf(
+                        OpenWorldCoords.chunkToWorld(cx), OpenWorldCoords.chunkToWorld(cy),
+                        (int) state.openWorld.playerX, (int) state.openWorld.playerY);
+                int color = st == OpenWorldChunkManager.ChunkState.ACTIVE
+                        ? Color.rgb(90, 200, 90)
+                        : st == OpenWorldChunkManager.ChunkState.NEARBY
+                        ? Color.rgb(70, 120, 70) : Color.rgb(40, 40, 40);
+                paint.setColor(color);
+                float x0 = owScreenX(OpenWorldCoords.chunkToWorld(cx));
+                float y0 = owScreenY(OpenWorldCoords.chunkToWorld(cy));
+                float size = OpenWorldCoords.CHUNK_SIZE * state.cellSize;
+                canvas.drawRect(x0, y0, x0 + size, y0 + size, paint);
+            }
+        }
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeWidth(0);
+    }
+
+    // Open World death dissolve (non-wrapping version of drawDeath).
+    private void drawOpenWorldDeath(Canvas canvas) {
+        if (state.death.body.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        float progress = (float) (now - state.deathStartMs) / GameState.DEATH_ANIM_MS;
+        if (progress < 0) progress = 0;
+        if (progress > 1) progress = 1;
+        int n = state.death.body.size();
+        for (int i = 0; i < n; i++) {
+            float segProgress = progress * n - i;
+            if (segProgress >= 1) continue;
+            int alpha = segProgress <= 0 ? 255 : (int) (255 * (1 - segProgress));
+            float flicker = 0.6f + 0.4f * (float) Math.sin(now * 0.02 + i * 0.9);
+            alpha = (int) (alpha * flicker);
+            if (alpha < 0) alpha = 0;
+            Point seg = state.death.body.get(i);
+            if (Math.abs(seg.x - state.cameraX) >= state.viewportWidthCells / 2f
+                    || Math.abs(seg.y - state.cameraY) >= state.viewportHeightCells / 2f) continue;
+            float px = owScreenX(seg.x);
+            float py = owScreenY(seg.y);
+            int color = i == 0 ? state.death.headColor : state.death.bodyColor;
+            paint.setColor(Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color)));
+            canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
+            if (i == 0 && progress < 0.3f) {
+                float blink = 0.5f + 0.5f * (float) Math.sin(now * 0.03);
+                int hc = blink > 0.5 ? Color.WHITE : Color.rgb(255, 80, 60);
+                paint.setColor(Color.argb(255, Color.red(hc), Color.green(hc), Color.blue(hc)));
+                canvas.drawRect(px, py, px + state.cellSize - 1, py + state.cellSize - 1, paint);
+            }
+        }
+    }
+
     // Coin meter: a coin badge in the owning snake's head colour showing the
     // score, mid-left of the screen. The badge scales up with a quick "pop" on
     // every point earned, and a "+1" floats up off the badge whenever food is
@@ -791,37 +976,55 @@ class GameRenderer {
         }
     }
 
-    // Boss segment-count label above head
+    // Boss health bar: one cell per remaining body segment. The cells always
+    // span the full bar width and split into equal pieces, so a longer boss
+    // shows more, thinner segments. The boss name is drawn below.
     private void drawBossHealthBar(Canvas canvas) {
         if (state.isClassicMode() || !state.boss.alive || state.boss.body.isEmpty()) return;
+        int segs = state.boss.body.size();
         float w = Math.min(state.screenW * 0.5f, 480);
-        float h = Math.max(10, state.cellSize * 0.3f);
+        float h = Math.max(8, state.cellSize * 0.24f);
         float x = (state.screenW - w) / 2f;
         float y = 12;
-        float frac = state.boss.body.size() / (float) Math.max(1, state.boss.maxSegments);
-        frac = Math.max(0, Math.min(1, frac));
-        paint.setColor(Color.argb(120, 0, 0, 0));
-        canvas.drawRoundRect(x - 3, y - 3, x + w + 3, y + h + 3, 6, 6, paint);
+
         int color;
+        String name;
         switch (state.boss.type) {
-            case WALL_BUILDER: color = Color.rgb(0, 140, 255); break;
-            case HEALER: color = Color.rgb(0, 200, 90); break;
-            case MIRROR: color = Color.rgb(170, 80, 255); break;
-            default: color = Color.rgb(200, 60, 220);
+            case WALL_BUILDER: color = Color.rgb(0, 140, 255); name = "WALL BUILDER"; break;
+            case HEALER: color = Color.rgb(0, 200, 90); name = "HEALER"; break;
+            case MIRROR: color = Color.rgb(170, 80, 255); name = "MIRROR"; break;
+            default: color = Color.rgb(200, 60, 220); name = "CHASER";
         }
+
+        float gap = 2;
+        // All cells fit the bar exactly: total gaps + cells = full width.
+        float cellW = segs > 0 ? (w - gap * (segs - 1)) / segs : w;
+        float y0 = y;
+
+        // Backing panel.
+        paint.setColor(Color.argb(120, 0, 0, 0));
+        canvas.drawRoundRect(x - 3, y0 - 3, x + w + 3, y0 + h + 3, 6, 6, paint);
+
+        paint.setStyle(Paint.Style.FILL);
         paint.setColor(color);
-        canvas.drawRoundRect(x, y, x + w * frac, y + h, 4, 4, paint);
+        for (int i = 0; i < segs; i++) {
+            float cx = x + i * (cellW + gap);
+            canvas.drawRoundRect(cx, y0, cx + cellW, y0 + h, 3, 3, paint);
+        }
+
+        // Outline around the whole bar.
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2);
         paint.setColor(Color.WHITE);
-        canvas.drawRoundRect(x, y, x + w, y + h, 4, 4, paint);
+        canvas.drawRoundRect(x, y0, x + w, y0 + h, 4, 4, paint);
         paint.setStyle(Paint.Style.FILL);
         paint.setStrokeWidth(0);
+
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setTextSize(h + 6);
         paint.setTypeface(Typeface.DEFAULT_BOLD);
         paint.setColor(Color.WHITE);
-        canvas.drawText("BOSS", state.screenW / 2f, y + h + 16, paint);
+        canvas.drawText(name, state.screenW / 2f, y0 + h + 16, paint);
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setTypeface(Typeface.DEFAULT);
     }
@@ -1200,6 +1403,24 @@ class GameRenderer {
     }
 
     private void updateCamera(float t) {
+        if (state.isOpenWorldMode()) {
+            // World-space camera follows the snake head with no wrapping and no
+            // fixed arena bounds. Interpolate the head's glide between cells.
+            GameState.SnakeData sd = state.snakes[state.playerIndex];
+            if (!sd.body.isEmpty() && !sd.prevBody.isEmpty()) {
+                Point prev = sd.prevBody.get(0);
+                Point cur = sd.body.get(0);
+                float dx = cur.x - prev.x;
+                float dy = cur.y - prev.y;
+                state.openWorldCamera.follow(prev.x + dx * t, prev.y + dy * t, t);
+            } else if (!sd.body.isEmpty()) {
+                Point h = sd.body.get(0);
+                state.openWorldCamera.follow(h.x, h.y, 1f);
+            }
+            state.cameraX = state.openWorldCamera.x;
+            state.cameraY = state.openWorldCamera.y;
+            return;
+        }
         if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC) {
             long now = System.currentTimeMillis();
             long elapsed = now - state.cinematicStartMs;
@@ -1455,6 +1676,7 @@ class GameRenderer {
         // Mode buttons — highlight the selected one
         int arcadeBg = state.selectedModeIndex == 0 ? Color.GREEN : Color.DKGRAY;
         int classicBg = state.selectedModeIndex == 1 ? Color.GREEN : Color.DKGRAY;
+        int openWorldBg = state.selectedModeIndex == 2 ? Color.GREEN : Color.DKGRAY;
         paint.setColor(arcadeBg);
         if (state.arcadeBtn != null)
             canvas.drawRect(state.arcadeBtn.left, state.arcadeBtn.top,
@@ -1467,15 +1689,23 @@ class GameRenderer {
                     state.classicBtn.right - 2, state.classicBtn.bottom - 2, paint);
         drawCenteredText(canvas, "CLASSIC", state.classicBtn.centerX(),
                 state.classicBtn.centerY(), 36, Color.BLACK, true);
+        paint.setColor(openWorldBg);
+        if (state.openWorldBtn != null)
+            canvas.drawRect(state.openWorldBtn.left, state.openWorldBtn.top,
+                    state.openWorldBtn.right - 2, state.openWorldBtn.bottom - 2, paint);
+        drawCenteredText(canvas, "OPEN WORLD", state.openWorldBtn.centerX(),
+                state.openWorldBtn.centerY(), 36, Color.BLACK, true);
 
         // Description for the selected mode
         String desc;
         if (state.selectedModeIndex == 0) {
             desc = "A fixed 32x32 grid.\nBosses, progression, and\npure fun guaranteed!";
+        } else if (state.selectedModeIndex == 2) {
+            desc = "An infinite, unbounded world.\nExplore, survive, and grow in\nworld coordinates.";
         } else {
             desc = "The Classic Snake Experience.\nNo bosses, no gimmicks.\nRelive the way Snake was\nmeant to be played.";
         }
-        float descY = state.classicBtn.bottom + (state.modePlayBtn.top - state.classicBtn.bottom) * 0.35f;
+        float descY = state.openWorldBtn.bottom + (state.modePlayBtn.top - state.openWorldBtn.bottom) * 0.35f;
         drawCenteredText(canvas, desc, state.screenW / 2f, descY, 24, Color.LTGRAY, false);
 
         drawButton(canvas, state.modePlayBtn, "PLAY");
@@ -1541,11 +1771,40 @@ class GameRenderer {
         drawPlayerRow(canvas, myLabel, myHead, myBody, state.localReady, state.screenH * 0.26f);
         drawPlayerRow(canvas, oppLabel, oppHead, oppBody, state.opponentReady, state.screenH * 0.36f);
 
+        // Mode selection — the host cycles between Arcade and Classic; the client
+        // mirrors the host's choice so both sides see and play the same ruleset.
+        String modeText = state.mpModeSel == 1 ? "CLASSIC" : "ARCADE";
+        drawButton(canvas, state.mpModeBtn, "MODE: " + modeText);
+
+        // Show the effective map size (smallest screen) so the lobby is transparent.
+        int[] dims = mpBoardDimsForDisplay();
+        drawCenteredText(canvas, "MAP " + dims[0] + "x" + dims[1] + "  (smallest screen)",
+                state.screenW / 2f, state.mpModeBtn.bottom + state.screenH * 0.03f, 22, Color.LTGRAY, false);
+
         drawButton(canvas, state.readyBtn, state.localReady ? "UN-READY" : "READY");
         if (state.isHost) {
             drawButton(canvas, state.forceStartBtn, "FORCE START");
         }
         drawButton(canvas, state.cancelBtn, "DISCONNECT");
+    }
+
+    // Mirror of GameView.computeMpBoard for lobby display. Returns {cols, rows}.
+    private int[] mpBoardDimsForDisplay() {
+        int minW = state.screenW;
+        int minH = state.screenH;
+        if (state.clientScreenW > 0) minW = Math.min(minW, state.clientScreenW);
+        if (state.clientScreenH > 0) minH = Math.min(minH, state.clientScreenH);
+        if (state.isHost) {
+            if (state.mpModeSel == 1) {
+                int cellSz = Math.max(8, Math.min(minW, minH) / 18);
+                return new int[]{ Math.max(8, minW / cellSz), Math.max(8, minH / cellSz) };
+            }
+            return new int[]{ 32, 32 };
+        }
+        // Client: expose the last agreed board, falling back to a 32x32 default
+        // until the game actually starts.
+        return new int[]{ state.mpBoardCols > 0 ? state.mpBoardCols : 32,
+                          state.mpBoardRows > 0 ? state.mpBoardRows : 32 };
     }
 
     private void drawPlayerRow(Canvas canvas, String label, int headColor, int bodyColor,

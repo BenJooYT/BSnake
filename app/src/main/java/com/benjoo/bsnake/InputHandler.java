@@ -30,6 +30,7 @@ class InputHandler {
         void toggleReady();
         void forceStart();
         void rematch();
+        void cycleMpMode();
         void sendSwipe(int dx, int dy);
         void connectToHost(int index);
         void openColorPicker();
@@ -227,10 +228,17 @@ class InputHandler {
                 } else if (contains(state.classicBtn, upX, upY)) {
                     actions.playClick();
                     state.selectedModeIndex = 1;
+                } else if (contains(state.openWorldBtn, upX, upY)) {
+                    actions.playClick();
+                    state.selectedModeIndex = 2;
                 } else if (contains(state.modePlayBtn, upX, upY)) {
                     actions.playClick();
-                    state.gameMode = state.selectedModeIndex == 0
-                            ? GameState.GameMode.ARCADE : GameState.GameMode.CLASSIC;
+                    if (state.selectedModeIndex == 2) {
+                        state.gameMode = GameState.GameMode.OPEN_WORLD;
+                    } else {
+                        state.gameMode = state.selectedModeIndex == 0
+                                ? GameState.GameMode.ARCADE : GameState.GameMode.CLASSIC;
+                    }
                     actions.startNewGame();
                 } else if (contains(state.modeBackBtn, upX, upY)) {
                     actions.playClick();
@@ -280,6 +288,9 @@ class InputHandler {
                 } else if (state.isHost && contains(state.forceStartBtn, upX, upY)) {
                     actions.playClick();
                     actions.forceStart();
+                } else if (state.isHost && contains(state.mpModeBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.cycleMpMode();
                 } else if (contains(state.cancelBtn, upX, upY)) {
                     actions.playClick();
                     actions.cancelMp();

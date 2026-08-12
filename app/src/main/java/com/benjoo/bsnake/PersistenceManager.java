@@ -4,6 +4,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 
+import com.benjoo.bsnake.openworld.OpenWorldSaveData;
+import com.benjoo.bsnake.openworld.OpenWorldState;
+
 import java.util.ArrayList;
 import java.util.Collections;
 
@@ -162,5 +165,40 @@ public class PersistenceManager {
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Open World save (dedicated to the openworld subsystem; see
+    // OpenWorldSaveData). Generated terrain is never stored — it is rebuilt from
+    // the world seed on load. Missing save data decodes as an uninitialized world,
+    // so existing Arcade/Classic saves are unaffected and old saves without Open
+    // World data keep loading normally.
+    // -----------------------------------------------------------------------
+
+    // Returns the stored Open World save, or null if none exists.
+    OpenWorldSaveData loadOpenWorld() {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        String data = prefs.getString("openworld_save", "");
+        if (data == null || data.isEmpty()) return null;
+        OpenWorldSaveData save = OpenWorldSaveData.fromCsv(data);
+        return save.initialized ? save : null;
+    }
+
+    // True if an initialized Open World save exists on disk.
+    boolean hasOpenWorldSave() {
+        return loadOpenWorld() != null;
+    }
+
+    // Persists the given Open World state (progression only, never terrain).
+    void saveOpenWorld(OpenWorldState state) {
+        OpenWorldSaveData data = OpenWorldSaveData.fromState(state);
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        prefs.edit().putString("openworld_save", data.toCsv()).apply();
+    }
+
+    // Removes any stored Open World save (used when starting a brand-new world).
+    void clearOpenWorld() {
+        SharedPreferences prefs = context.getSharedPreferences("BSnakePrefs", Context.MODE_PRIVATE);
+        prefs.edit().remove("openworld_save").apply();
     }
 }

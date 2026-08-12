@@ -1,5 +1,10 @@
 package com.benjoo.bsnake;
 
+import com.benjoo.bsnake.openworld.OpenWorldCamera;
+import com.benjoo.bsnake.openworld.OpenWorldChunkManager;
+import com.benjoo.bsnake.openworld.OpenWorldCoords;
+import com.benjoo.bsnake.openworld.OpenWorldState;
+
 import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.RectF;
@@ -19,10 +24,15 @@ public class GameState {
     enum CameraMode { CLASSIC_ZOOM, FULL_PLAY_AREA, FIT_VERTICAL }
     CameraMode cameraMode = CameraMode.CLASSIC_ZOOM;
 
-    enum GameMode { ARCADE, CLASSIC }
+    enum GameMode { ARCADE, CLASSIC, OPEN_WORLD }
     volatile GameMode gameMode = GameMode.ARCADE;
-    int lastPlayedMode = -1; // -1 = none, 0 = ARCADE, 1 = CLASSIC
+    int lastPlayedMode = -1; // -1 = none, 0 = ARCADE, 1 = CLASSIC, 2 = OPEN_WORLD
     int leaderboardMode = 0; // 0 = Arcade, 1 = Classic
+
+    // Dedicated Open World subsystem state (kept separate from Arcade/Classic).
+    OpenWorldState openWorld = new OpenWorldState();
+    OpenWorldChunkManager openWorldChunks = new OpenWorldChunkManager();
+    OpenWorldCamera openWorldCamera = new OpenWorldCamera();
 
     static class ScoreEntry {
         int score;
@@ -240,8 +250,8 @@ public class GameState {
 
     RectF startBtn, speedBtn, snakeColorBtn, settingsBtn, leaderboardBtn, exitBtn;
     RectF playBtn, singleplayerBtn, multiplayerBtn, playBackBtn;
-    RectF arcadeBtn, classicBtn, modeBackBtn, modePlayBtn;
-    int selectedModeIndex = 0; // 0 = ARCADE, 1 = CLASSIC (mode select screen)
+    RectF arcadeBtn, classicBtn, openWorldBtn, modeBackBtn, modePlayBtn;
+    int selectedModeIndex = 0; // 0 = ARCADE, 1 = CLASSIC, 2 = OPEN_WORLD (mode select screen)
     RectF settingsBackBtn, cameraModeBtn;
     RectF directionButtonsBtn;
     RectF snakePreviewRect;
@@ -265,6 +275,7 @@ public class GameState {
     RectF backBtn;
     RectF hostBtn, joinBtn;
     RectF cancelBtn, readyBtn, forceStartBtn;
+    RectF mpModeBtn;      // Lobby: choose ARCADE / CLASSIC (host only)
     RectF mpRestartBtn, mpMenuBtn;
 
     float downX, downY;
@@ -312,6 +323,9 @@ public class GameState {
     int clientBodyColor = Color.rgb(0, 160, 0);
     volatile boolean opponentReady;
     volatile boolean localReady;
+    int mpModeSel = 0;          // Shared MP mode: 0 = ARCADE, 1 = CLASSIC (host choice)
+    int mpBoardCols = 0, mpBoardRows = 0;  // Agreed MP board size (smallest screen)
+    int clientScreenW = 0, clientScreenH = 0;  // Opponent's screen dims (host uses for sizing)
     volatile boolean opponentConnected;
     volatile boolean mpLabelVisible;
     volatile boolean mpGameOverSent;
@@ -394,6 +408,7 @@ public class GameState {
     int cinematicBossColor;
     ArrayList<Point> cinematicBossBody = new ArrayList<>();
     boolean cinematicExplosionTriggered = false;
+    boolean cinematicWindupTriggered = false;
     float cinematicCameraZoom = 1f;
     // Host-only: whether the boss-death cinematic has already been pushed to the
     // remote player for this death, so we don't re-send it every game tick.
@@ -433,9 +448,33 @@ public class GameState {
         return gameMode == GameMode.CLASSIC;
     }
 
+    boolean isOpenWorldMode() {
+        return gameMode == GameMode.OPEN_WORLD;
+    }
+
     void configureBoard() {
         uiCellSize = Math.max(16, screenW / 20);
-        if (gameMode == GameMode.CLASSIC) {
+        // Multiplayer shares one board sized for the smallest of the two screens.
+        // Both sides keep the agreed cols/rows so the world stays in sync even if
+        // their physical screen sizes differ.
+        if (inMp && mpBoardCols > 0 && mpBoardRows > 0) {
+            cols = mpBoardCols;
+            rows = mpBoardRows;
+            cellSize = Math.max(8, Math.min(screenW, screenH) / 18);
+            viewportWidthCells = screenW / (float) cellSize;
+            viewportHeightCells = screenH / (float) cellSize;
+            boardLeft = 0;
+            boardTop = 0;
+            return;
+        }
+        if (gameMode == GameMode.OPEN_WORLD) {
+            // Open World reuses the 32x32 chunk concept but the play field is
+            // unbounded: cell size/viewport drive the camera-relative rendering
+            // while cols/rows are irrelevant (no wrapping, no arena bounds).
+            cols = OpenWorldCoords.CHUNK_SIZE;
+            rows = OpenWorldCoords.CHUNK_SIZE;
+            cellSize = Math.max(8, Math.min(screenW, screenH) / 18);
+        } else if (gameMode == GameMode.CLASSIC) {
             int cellSz = Math.max(8, Math.min(screenW, screenH) / 18);
             cols = screenW / cellSz;
             rows = screenH / cellSz;
@@ -476,8 +515,9 @@ public class GameState {
         // Mode select
         arcadeBtn = makeBtn(cx, startY, bw, bh);
         classicBtn = makeBtn(cx, startY + bh + gap, bw, bh);
-        modePlayBtn = makeBtn(cx, screenH * 0.70f, bw, bh);
-        modeBackBtn = makeBtn(cx, screenH * 0.82f, bw, bh);
+        openWorldBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
+        modePlayBtn = makeBtn(cx, screenH * 0.74f, bw, bh);
+        modeBackBtn = makeBtn(cx, screenH * 0.86f, bw, bh);
 
         backBtn = makeBtn(cx, screenH * 0.90f, bw, bh);
         hostBtn = makeBtn(cx, startY, bw, bh);
@@ -486,6 +526,7 @@ public class GameState {
         cancelBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
         readyBtn = makeBtn(cx, screenH * 0.60f, bw, bh);
         forceStartBtn = makeBtn(cx, screenH * 0.72f, bw, bh);
+        mpModeBtn = makeBtn(cx, screenH * 0.47f, bw, bh);
 
         mpRestartBtn = makeBtn(cx, screenH * 0.56f, bw, bh);
         mpMenuBtn = makeBtn(cx, screenH * 0.56f + bh + gap, bw, bh);

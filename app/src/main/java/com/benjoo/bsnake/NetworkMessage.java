@@ -9,12 +9,23 @@ import java.util.ArrayList;
 
 class NetworkMessage {
 
-    static String hello(int headColor, int bodyColor) {
+    static String hello(int headColor, int bodyColor, int screenW, int screenH) {
         try {
             return new JSONObject()
                     .put("type", "hello")
                     .put("color", headColor)
                     .put("bodyColor", bodyColor)
+                    .put("screenW", screenW)
+                    .put("screenH", screenH)
+                    .toString() + "\n";
+        } catch (Exception e) { return null; }
+    }
+
+    static String modeSel(int mode) {
+        try {
+            return new JSONObject()
+                    .put("type", "mode")
+                    .put("mode", mode)
                     .toString() + "\n";
         } catch (Exception e) { return null; }
     }
@@ -28,10 +39,13 @@ class NetworkMessage {
         } catch (Exception e) { return null; }
     }
 
-    static String startGame() {
+    static String startGame(int mode, int cols, int rows) {
         try {
             return new JSONObject()
                     .put("type", "start")
+                    .put("mode", mode)
+                    .put("cols", cols)
+                    .put("rows", rows)
                     .toString() + "\n";
         } catch (Exception e) { return null; }
     }
