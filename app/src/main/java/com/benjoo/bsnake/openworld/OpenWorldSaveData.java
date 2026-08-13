@@ -32,6 +32,7 @@ public class OpenWorldSaveData {
     public final ArrayList<String[]> discoveredLocations = new ArrayList<>(); // {x, y, id}
     public final ArrayList<int[]> worldModifications = new ArrayList<>();       // {x, y, kind, meta}
     public final ArrayList<String[]> npcStates = new ArrayList<>();             // {x, y, state, id}
+    public final ArrayList<String[]> customMarkers = new ArrayList<>();         // {x, y, kind}
     public final ArrayList<String> defeatedEncounters = new ArrayList<>();
 
     public OpenWorldSaveData() { }
@@ -62,6 +63,10 @@ public class OpenWorldSaveData {
         for (OpenWorldState.NpcState n : s.npcStates) {
             d.npcStates.add(new String[]{String.valueOf(n.x), String.valueOf(n.y),
                     String.valueOf(n.state), n.id});
+        }
+        for (OpenWorldState.CustomMarker m : s.customMarkers) {
+            d.customMarkers.add(new String[]{String.valueOf(m.x), String.valueOf(m.y),
+                    String.valueOf(m.kind)});
         }
         d.defeatedEncounters.addAll(s.defeatedEncounters);
         return d;
@@ -95,6 +100,12 @@ public class OpenWorldSaveData {
         for (String[] n : npcStates) {
             s.npcStates.add(new OpenWorldState.NpcState(n[3], parseInt(n[0]), parseInt(n[1]), parseInt(n[2])));
         }
+        s.customMarkers.clear();
+        for (String[] m : customMarkers) {
+            if (m.length >= 3) {
+                s.customMarkers.add(new OpenWorldState.CustomMarker(parseInt(m[0]), parseInt(m[1]), parseInt(m[2])));
+            }
+        }
         s.defeatedEncounters.clear();
         s.defeatedEncounters.addAll(defeatedEncounters);
     }
@@ -122,6 +133,9 @@ public class OpenWorldSaveData {
         sb.append('\n');
         sb.append("npcs");
         for (String[] n : npcStates) sb.append(',').append(n[0]).append(':').append(n[1]).append(':').append(n[2]).append(':').append(n[3]);
+        sb.append('\n');
+        sb.append("markers");
+        for (String[] m : customMarkers) sb.append(',').append(m[0]).append(':').append(m[1]).append(':').append(m[2]);
         sb.append('\n');
         sb.append("defeated");
         for (String id : defeatedEncounters) sb.append(',').append(id);
@@ -172,6 +186,11 @@ public class OpenWorldSaveData {
                 for (int j = 1; j < parts.length; j++) {
                     String[] c = parts[j].split(":", -1);
                     if (c.length == 4) d.npcStates.add(new String[]{c[0], c[1], c[2], c[3]});
+                }
+            } else if (tag.equals("markers")) {
+                for (int j = 1; j < parts.length; j++) {
+                    String[] c = parts[j].split(":", -1);
+                    if (c.length == 3) d.customMarkers.add(new String[]{c[0], c[1], c[2]});
                 }
             } else if (tag.equals("defeated")) {
                 for (int j = 1; j < parts.length; j++) {

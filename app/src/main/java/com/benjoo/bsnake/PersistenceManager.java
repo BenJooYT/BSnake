@@ -26,7 +26,7 @@ public class PersistenceManager {
     }
 
     ArrayList<GameState.ScoreEntry> loadScores(int gameModeOrdinal) {
-        String key = gameModeOrdinal == 1 ? "leaderboard_classic" : "leaderboard_arcade";
+        String key = leaderboardKey(gameModeOrdinal);
         ArrayList<GameState.ScoreEntry> list = loadScoresFromKey(key);
         // Migration: if Arcade and no scores yet, check legacy key
         if (gameModeOrdinal == 0 && list.isEmpty()) {
@@ -60,6 +60,12 @@ public class PersistenceManager {
         return list;
     }
 
+    private String leaderboardKey(int gameModeOrdinal) {
+        if (gameModeOrdinal == 1) return "leaderboard_classic";
+        if (gameModeOrdinal == 2) return "leaderboard_openworld";
+        return "leaderboard_arcade";
+    }
+
     private void saveScoresList(ArrayList<GameState.ScoreEntry> list, String key) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < list.size(); i++) {
@@ -77,7 +83,7 @@ public class PersistenceManager {
     }
 
     void saveScore(int score, String difficulty, int gameModeOrdinal) {
-        String key = gameModeOrdinal == 1 ? "leaderboard_classic" : "leaderboard_arcade";
+        String key = leaderboardKey(gameModeOrdinal);
         ArrayList<GameState.ScoreEntry> list = loadScoresFromKey(key);
         // Migration: if Arcade and no new-key scores yet, merge legacy scores
         if (gameModeOrdinal == 0 && list.isEmpty()) {

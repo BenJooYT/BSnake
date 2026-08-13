@@ -1,7 +1,11 @@
 package com.benjoo.bsnake;
 
+import com.benjoo.bsnake.openworld.OpenWorldChunk;
 import com.benjoo.bsnake.openworld.OpenWorldChunkManager;
 import com.benjoo.bsnake.openworld.OpenWorldCoords;
+import com.benjoo.bsnake.openworld.OpenWorldGenerator;
+import com.benjoo.bsnake.openworld.OpenWorldPoi;
+import com.benjoo.bsnake.openworld.OpenWorldState;
 
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -62,12 +66,20 @@ class GameRenderer {
                 break;
             case PAUSED:
                 if (state.isOpenWorldMode()) {
-                    drawOpenWorld(canvas, 1f);
+                    if (state.mapOpen) {
+                        drawOpenWorld(canvas, 1f);
+                        drawDim(canvas);
+                        drawFullMap(canvas);
+                    } else {
+                        drawOpenWorld(canvas, 1f);
+                        drawDim(canvas);
+                        drawPausedOverlay(canvas);
+                    }
                 } else {
                     drawGameField(canvas, 1f, false);
+                    drawDim(canvas);
+                    drawPausedOverlay(canvas);
                 }
-                drawDim(canvas);
-                drawPausedOverlay(canvas);
                 break;
             case BOSS_UPGRADE:
                 drawGameField(canvas, 1f, false);
@@ -538,6 +550,10 @@ class GameRenderer {
             float foodDy = f.y - state.cameraY;
             if (Math.abs(foodDx) >= state.viewportWidthCells / 2f
                     || Math.abs(foodDy) >= state.viewportHeightCells / 2f) {
+                // In Open World normal food is chunk-scattered, so skip the
+                // off-screen arrow markers for it (they just clutter). Special
+                // food and other modes keep their arrows.
+                if (state.isOpenWorldMode() && f.type == GameState.FruitType.NORMAL) continue;
                 drawFoodArrow(canvas, foodDx, foodDy, foodColor(f.type));
                 continue;
             }
@@ -552,6 +568,8 @@ class GameRenderer {
             canvas.drawCircle(cx, cy, r, paint);
             drawFoodGlow(canvas, cx, cy, Math.max(8, state.cellSize / 2f + 4) * scaleIn * pulse, core);
         }
+
+        drawOpenWorldPois(canvas);
 
         drawParticles(canvas, state.cameraX, state.cameraY);
 
@@ -571,11 +589,37 @@ class GameRenderer {
         }
         drawMirrorIndicator(canvas);
         drawDirectionPad(canvas);
+        drawMinimap(canvas);
+        drawOpenWorldHud(canvas);
 
-        canvas.restore();
         state.cellSize = savedCellSize;
         state.viewportWidthCells = savedViewportW;
         state.viewportHeightCells = savedViewportH;
+    }
+
+    // Compact OPEN_WORLD progression HUD: currency, level and XP progress, shown
+    // under the minimap so discovery rewards are always visible.
+    private void drawOpenWorldHud(Canvas canvas) {
+        if (!state.isOpenWorldMode() || state.minimapRect == null) return;
+        float x = state.minimapRect.right - state.minimapRect.width();
+        float y = state.minimapRect.bottom + 10;
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(20);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setColor(Color.rgb(255, 210, 80));
+        canvas.drawText("C " + state.openWorld.currency, x, y, paint);
+        paint.setColor(Color.rgb(140, 200, 255));
+        canvas.drawText("LV " + state.openWorld.level, x + 96, y, paint);
+        // XP progress bar toward next level.
+        int xp = state.openWorld.xp;
+        int cur = xp % 100;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(60, 70, 80));
+        canvas.drawRect(x, y + 6, x + 190, y + 12, paint);
+        paint.setColor(Color.rgb(120, 200, 255));
+        canvas.drawRect(x, y + 6, x + 190 * (cur / 100f), y + 12, paint);
+        paint.setTypeface(Typeface.DEFAULT);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     // Draws grid lines for the currently loaded chunks that are on screen, so
@@ -611,6 +655,358 @@ class GameRenderer {
         }
         paint.setStyle(Paint.Style.FILL);
         paint.setStrokeWidth(0);
+    }
+
+    // Draws points of interest in the play field as ground landmarks. Discovered
+    // POIs appear as full markers with a reflective "known" ring; undiscovered
+    // ones show a pulsing outline so exploration has somewhere to aim. The POI's
+    // structure blueprint is rendered first as solid unit blocks so each location
+    // reads as a structure built from cells.
+    private void drawOpenWorldPois(Canvas canvas) {
+        for (OpenWorldChunk chunk : state.openWorldChunks.loadedChunks()) {
+            // Draw structure units owned by this chunk (the POI's footprint).
+            for (OpenWorldChunk.CellRef u : chunk.obstacles()) {
+                if (!isStructureUnit(u.kind)) continue;
+                int wx = chunk.originX + u.localX;
+                int wy = chunk.originY + u.localY;
+                float fx = wx - state.cameraX;
+                float fy = wy - state.cameraY;
+                if (Math.abs(fx) > state.viewportWidthCells / 2f + 1f
+                        || Math.abs(fy) > state.viewportHeightCells / 2f + 1f) continue;
+                float px = owScreenX(wx);
+                float py = owScreenY(wy);
+                float cs = state.cellSize;
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(structureUnitColor(u.kind));
+                canvas.drawRect(px, py, px + cs - 1, py + cs - 1, paint);
+            }
+        }
+        for (OpenWorldChunk chunk : state.openWorldChunks.loadedChunks()) {
+            for (OpenWorldChunk.PointOfInterest p : chunk.pointsOfInterest()) {
+                OpenWorldPoi.Template t = OpenWorldPoi.templateFor(p.kind);
+                if (t == null) continue;
+                int wx = chunk.originX + p.localX;
+                int wy = chunk.originY + p.localY;
+                float fx = wx - state.cameraX;
+                float fy = wy - state.cameraY;
+                if (Math.abs(fx) > state.viewportWidthCells / 2f + t.radius
+                        || Math.abs(fy) > state.viewportHeightCells / 2f + t.radius) continue;
+                float px = owScreenX(wx) + state.cellSize / 2f;
+                float py = owScreenY(wy) + state.cellSize / 2f;
+                boolean discovered = isDiscovered(wx, wy);
+                float radius = state.cellSize * (0.7f + t.radius * 0.6f);
+                long now = System.currentTimeMillis();
+                float pulse = discovered ? 1f : 1f + 0.12f * (float) Math.sin(now * 0.003);
+                if (!discovered) {
+                    paint.setTextAlign(Paint.Align.CENTER);
+                    paint.setTextSize(state.cellSize * 0.5f);
+                    paint.setTypeface(Typeface.DEFAULT_BOLD);
+                    paint.setColor(Color.WHITE);
+                    canvas.drawText("?", px, py - state.cellSize * 0.6f, paint);
+                    paint.setTypeface(Typeface.DEFAULT);
+                    paint.setTextAlign(Paint.Align.LEFT);
+                }
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(discovered ? 3f : 2f);
+                paint.setColor(t.color);
+                canvas.drawCircle(px, py, radius * pulse, paint);
+                paint.setStyle(Paint.Style.FILL);
+                // Name for discovered POIs.
+                if (discovered) {
+                    paint.setTextAlign(Paint.Align.CENTER);
+                    paint.setTextSize(state.cellSize * 0.55f);
+                    paint.setTypeface(Typeface.DEFAULT_BOLD);
+                    paint.setColor(Color.WHITE);
+                    canvas.drawText(t.name, px, py - radius - state.cellSize * 0.3f, paint);
+                    paint.setTypeface(Typeface.DEFAULT);
+                    paint.setTextAlign(Paint.Align.LEFT);
+                }
+            }
+        }
+    }
+
+    private boolean isStructureUnit(int kind) {
+        return kind == OpenWorldPoi.UNIT_WALL || kind == OpenWorldPoi.UNIT_FLOOR
+                || kind == OpenWorldPoi.UNIT_FEATURE || kind == OpenWorldPoi.UNIT_DECOR
+                || kind == OpenWorldPoi.UNIT_BOUNDARY;
+    }
+
+    private int structureUnitColor(int kind) {
+        switch (kind) {
+            case OpenWorldPoi.UNIT_WALL: return Color.rgb(96, 82, 70);
+            case OpenWorldPoi.UNIT_FEATURE: return Color.rgb(120, 92, 60);
+            case OpenWorldPoi.UNIT_DECOR: return Color.rgb(70, 96, 64);
+            case OpenWorldPoi.UNIT_BOUNDARY: return Color.rgb(120, 114, 104);
+            default: return Color.rgb(150, 140, 120); // FLOOR
+        }
+    }
+
+    private boolean isDiscovered(int wx, int wy) {
+        for (OpenWorldState.LocationRecord r : state.openWorld.discoveredLocations) {
+            if (r.x == wx && r.y == wy) return true;
+        }
+        return false;
+    }
+
+    private int darker(int color, float factor) {
+        return Color.argb(Color.alpha(color),
+                (int) (Color.red(color) * factor),
+                (int) (Color.green(color) * factor),
+                (int) (Color.blue(color) * factor));
+    }
+
+    // -----------------------------------------------------------------------
+    // Open World map (minimap + full map)
+    // -----------------------------------------------------------------------
+
+    // A small radar in the top-right while playing. Player at the center,
+    // nearby terrain (from loaded, explored chunks) in simplified biome colors,
+    // unexplored territory hidden. North-up.
+    private void drawMinimap(Canvas canvas) {
+        if (!state.isOpenWorldMode() || state.minimapRect == null) return;
+        RectF r = state.minimapRect;
+
+        canvas.save();
+        // Clip to the minimap square and draw a dark backing.
+        canvas.clipRect(r);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(12, 16, 20));
+        canvas.drawRect(r, paint);
+        // Thin border.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(Color.rgb(80, 100, 90));
+        canvas.drawRect(r, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        // World region shown, in tiles, sized so ~a little more than one chunk
+        // fits. Player stays centered.
+        float halfTiles = r.width() / 2f / 10f; // ~10px per tile
+        float cx = state.openWorld.playerX;
+        float cy = state.openWorld.playerY;
+        float worldLeft = cx - halfTiles;
+        float worldTop = cy - halfTiles;
+
+        // Snap to the nearest terrain "sample" for uniformity and perf.
+        float tilePx = r.width() / (2f * halfTiles);
+        int tiles = (int) (r.width() / tilePx);
+        for (float wy = 0; wy < r.height(); wy += tilePx) {
+            for (float wx = 0; wx < r.width(); wx += tilePx) {
+                int tpx = Math.round(worldLeft + (wx + tilePx / 2f) / tilePx);
+                int tpy = Math.round(worldTop + (wy + tilePx / 2f) / tilePx);
+                if (!state.openWorld.isExplored(tpx, tpy)) continue; // fog of war
+                byte t = terrainAt(tpx, tpy);
+                if (t == OpenWorldChunk.TERRAIN_EMPTY) continue;
+                paint.setColor(biomeColor(t));
+                canvas.drawRect(r.left + wx, r.top + wy,
+                        r.left + wx + tilePx, r.top + wy + tilePx, paint);
+            }
+        }
+
+        // Player marker at center.
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(r.centerX(), r.centerY(), Math.max(3, tilePx * 0.9f), paint);
+
+        // Nearby custom markers.
+        drawMiniMapMarkers(canvas, r, cx, cy, halfTiles, tilePx);
+        drawMiniMapPois(canvas, r, halfTiles, tilePx);
+        canvas.restore();
+    }
+
+    // Discovered POIs are shown as small tier-colored dots on the minimap.
+    private void drawMiniMapPois(Canvas canvas, RectF r, float halfTiles, float tilePx) {
+        for (OpenWorldState.LocationRecord loc : state.openWorld.discoveredLocations) {
+            int dx = loc.x - state.openWorld.playerX;
+            int dy = loc.y - state.openWorld.playerY;
+            if (Math.abs(dx) > halfTiles || Math.abs(dy) > halfTiles) continue;
+            float mx = r.centerX() + dx * tilePx;
+            float my = r.centerY() + dy * tilePx;
+            paint.setColor(poiColorById(loc.id));
+            canvas.drawCircle(mx, my, Math.max(3, tilePx * 0.7f), paint);
+        }
+    }
+
+    private void drawMiniMapMarkers(Canvas canvas, RectF r, float cyx, float cyy,
+                                    float halfTiles, float tilePx) {
+        for (OpenWorldState.CustomMarker m : state.openWorld.customMarkers) {
+            int dx = m.x - state.openWorld.playerX;
+            int dy = m.y - state.openWorld.playerY;
+            if (Math.abs(dx) > halfTiles || Math.abs(dy) > halfTiles) continue;
+            float mx = r.centerX() + dx * tilePx;
+            float my = r.centerY() + dy * tilePx;
+            paint.setColor(markerColor(m.kind));
+            canvas.drawCircle(mx, my, Math.max(3, tilePx * 0.7f), paint);
+        }
+    }
+
+    // Full-screen map opened from the minimap / pause. Game is paused while it
+    // is shown. Supports two zoom levels (local / regional), pan by drag, and
+    // tapping to place a selected custom marker type.
+    private void drawFullMap(Canvas canvas) {
+        if (!state.isOpenWorldMode()) return;
+        // Dim backdrop (already dimmed by caller).
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(8, 12, 14));
+        canvas.drawRect(0, 0, state.screenW, state.screenH, paint);
+
+        float zoom = state.mapZoomLevel == 1 ? GameState.MAP_ZOOM_LOCAL : GameState.MAP_ZOOM_REGIONAL;
+        float cx = state.mapCenterX;
+        float cy = state.mapCenterY;
+        float halfW = state.screenW / 2f / zoom;
+        float halfH = state.screenH / 2f / zoom;
+
+        // Draw explored terrain across the visible region.
+        int x0 = (int) Math.floor(cx - halfW);
+        int x1 = (int) Math.ceil(cx + halfW);
+        int y0 = (int) Math.floor(cy - halfH);
+        int y1 = (int) Math.ceil(cy + halfH);
+        for (int worldY = y0; worldY <= y1; worldY++) {
+            for (int worldX = x0; worldX <= x1; worldX++) {
+                if (!state.openWorld.isExplored(worldX, worldY)) continue;
+                byte t = terrainAt(worldX, worldY);
+                if (t == OpenWorldChunk.TERRAIN_EMPTY) continue;
+                paint.setColor(biomeColor(t));
+                float sx = state.screenW / 2f + (worldX - cx) * zoom;
+                float sy = state.screenH / 2f + (worldY - cy) * zoom;
+                canvas.drawRect(sx, sy, sx + zoom, sy + zoom, paint);
+            }
+        }
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1f);
+        paint.setColor(Color.rgb(60, 70, 66));
+        for (int worldX = x0; worldX <= x1; worldX += OpenWorldCoords.CHUNK_SIZE) {
+            float sx = state.screenW / 2f + (worldX - cx) * zoom;
+            canvas.drawLine(sx, 0, sx, state.screenH, paint);
+        }
+        for (int worldY = y0; worldY <= y1; worldY += OpenWorldCoords.CHUNK_SIZE) {
+            float sy = state.screenH / 2f + (worldY - cy) * zoom;
+            canvas.drawLine(0, sy, state.screenW, sy, paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+
+        drawMapMarkers(canvas, cx, cy, zoom);
+        drawMapUi(canvas, zoom);
+
+        // Existing custom markers (selectable / removable on tap handled in input).
+        for (OpenWorldState.CustomMarker m : state.openWorld.customMarkers) {
+            float mx = state.screenW / 2f + (m.x - cx) * zoom;
+            float my = state.screenH / 2f + (m.y - cy) * zoom;
+            if (mx < 0 || my < 0 || mx > state.screenW || my > state.screenH) continue;
+            paint.setColor(markerColor(m.kind));
+            canvas.drawCircle(mx, my, Math.max(6, zoom * 0.8f), paint);
+        }
+
+        // Player marker.
+        float px = state.screenW / 2f + (state.openWorld.playerX - cx) * zoom;
+        float py = state.screenH / 2f + (state.openWorld.playerY - cy) * zoom;
+        paint.setColor(Color.WHITE);
+        canvas.drawCircle(px, py, Math.max(7, zoom * 1.1f), paint);
+    }
+
+    private void drawMapMarkers(Canvas canvas, float cx, float cy, float zoom) {
+        // Auto markers from discovered locations, colored by the POI template so
+        // tier is legible at a glance (bright gold = rare).
+        for (OpenWorldState.LocationRecord loc : state.openWorld.discoveredLocations) {
+            float mx = state.screenW / 2f + (loc.x - cx) * zoom;
+            float my = state.screenH / 2f + (loc.y - cy) * zoom;
+            if (mx < 0 || my < 0 || mx > state.screenW || my > state.screenH) continue;
+            paint.setColor(poiColorById(loc.id));
+            canvas.drawCircle(mx, my, Math.max(5, zoom * 0.7f), paint);
+        }
+    }
+
+    // Resolves the display color for a POI id (the template's kind color), or a
+    // neutral gold for unknown locations.
+    private int poiColorById(String id) {
+        for (OpenWorldChunk chunk : state.openWorldChunks.loadedChunks()) {
+            for (OpenWorldChunk.PointOfInterest p : chunk.pointsOfInterest()) {
+                OpenWorldPoi.Template t = OpenWorldPoi.templateFor(p.kind);
+                if (t != null && t.id.equals(id)) return t.color;
+            }
+        }
+        // Fall back by scanning all templates by id.
+        for (int k = 0; k < OpenWorldPoi.KIND_COUNT; k++) {
+            OpenWorldPoi.Template t = OpenWorldPoi.templateFor(k);
+            if (t != null && t.id.equals(id)) return t.color;
+        }
+        return Color.rgb(255, 200, 60);
+    }
+
+    private void drawMapUi(Canvas canvas, float zoom) {
+        // Title.
+        drawCenteredText(canvas, "MAP", state.screenW / 2f, 48, 40, Color.WHITE, true);
+        drawCenteredText(canvas, state.mapZoomLevel == 1 ? "LOCAL" : "REGIONAL",
+                state.screenW / 2f, 88, 24, Color.rgb(200, 200, 200), true);
+
+        // Zoom toggle button (bottom-left).
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(40, 50, 46));
+        RectF zoomBtn = new RectF(16, state.screenH - 92, 16 + 84, state.screenH - 32);
+        canvas.drawRoundRect(zoomBtn, 12, 12, paint);
+        drawCenteredText(canvas, "ZOOM", zoomBtn.centerX(), zoomBtn.centerY(), 22, Color.WHITE, true);
+
+        // Marker kind selector (bottom center).
+        paint.setColor(Color.rgb(40, 50, 46));
+        float mw = 120;
+        RectF markerBtn = new RectF(state.screenW / 2f - mw / 2f, state.screenH - 92,
+                state.screenW / 2f + mw / 2f, state.screenH - 32);
+        canvas.drawRoundRect(markerBtn, 12, 12, paint);
+        int shown = state.pendingMarkerKind >= 0 ? state.pendingMarkerKind : state.selectedMarkerKind;
+        drawCenteredText(canvas, markerLabel(shown), markerBtn.centerX(), markerBtn.centerY(), 22, Color.WHITE, true);
+        drawCenteredText(canvas, "TAP: PLACE", markerBtn.centerX(), markerBtn.centerY() + 34, 14, Color.rgb(180, 220, 180), true);
+
+        // Re-center to player (bottom-right).
+        paint.setColor(Color.rgb(40, 50, 46));
+        RectF recenterBtn = new RectF(state.screenW - 100, state.screenH - 92,
+                state.screenW - 16, state.screenH - 32);
+        canvas.drawRoundRect(recenterBtn, 12, 12, paint);
+        drawCenteredText(canvas, "CENTER", recenterBtn.centerX(), recenterBtn.centerY(), 20, Color.WHITE, true);
+
+        // Close (top-left).
+        paint.setColor(Color.rgb(60, 40, 40));
+        RectF closeBtn = new RectF(16, 16, 90, 62);
+        canvas.drawRoundRect(closeBtn, 12, 12, paint);
+        drawCenteredText(canvas, "CLOSE", closeBtn.centerX(), closeBtn.centerY(), 22, Color.WHITE, true);
+    }
+
+    // Returns the terrain kind at a world cell. Uses the world's generator
+    // deterministically so explored territory stays colored on the map even when
+    // its chunk is not currently loaded, and never grows the loaded chunk set.
+    private byte terrainAt(int worldX, int worldY) {
+        OpenWorldGenerator gen = state.openWorldChunks.getGenerator();
+        if (gen == null) return OpenWorldChunk.TERRAIN_EMPTY;
+        return gen.biomeAt(worldX, worldY);
+    }
+
+    private int biomeColor(byte t) {
+        switch (t) {
+            case OpenWorldChunk.TERRAIN_GRASS: return Color.rgb(60, 130, 60);
+            case OpenWorldChunk.TERRAIN_FOREST: return Color.rgb(34, 105, 46);
+            case OpenWorldChunk.TERRAIN_WATER: return Color.rgb(40, 90, 160);
+            case OpenWorldChunk.TERRAIN_SAND: return Color.rgb(200, 180, 120);
+            case OpenWorldChunk.TERRAIN_MOUNTAIN: return Color.rgb(120, 110, 100);
+            case OpenWorldChunk.TERRAIN_SNOW: return Color.rgb(225, 230, 235);
+            default: return Color.rgb(20, 26, 22);
+        }
+    }
+
+    private int markerColor(int kind) {
+        switch (kind) {
+            case OpenWorldState.MARKER_DANGER: return Color.rgb(220, 60, 50);
+            case OpenWorldState.MARKER_RESOURCE: return Color.rgb(90, 200, 120);
+            case OpenWorldState.MARKER_INTEREST: return Color.rgb(90, 160, 240);
+            default: return Color.rgb(255, 200, 40); // RETURN
+        }
+    }
+
+    private String markerLabel(int kind) {
+        switch (kind) {
+            case OpenWorldState.MARKER_DANGER: return "DANGER";
+            case OpenWorldState.MARKER_RESOURCE: return "RESOURCE";
+            case OpenWorldState.MARKER_INTEREST: return "INTEREST";
+            default: return "RETURN";
+        }
     }
 
     // Open World death dissolve (non-wrapping version of drawDeath).

@@ -18,18 +18,23 @@ public class OpenWorldCamera {
     public float x;
     public float y;
 
-    // Configurable: how much the camera trails behind the snake head.
-    public static final float FOLLOW_LAG = 0.35f;
+    // Configurable: how much the camera trails behind the snake head. Kept
+    // strictly below 1 so the camera always eases toward the head instead of
+    // snapping to it mid-glide (which caused a visible stutter when the blend
+    // previously reached exactly 1.0 as the interpolation factor climbed).
+    public static final float FOLLOW_LAG = 0.22f;
 
     public OpenWorldCamera() {
         x = 0f;
         y = 0f;
     }
 
-    // Targets the camera at the snake head (world float position), smoothing via
-    // the existing interpolation factor t so motion is fluid.
+    // Targets the camera at the snake head (world float position). Uses a
+    // constant smoothing factor rather than one tied to the head's per-frame
+    // interpolation so the camera never snaps discontinuously and the motion
+    // stays fluid frame to frame.
     public void follow(float headWorldX, float headWorldY, float t) {
-        float blend = Math.min(1f, FOLLOW_LAG + t);
+        float blend = FOLLOW_LAG;
         x += (headWorldX - x) * blend;
         y += (headWorldY - y) * blend;
     }

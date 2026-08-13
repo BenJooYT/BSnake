@@ -34,6 +34,41 @@ public class GameState {
     OpenWorldChunkManager openWorldChunks = new OpenWorldChunkManager();
     OpenWorldCamera openWorldCamera = new OpenWorldCamera();
 
+    // -----------------------------------------------------------------------
+    // Open World map (minimap + full map overlay)
+    // -----------------------------------------------------------------------
+
+    // Screen rect of the mini radar in the top-right corner while playing.
+    RectF minimapRect;
+
+    // True while the full map overlay is open (game is paused during it).
+    boolean mapOpen = false;
+
+    // Full-map camera: zoom scale in pixels-per-tile and the world coord at
+    // the center of the screen. Two zoom levels: local (~one chunk) and
+    // regional (~several chunks). 1 = local, 2 = regional.
+    int mapZoomLevel = 1;
+    float mapCenterX, mapCenterY;
+    static final float MAP_ZOOM_LOCAL = 26f;      // px per tile
+    static final float MAP_ZOOM_REGIONAL = 8f;    // px per tile
+
+    // Marker placement: -1 = nothing selected; otherwise MARKER_* kind. When
+    // set and the player taps the map, a marker is placed at that world pos.
+    int pendingMarkerKind = -1;
+    // The marker kind last picked (for the HUD/shortcut).
+    int selectedMarkerKind = OpenWorldState.MARKER_RETURN;
+
+    // The world position that is currently being panned toward / that the
+    // "recenter" action jumps back to (the player).
+    boolean mapDirty = false;
+
+    // Full-map UI hit regions (open world only).
+    RectF mapZoomBtn, mapMarkerBtn, mapRecenterBtn, mapCloseBtn;
+
+    // Full-map drag/pan tracking.
+    boolean mapDragging = false;
+    float mapDragLastX, mapDragLastY;
+
     static class ScoreEntry {
         int score;
         long timestamp;
@@ -566,7 +601,27 @@ public class GameState {
         devPathBtn = makeBtn(cx, startY + (bh + gap) * 7 + uiCellSize * 0.4f, bw, bh * 0.8f);
 
         float iconSize = uiCellSize * 1.1f;
-        pauseIcon = new RectF(screenW - iconSize - 16, 16, screenW - 16, 16 + iconSize);
+        // In Open World the top-right corner hosts the minimap, so the pause
+        // button drops to a thin bar directly below the minimap and never
+        // overlaps it. In other modes it stays in the corner.
+        if (gameMode == GameMode.OPEN_WORLD) {
+            float mmSize = Math.min(screenW * 0.30f, screenH * 0.32f);
+            float mmRight = screenW - 12;
+            float mmTop = 12;
+            minimapRect = new RectF(mmRight - mmSize, mmTop, mmRight, mmTop + mmSize);
+            pauseIcon = new RectF(
+                    minimapRect.left + 4, minimapRect.bottom + 8,
+                    minimapRect.right - 4, minimapRect.bottom + 8 + iconSize * 0.8f);
+            mapZoomBtn = new RectF(16, screenH - 92, 16 + 84, screenH - 32);
+            mapMarkerBtn = new RectF(screenW / 2f - 60, screenH - 92,
+                    screenW / 2f + 60, screenH - 32);
+            mapRecenterBtn = new RectF(screenW - 100, screenH - 92,
+                    screenW - 16, screenH - 32);
+            mapCloseBtn = new RectF(16, 16, 90, 62);
+        } else {
+            minimapRect = null;
+            pauseIcon = new RectF(screenW - iconSize - 16, 16, screenW - 16, 16 + iconSize);
+        }
         pauseHitRect = new RectF(
                 pauseIcon.left - 16, pauseIcon.top - 12,
                 pauseIcon.right + 16, pauseIcon.bottom + 12);

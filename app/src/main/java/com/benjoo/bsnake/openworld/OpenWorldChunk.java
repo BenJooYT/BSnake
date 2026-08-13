@@ -19,8 +19,20 @@ import java.util.ArrayList;
 // ---------------------------------------------------------------------------
 public class OpenWorldChunk {
 
-    // Open space (no terrain).
+// Open space (no terrain).
     public static final byte TERRAIN_EMPTY = 0;
+
+    // Terrain / biome kinds stored in the chunk terrain grid. These drive the
+    // simplified biome colors used by the play field and the minimap / full map.
+    public static final byte TERRAIN_GRASS = 1;
+    public static final byte TERRAIN_FOREST = 2;
+    public static final byte TERRAIN_WATER = 3;
+    public static final byte TERRAIN_SAND = 4;
+    public static final byte TERRAIN_MOUNTAIN = 5;
+    public static final byte TERRAIN_SNOW = 6;
+
+    // Food kinds used in CellRef.kind for foodRefs.
+    public static final int FOOD_NORMAL = 0;
 
     // World-space chunk coordinates (see OpenWorldCoords).
     public final int chunkX;

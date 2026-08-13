@@ -1,5 +1,7 @@
 package com.benjoo.bsnake;
 
+import com.benjoo.bsnake.openworld.OpenWorldState;
+
 import android.graphics.Point;
 import android.graphics.RectF;
 import android.view.MotionEvent;
@@ -73,6 +75,12 @@ class InputHandler {
                         && (state.currentState == GameState.State.PLAYING
                             || state.currentState == GameState.State.MP_PLAYING)
                         && inDpadRegion(event.getX(), event.getY());
+                if (state.mapOpen) {
+                    state.mapDragging = true;
+                    state.mapDragLastX = event.getX();
+                    state.mapDragLastY = event.getY();
+                    return true;
+                }
                 if (state.currentState == GameState.State.SETTINGS) {
                     checkSliderDown(event.getX(), event.getY());
                 } else if (state.currentState == GameState.State.COLOR_PICKER) {
@@ -82,9 +90,25 @@ class InputHandler {
                 }
                 break;
             case MotionEvent.ACTION_MOVE:
+                if (state.mapOpen && state.mapDragging) {
+                    float zoom = state.mapZoomLevel == 1
+                            ? GameState.MAP_ZOOM_LOCAL : GameState.MAP_ZOOM_REGIONAL;
+                    float dX = (state.mapDragLastX - event.getX()) / zoom;
+                    float dY = (state.mapDragLastY - event.getY()) / zoom;
+                    state.mapCenterX += dX;
+                    state.mapCenterY += dY;
+                    state.mapDragLastX = event.getX();
+                    state.mapDragLastY = event.getY();
+                    return true;
+                }
                 if (draggingSlider != 0) handleSliderDrag(event.getX());
                 break;
             case MotionEvent.ACTION_UP:
+                if (state.mapOpen) {
+                    state.mapDragging = false;
+                    handleMapUp(event.getX(), event.getY());
+                    return true;
+                }
                 if (draggingSlider != 0) {
                     draggingSlider = 0;
                 } else {
@@ -380,6 +404,14 @@ class InputHandler {
                     state.currentState = GameState.State.PAUSED;
                     return;
                 }
+                // Tap on the minimap opens the full map (pauses the game).
+                if (state.currentState == GameState.State.PLAYING
+                        && state.isOpenWorldMode()
+                        && smallMove && contains(state.minimapRect, upX, upY)) {
+                    actions.playPause();
+                    openMap();
+                    return;
+                }
 
                 // Challenge HUD: tapping the collapsed dot strip opens the full
                 // list; tapping the open panel collapses it. Swipes still pass
@@ -499,6 +531,85 @@ class InputHandler {
                 }
                 break;
         }
+    }
+
+    private void openMap() {
+        state.mapOpen = true;
+        state.currentState = GameState.State.PAUSED;
+        state.mapZoomLevel = 1;
+        // Center the full map on the player.
+        state.mapCenterX = state.openWorld.playerX;
+        state.mapCenterY = state.openWorld.playerY;
+    }
+
+    private void closeMap() {
+        state.mapOpen = false;
+        state.pendingMarkerKind = -1;
+        state.currentState = GameState.State.PLAYING;
+    }
+
+    private void handleMapUp(float upX, float upY) {
+        if (contains(state.mapCloseBtn, upX, upY)) {
+            actions.playClick();
+            closeMap();
+            return;
+        }
+        if (contains(state.mapRecenterBtn, upX, upY)) {
+            actions.playClick();
+            state.mapCenterX = state.openWorld.playerX;
+            state.mapCenterY = state.openWorld.playerY;
+            return;
+        }
+        if (contains(state.mapZoomBtn, upX, upY)) {
+            actions.playClick();
+            state.mapZoomLevel = state.mapZoomLevel == 1 ? 2 : 1;
+            return;
+        }
+        if (contains(state.mapMarkerBtn, upX, upY)) {
+            actions.playClick();
+            // Cycle through marker kinds.
+            state.selectedMarkerKind++;
+            if (state.selectedMarkerKind > OpenWorldState.MARKER_INTEREST) {
+                state.selectedMarkerKind = OpenWorldState.MARKER_RETURN;
+            }
+            if (state.pendingMarkerKind < 0) {
+                state.pendingMarkerKind = state.selectedMarkerKind;
+            } else {
+                state.pendingMarkerKind = -1; // toggle off (browse mode)
+            }
+            return;
+        }
+
+        // A tap on the map itself: place or remove a marker at that world pos.
+        float zoom = state.mapZoomLevel == 1
+                ? GameState.MAP_ZOOM_LOCAL : GameState.MAP_ZOOM_REGIONAL;
+        int worldX = Math.round(state.mapCenterX + (upX - state.screenW / 2f) / zoom);
+        int worldY = Math.round(state.mapCenterY + (upY - state.screenH / 2f) / zoom);
+
+        // If a marker kind is armed, place it; otherwise tapping an existing
+        // marker removes it.
+        if (state.pendingMarkerKind >= 0) {
+            if (isMapUiButton(upX, upY)) return;
+            if (engine.placeCustomMarker(worldX, worldY, state.pendingMarkerKind)) {
+                actions.playClick();
+            }
+        } else {
+            if (engine.removeCustomMarker(worldX, worldY)) {
+                actions.playClick();
+            }
+        }
+    }
+
+    private boolean isMapUiButton(float x, float y) {
+        return contains(state.mapCloseBtn, x, y)
+                || contains(state.mapZoomBtn, x, y)
+                || contains(state.mapMarkerBtn, x, y)
+                || contains(state.mapRecenterBtn, x, y);
+    }
+
+    // Sends a direction to the remote host in MP (used by keyboard/arrow input).
+    void sendKeySwipe(int dx, int dy) {
+        actions.sendSwipe(dx, dy);
     }
 
     private boolean isTapOnTitle(float x, float y) {

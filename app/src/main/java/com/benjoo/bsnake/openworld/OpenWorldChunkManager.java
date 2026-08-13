@@ -40,12 +40,33 @@ public class OpenWorldChunkManager {
     // it so World Seed + chunk coordinates -> content is centralized here.
     private OpenWorldGenerator generator;
 
+    // Optional callback for chunk lifecycle events (content like food that is
+    // stored sparsely in a chunk must be spawned/despawned when the chunk
+    // loads/unloads). Null when no listener is registered.
+    private ChunkListener listener;
+
     public OpenWorldChunkManager() { }
+
+    // Receives notifications when a chunk is loaded or unloaded so caller-owned
+    // content (e.g. game food) can be kept in sync with the loaded chunk set.
+    public interface ChunkListener {
+        void onChunkLoaded(OpenWorldChunk chunk);
+        void onChunkUnloaded(OpenWorldChunk chunk);
+    }
+
+    public void setChunkListener(ChunkListener listener) {
+        this.listener = listener;
+    }
 
     // Binds the seed-bearing generator this world uses for all chunk generation.
     // Call after the world seed is established (create or restore).
-    public void setGenerator(OpenWorldGenerator generator) {
+public void setGenerator(OpenWorldGenerator generator) {
         this.generator = generator;
+    }
+
+    // Returns the bound generator, or null before it is set.
+    public OpenWorldGenerator getGenerator() {
+        return generator;
     }
 
     // Packs a (chunkX, chunkY) pair into a single hash key.
@@ -59,11 +80,12 @@ public class OpenWorldChunkManager {
         int cx = OpenWorldCoords.worldToChunk(worldX);
         int cy = OpenWorldCoords.worldToChunk(worldY);
         long key = pack(cx, cy);
-        OpenWorldChunk chunk = chunks.get(key);
+OpenWorldChunk chunk = chunks.get(key);
         if (chunk == null) {
             chunk = new OpenWorldChunk(cx, cy);
             generateChunk(chunk);
             chunks.put(key, chunk);
+            if (listener != null) listener.onChunkLoaded(chunk);
         }
         return chunk;
     }
@@ -85,6 +107,7 @@ public class OpenWorldChunkManager {
                     OpenWorldChunk chunk = new OpenWorldChunk(cx, cy);
                     generateChunk(chunk);
                     chunks.put(key, chunk);
+                    if (listener != null) listener.onChunkLoaded(chunk);
                 }
             }
         }
@@ -94,7 +117,9 @@ public class OpenWorldChunkManager {
             OpenWorldChunk c = entry.getValue();
             int dx = Math.abs(c.chunkX - pcx);
             int dy = Math.abs(c.chunkY - pcy);
-            return dx > LOAD_RADIUS || dy > LOAD_RADIUS;
+            boolean unload = dx > LOAD_RADIUS || dy > LOAD_RADIUS;
+            if (unload && listener != null) listener.onChunkUnloaded(c);
+            return unload;
         });
     }
 

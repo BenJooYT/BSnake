@@ -1,7 +1,11 @@
 package com.benjoo.bsnake;
 
+import com.benjoo.bsnake.openworld.OpenWorldChunk;
+import com.benjoo.bsnake.openworld.OpenWorldChunkManager;
 import com.benjoo.bsnake.openworld.OpenWorldGenerator;
+import com.benjoo.bsnake.openworld.OpenWorldPoi;
 import com.benjoo.bsnake.openworld.OpenWorldSaveData;
+import com.benjoo.bsnake.openworld.OpenWorldState;
 import com.benjoo.bsnake.openworld.WorldSeed;
 
 import android.graphics.Point;
@@ -10,7 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
 
-public class SnakeEngine {
+public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
 
     private final GameState state;
     private final PersistenceManager persistence;
@@ -186,8 +190,7 @@ public class SnakeEngine {
         state.snakes[1].alive = false;
     }
 
-    // Number of normal food items kept near the player in Open World.
-    private static final int OPEN_WORLD_FOOD_TARGET = 4;
+    
 
     // Sets up a fresh Open World run. If no world exists yet, one is created
     // (seed generated + valid player position established). Otherwise the run
@@ -251,18 +254,21 @@ public class SnakeEngine {
         resetCinematicState();
 
         state.foods.clear();
-        spawnOpenWorldFood(state.snakes[0].body.get(0));
+        state.openWorldChunks.setChunkListener(this);
+        state.openWorldChunks.update(startX, startY);
         state.snakes[0].prevBody.clear();
         for (Point p : state.snakes[0].body)
             state.snakes[0].prevBody.add(new Point(p));
         state.snakes[0].alive = true;
         state.snakes[1].alive = false;
-        state.openWorldChunks.update(startX, startY);
+        // Reveal the spawn area immediately.
+        state.openWorld.markExploredNear(startX, startY);
     }
 
     // Host-side maintenance for the Open World run: sync the player's world
-    // position and score, keep food stocked near the player, keep the loaded
-    // chunk set around the player, and detect the end of the run.
+    // position and score, keep the loaded chunk set around the player, and
+    // detect the end of the run. Food is spawned/despawned by the chunk
+    // lifecycle (see onChunkLoaded / onChunkUnloaded).
     private void updateOpenWorld() {
         GameState.SnakeData sd = state.snakes[0];
         if (sd.alive && !sd.body.isEmpty()) {
@@ -273,7 +279,13 @@ public class SnakeEngine {
         }
         state.openWorld.score = state.snakes[0].score;
 
-        refillOpenWorldFood();
+        // Record what is currently visible into the explored set (fog of war).
+        if (sd.alive && !sd.body.isEmpty()) {
+            Point head = sd.body.get(0);
+            state.openWorld.markExploredNear(head.x, head.y);
+            checkPoiDiscovery(head.x, head.y);
+        }
+
         state.openWorldChunks.update(state.openWorld.playerX, state.openWorld.playerY);
 
         if (!state.snakes[0].alive && !state.deathPending) {
@@ -294,34 +306,151 @@ public class SnakeEngine {
         persistence.saveOpenWorld(state.openWorld);
     }
 
-    // Keeps OPEN_WORLD_FOOD_TARGET normal fruits scattered around the player's
-    // world position. Food spawns in world coordinates (may be negative), so it
-    // works everywhere in the unbounded world.
-    private void refillOpenWorldFood() {
-        GameState.SnakeData sd = state.snakes[0];
-        Point center = (sd.alive && !sd.body.isEmpty())
-                ? sd.body.get(0)
-                : new Point(state.openWorld.playerX, state.openWorld.playerY);
-        int normalCount = 0;
-        for (GameState.Fruit f : state.foods) {
-            if (f.type == GameState.FruitType.NORMAL) normalCount++;
+    // Places a custom marker of the given kind at a world position, honoring
+    // the marker limit. Returns true if placed.
+    boolean placeCustomMarker(int worldX, int worldY, int kind) {
+        ArrayList<OpenWorldState.CustomMarker> m = state.openWorld.customMarkers;
+        // Avoid stacking markers on the exact same tile.
+        for (OpenWorldState.CustomMarker existing : m) {
+            if (existing.x == worldX && existing.y == worldY) return false;
         }
-        int need = OPEN_WORLD_FOOD_TARGET - normalCount;
-        for (int i = 0; i < need; i++) {
-            spawnOpenWorldFood(center);
+        if (m.size() >= OpenWorldState.CUSTOM_MARKER_LIMIT) return false;
+        m.add(new OpenWorldState.CustomMarker(worldX, worldY, kind));
+        persistOpenWorld();
+        return true;
+    }
+
+    // Removes any custom marker at the given world position. Returns true if one
+    // was removed.
+    boolean removeCustomMarker(int worldX, int worldY) {
+        ArrayList<OpenWorldState.CustomMarker> m = state.openWorld.customMarkers;
+        for (int i = m.size() - 1; i >= 0; i--) {
+            OpenWorldState.CustomMarker marker = m.get(i);
+            if (marker.x == worldX && marker.y == worldY) {
+                m.remove(i);
+                persistOpenWorld();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Called by the chunk manager when a chunk comes into range. Materializes
+    // the chunk's stored food refs into the live food list (world coords are
+    // derived from the chunk origin + local cell).
+    @Override
+    public void onChunkLoaded(OpenWorldChunk chunk) {
+        // Exploration is driven by the vision radius (updateOpenWorld →
+        // markExploredNear), not by chunk-load distance, so the map only reveals
+        // what the player has actually seen.
+        for (OpenWorldChunk.CellRef ref : chunk.foodRefs()) {
+            int fx = chunk.originX + ref.localX;
+            int fy = chunk.originY + ref.localY;
+            if (overlapsSnake(fx, fy) || overlapsFood(fx, fy)
+                    || overlapsBoss(fx, fy) || overlapsWall(fx, fy)) continue;
+            GameState.FruitType type = ref.kind == OpenWorldChunk.FOOD_NORMAL
+                    ? GameState.FruitType.NORMAL : GameState.FruitType.NORMAL;
+            state.foods.add(new GameState.Fruit(type, fx, fy));
         }
     }
 
-    private void spawnOpenWorldFood(Point center) {
-        for (int attempts = 0; attempts < 80; attempts++) {
-            int r = 8 + rand.nextInt(16);
-            int fx = center.x + rand.nextInt(2 * r + 1) - r;
-            int fy = center.y + rand.nextInt(2 * r + 1) - r;
-            if (overlapsSnake(fx, fy) || overlapsFood(fx, fy)
-                    || overlapsBoss(fx, fy) || overlapsWall(fx, fy)) continue;
-            state.foods.add(new GameState.Fruit(GameState.FruitType.NORMAL, fx, fy));
-            return;
+    // Called by the chunk manager when a chunk leaves range. Removes any live
+    // food that fell inside that chunk, so food is unloaded with its chunk.
+    @Override
+    public void onChunkUnloaded(OpenWorldChunk chunk) {
+        state.foods.removeIf(f -> chunk.contains(f.x, f.y));
+    }
+
+    // List of all POI anchors currently loaded, as (worldX, worldY, kind) int[].
+    // The chunk-stored record is the single authoritative anchor per POI (only
+    // the owning chunk stores it), so this yields exactly one discovery target
+    // per location and never fabricated pseudo anchors for cells along the way.
+    private ArrayList<int[]> loadedPois() {
+        ArrayList<int[]> pois = new ArrayList<>();
+        for (OpenWorldChunk chunk : state.openWorldChunks.loadedChunks()) {
+            for (OpenWorldChunk.PointOfInterest p : chunk.pointsOfInterest()) {
+                pois.add(new int[]{chunk.originX + p.localX, chunk.originY + p.localY, p.kind});
+            }
         }
+        return pois;
+    }
+
+// Runs discovery: any un-discovered POI within the vision radius of the
+    // player's head is recorded and its one-time rewards granted.
+    private void checkPoiDiscovery(int headX, int headY) {
+        for (int[] poi : loadedPois()) {
+            OpenWorldPoi.Template t = OpenWorldPoi.templateFor(poi[2]);
+            if (t == null) continue;
+            int dx = poi[0] - headX;
+            int dy = poi[1] - headY;
+            int reach = Math.max(t.radius, state.openWorld.visionRadius());
+            if (dx * dx + dy * dy > reach * reach) continue;
+            if (isPoiDiscovered(poi[0], poi[1])) continue;
+
+            // Grant rewards.
+            grantDiscover(poi[0], poi[1], t);
+        }
+    }
+
+    private boolean isPoiDiscovered(int wx, int wy) {
+        for (OpenWorldState.LocationRecord r : state.openWorld.discoveredLocations) {
+            if (r.x == wx && r.y == wy) return true;
+        }
+        return false;
+    }
+
+    // Marks a POI discovered, persists it, and grants its rewards. Rewards are
+    // one-time because isPoiDiscovered() short-circuits before we ever get here
+    // for the same location again, so even rare POIs cannot be farmed.
+    private void grantDiscover(int wx, int wy, OpenWorldPoi.Template t) {
+        state.openWorld.discoveredLocations.add(
+                new OpenWorldState.LocationRecord(wx, wy, t.id));
+        int gainedXp = t.rewardXp;
+        int leveled = gainXp(gainedXp);
+
+        int currencyBonus = t.rewardCurrency;
+        // Boss arenas give no currency (their reward is the fight) but a lot of
+        // XP already granted above.
+        state.openWorld.currency += currencyBonus;
+
+        state.triggerScorePop(currencyBonus);
+        StringBuilder msg = new StringBuilder("Discovered: ").append(t.name);
+        if (currencyBonus > 0) msg.append("  +").append(currencyBonus).append(" c");
+        if (leveled > 0) msg.append("  LEVEL UP!");
+        state.challengePopups.add(new GameState.ChallengePopup(
+                msg.toString(), System.currentTimeMillis(),
+                leveled > 0 ? 2600 : 2000,
+                state.screenW / 2f, state.screenH * 0.42f));
+
+        state.flashAlpha = 1f;
+        int flash = t.tier == OpenWorldPoi.TIER_RARE
+                ? android.graphics.Color.argb(140, 255, 215, 64)
+                : android.graphics.Color.argb(120, 90, 220, 110);
+        state.flashColor = flash;
+        if (t.tier == OpenWorldPoi.TIER_RARE) {
+            long now = System.currentTimeMillis();
+            state.particles.add(new GameState.Particle(
+                    state.openWorld.playerX, state.openWorld.playerY,
+                    0, 0, now, 1200, 0xFFFFD54F, 0.5f, true));
+        }
+        persistOpenWorld();
+    }
+
+    // Adds XP and advances level (cumulative thresholds), returning how many
+    // levels were gained.
+    private int gainXp(int amount) {
+        state.openWorld.xp += Math.max(0, amount);
+        int oldLevel = state.openWorld.level;
+        int newLevel = xpLevel(state.openWorld.xp);
+        state.openWorld.level = newLevel;
+        return Math.max(0, newLevel - oldLevel);
+    }
+
+    private int xpLevel(int xp) {
+        // Level grows every 100 XP, ~= elapsed discovery progress.
+        int level = 1;
+        while (level * 100 <= xp) level++;
+        return level;
     }
 
     void update() {

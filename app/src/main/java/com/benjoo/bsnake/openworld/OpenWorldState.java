@@ -66,6 +66,19 @@ public class OpenWorldState {
     // or destroyed). Each modification references a world position.
     public final ArrayList<WorldModification> worldModifications = new ArrayList<>();
 
+    // Player-placed custom map markers ("come back here", "danger", "resource",
+    // "interesting"). Limited to CUSTOM_MARKER_LIMIT total. Only these are
+    // editable/removable; auto markers (POIs, landmarks, bosses) are separate.
+    public final ArrayList<CustomMarker> customMarkers = new ArrayList<>();
+
+    public static final int CUSTOM_MARKER_LIMIT = 8;
+
+    // Kinds for player-placed markers.
+    public static final int MARKER_RETURN = 0;
+    public static final int MARKER_DANGER = 1;
+    public static final int MARKER_RESOURCE = 2;
+    public static final int MARKER_INTEREST = 3;
+
     // Persistent NPC / world-state records keyed by a stable actor/object id.
     public final ArrayList<NpcState> npcStates = new ArrayList<>();
 
@@ -108,10 +121,61 @@ public class OpenWorldState {
                 OpenWorldCoords.worldToChunk(worldY)));
     }
 
-    public boolean isExplored(int worldX, int worldY) {
+public boolean isExplored(int worldX, int worldY) {
         return exploredChunks.contains(packChunkKey(
                 OpenWorldCoords.worldToChunk(worldX),
                 OpenWorldCoords.worldToChunk(worldY)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Fog of War
+    // -----------------------------------------------------------------------
+    // Three information levels per cell:
+    //   UNEXPLORED  - never seen: rendered as pure darkness (nothing known).
+    //   EXPLORED    - terrain remembered from a past visit: dimmed terrain, no
+    //                 live entities.
+    //   VISIBLE     - currently in view: bright terrain + moving entities.
+    // Explored persists at chunk level (exploredChunks). Visibility is computed
+    // live as a circle around the player's head whose radius is derived from
+    // snake length / upgrades / special abilities.
+
+    // Base view distance plus extra tiles per length segment, softening a small
+    // floor so even a tiny snake sees the ground right around it.
+    private static final int VISION_BASE = 7;
+
+    // The comfortable default when no vision upgrade is held.
+    public static final int VISION_RADIUS_DEFAULT = 12;
+
+    // Radius of the "currently visible" circle in tiles, scaling with the
+    // snake's length. Longer snakes see farther.
+    public int visionRadius() {
+        return VISION_BASE + Math.min(24, Math.max(length, 3));
+    }
+
+    // True if a world cell is currently in view of the player's head.
+    public boolean isVisible(int headX, int headY, int worldX, int worldY) {
+        int dx = worldX - headX;
+        int dy = worldY - headY;
+        int r = visionRadius();
+        return dx * dx + dy * dy <= r * r;
+    }
+
+    // Marks the chunk containing a visible cell as explored. Only the cells the
+    // player can currently see contribute to exploration, so "explored" reflects
+    // what has actually been seen. Idempotent.
+    public void markExploredNear(int headX, int headY) {
+        int r = visionRadius();
+        // Sample the bounding box of the vision circle and mark each touched
+        // chunk, so explored coverage matches what was currently visible.
+        for (int wx = headX - r; wx <= headX + r; wx += OpenWorldCoords.CHUNK_SIZE / 2) {
+            for (int wy = headY - r; wy <= headY + r; wy += OpenWorldCoords.CHUNK_SIZE / 2) {
+                if (isVisible(headX, headY, wx, wy)) {
+                    markExplored(wx, wy);
+                }
+            }
+        }
+        // Always mark the head's own chunk.
+        markExplored(headX, headY);
     }
 
     // -----------------------------------------------------------------------
@@ -158,6 +222,18 @@ public class OpenWorldState {
             this.x = x;
             this.y = y;
             this.state = state;
+        }
+    }
+
+    // A player-placed marker. `kind` is one of the MARKER_* constants above.
+    public static class CustomMarker {
+        public int x;
+        public int y;
+        public int kind;
+        public CustomMarker(int x, int y, int kind) {
+            this.x = x;
+            this.y = y;
+            this.kind = kind;
         }
     }
 }

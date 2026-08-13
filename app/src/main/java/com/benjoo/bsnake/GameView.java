@@ -11,6 +11,7 @@ import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.inputmethod.InputMethodManager;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -53,12 +54,18 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         super(context);
         initComponents(context);
         init();
+        setFocusable(true);
+        setFocusableInTouchMode(true);
+        requestFocus();
     }
 
     public GameView(Context context, AttributeSet attrs) {
         super(context, attrs);
         initComponents(context);
         init();
+        setFocusable(true);
+        setFocusableInTouchMode(true);
+        requestFocus();
     }
 
     private void initComponents(Context context) {
@@ -655,6 +662,62 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         return input.onTouchEvent(event);
+    }
+
+    // Arrow keys (emulator / hardware keyboard / gamepad D-pad) drive movement
+    // during a run. This mirrors the swipe/dpad path so keyboard testing on an
+    // emulator behaves identically to on-screen input.
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        int dx = 0, dy = 0;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_W:
+                dy = -1;
+                break;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_S:
+                dy = 1;
+                break;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_A:
+                dx = -1;
+                break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_D:
+                dx = 1;
+                break;
+            default:
+                return super.onKeyDown(keyCode, event);
+        }
+
+        boolean playing = state.currentState == GameState.State.PLAYING
+                || state.currentState == GameState.State.MP_PLAYING;
+        if (!playing) return false;
+
+        if (state.currentState == GameState.State.MP_PLAYING && !state.isHost) {
+            input.sendKeySwipe(dx, dy);
+        } else {
+            redirectDirection(dx, dy);
+        }
+        return true;
+    }
+
+    // Enqueues a direction for the local snake (single-player or MP host),
+    // enforcing the no-180° rule and the 2-buffered-inputs cap.
+    private void redirectDirection(int dx, int dy) {
+        if (dx == 0 && dy == 0) return;
+        int si = state.isHost ? state.playerIndex : 0;
+        GameState.SnakeData sd = state.snakes[si];
+        if (!sd.alive) return;
+        Point lastDir = sd.inputQueue.isEmpty()
+                ? new Point(sd.dirX, sd.dirY)
+                : sd.inputQueue.get(sd.inputQueue.size() - 1);
+        if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
+            if (!(dx == lastDir.x && dy == lastDir.y)) {
+                sd.inputQueue.add(new Point(dx, dy));
+            }
+        }
     }
 
     // ----- GameActions implementation -----
