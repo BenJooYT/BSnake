@@ -2119,7 +2119,17 @@ class GameRenderer {
         drawCenteredText(canvas, "HOST GAME", state.screenW / 2f, state.screenH * 0.25f, 48, Color.GREEN, true);
         String status = state.mpStatus != null && !state.mpStatus.isEmpty()
                 ? state.mpStatus : "Waiting for player to join...";
-        drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+        // Handle multiline status (for hotspot IP display)
+        if (status.contains("\n")) {
+            String[] lines = status.split("\n");
+            float y = state.screenH * 0.40f;
+            for (String line : lines) {
+                drawCenteredText(canvas, line, state.screenW / 2f, y, 28, Color.WHITE, false);
+                y += 36;
+            }
+        } else {
+            drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.45f, 28, Color.WHITE, false);
+        }
         drawButton(canvas, state.cancelBtn, "CANCEL");
     }
 
@@ -2127,31 +2137,76 @@ class GameRenderer {
         drawCenteredText(canvas, "JOIN GAME", state.screenW / 2f, state.screenH * 0.25f, 48, Color.GREEN, true);
         if (state.opponentConnected) {
             drawCenteredText(canvas, "Connected!", state.screenW / 2f, state.screenH * 0.35f, 28, Color.GREEN, false);
+        } else if (state.manualIpMode) {
+            // Manual IP entry UI
+            drawCenteredText(canvas, "ENTER HOST IP", state.screenW / 2f, state.screenH * 0.30f, 28, Color.WHITE, true);
+
+            // IP address field
+            paint.setColor(state.editingManualIp ? Color.rgb(60, 80, 60) : Color.rgb(40, 50, 40));
+            canvas.drawRect(state.manualIpField.left, state.manualIpField.top,
+                    state.manualIpField.right, state.manualIpField.bottom, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2);
+            paint.setColor(state.editingManualIp ? Color.GREEN : Color.DKGRAY);
+            canvas.drawRect(state.manualIpField.left, state.manualIpField.top,
+                    state.manualIpField.right, state.manualIpField.bottom, paint);
+            paint.setStyle(Paint.Style.FILL);
+
+            // IP label
+            drawCenteredText(canvas, "IP ADDRESS", state.manualIpField.left + 10,
+                    state.manualIpField.top - 8, 16, Color.LTGRAY, false);
+            // IP text
+            String ipDisplay = state.manualIpText.isEmpty() ? "192.168." : state.manualIpText;
+            drawCenteredText(canvas, ipDisplay, state.manualIpField.centerX(),
+                    state.manualIpField.centerY(), 28, Color.WHITE, true);
+
+            // Port field
+            paint.setColor(state.editingManualPort ? Color.rgb(60, 80, 60) : Color.rgb(40, 50, 40));
+            canvas.drawRect(state.manualPortField.left, state.manualPortField.top,
+                    state.manualPortField.right, state.manualPortField.bottom, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2);
+            paint.setColor(state.editingManualPort ? Color.GREEN : Color.DKGRAY);
+            canvas.drawRect(state.manualPortField.left, state.manualPortField.top,
+                    state.manualPortField.right, state.manualPortField.bottom, paint);
+            paint.setStyle(Paint.Style.FILL);
+
+            // Port label
+            drawCenteredText(canvas, "PORT", state.manualPortField.left + 10,
+                    state.manualPortField.top - 8, 16, Color.LTGRAY, false);
+            // Port text
+            drawCenteredText(canvas, state.manualPortText, state.manualPortField.centerX(),
+                    state.manualPortField.centerY(), 28, Color.WHITE, true);
+
+            drawButton(canvas, state.manualConnectBtn, "CONNECT");
+            drawButton(canvas, state.manualCancelBtn, "BACK");
         } else {
             String status = state.mpStatus != null && !state.mpStatus.isEmpty()
                     ? state.mpStatus : "Scanning for hosts...";
             drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.35f, 24, Color.WHITE, false);
-        }
-        // Draw discovered hosts list
-        state.hostItemRects.clear();
-        if (!state.discoveredHosts.isEmpty()) {
-            float listY = state.screenH * 0.43f;
-            float itemH = state.uiCellSize * 1.4f;
-            float gap = state.uiCellSize * 0.3f;
-            float itemW = Math.min(state.screenW * 0.85f, 400);
-            float left = (state.screenW - itemW) / 2f;
-            for (int i = 0; i < state.discoveredHosts.size(); i++) {
-                GameState.DiscoveredHost dh = state.discoveredHosts.get(i);
-                float cy = listY + i * (itemH + gap);
-                RectF r = new RectF(left, cy - itemH / 2f, left + itemW, cy + itemH / 2f);
-                state.hostItemRects.add(r);
-                paint.setColor(dh.resolved ? Color.GREEN : Color.DKGRAY);
-                canvas.drawRect(r.left, r.top, r.right - 2, r.bottom - 2, paint);
-                drawCenteredText(canvas, dh.name, r.centerX(), r.centerY(), 28,
-                        dh.resolved ? Color.BLACK : Color.GRAY, true);
+            // Draw discovered hosts list
+            state.hostItemRects.clear();
+            if (!state.discoveredHosts.isEmpty()) {
+                float listY = state.screenH * 0.43f;
+                float itemH = state.uiCellSize * 1.4f;
+                float gap = state.uiCellSize * 0.3f;
+                float itemW = Math.min(state.screenW * 0.85f, 400);
+                float left = (state.screenW - itemW) / 2f;
+                for (int i = 0; i < state.discoveredHosts.size(); i++) {
+                    GameState.DiscoveredHost dh = state.discoveredHosts.get(i);
+                    float cy = listY + i * (itemH + gap);
+                    RectF r = new RectF(left, cy - itemH / 2f, left + itemW, cy + itemH / 2f);
+                    state.hostItemRects.add(r);
+                    paint.setColor(dh.resolved ? Color.GREEN : Color.DKGRAY);
+                    canvas.drawRect(r.left, r.top, r.right - 2, r.bottom - 2, paint);
+                    drawCenteredText(canvas, dh.name, r.centerX(), r.centerY(), 28,
+                            dh.resolved ? Color.BLACK : Color.GRAY, true);
+                }
             }
+            // Manual IP entry button
+            drawButton(canvas, state.manualIpBtn, "ENTER IP MANUALLY");
+            drawButton(canvas, state.cancelBtn, "CANCEL");
         }
-        drawButton(canvas, state.cancelBtn, "CANCEL");
     }
 
     private void drawLobby(Canvas canvas) {

@@ -19,6 +19,7 @@ class GameServer {
 
     private static final String TAG = "GameServer";
     private static final int BEACON_PORT = 5010;
+    private static final int BROADCAST_PORT = 5011;
 
     private final Context context;
     private ServerSocket serverSocket;
@@ -70,15 +71,32 @@ class GameServer {
         beaconThread = new Thread(() -> {
             String device = Build.MODEL != null ? Build.MODEL : "Android";
             try {
+                boolean isHotspot = HotspotHelper.isWifiApEnabled(context)
+                        || HotspotHelper.isHotspotEnabled(context);
                 MulticastSocket beaconSocket = new MulticastSocket();
-                beaconSocket.setTimeToLive(1);
-                InetAddress group = InetAddress.getByName("224.0.0.1");
-                byte[] buf;
+                beaconSocket.setBroadcast(true);
+
                 while (running) {
                     String data = "BSNAKE:" + device + ":" + port;
-                    buf = data.getBytes("UTF-8");
-                    DatagramPacket packet = new DatagramPacket(buf, buf.length, group, BEACON_PORT);
-                    beaconSocket.send(packet);
+                    byte[] buf = data.getBytes("UTF-8");
+
+                    if (isHotspot) {
+                        String broadcastAddr = HotspotHelper.getBroadcastAddress(context);
+                        InetAddress broadcast = InetAddress.getByName(broadcastAddr);
+                        DatagramPacket packet = new DatagramPacket(buf, buf.length, broadcast, BROADCAST_PORT);
+                        beaconSocket.send(packet);
+                        // Also try 255.255.255.255 as fallback
+                        try {
+                            InetAddress fallback = InetAddress.getByName("255.255.255.255");
+                            DatagramPacket fallbackPacket = new DatagramPacket(buf, buf.length, fallback, BROADCAST_PORT);
+                            beaconSocket.send(fallbackPacket);
+                        } catch (Exception e) { }
+                    } else {
+                        beaconSocket.setTimeToLive(1);
+                        InetAddress group = InetAddress.getByName("224.0.0.1");
+                        DatagramPacket packet = new DatagramPacket(buf, buf.length, group, BEACON_PORT);
+                        beaconSocket.send(packet);
+                    }
                     Thread.sleep(2000);
                 }
                 beaconSocket.close();

@@ -313,6 +313,18 @@ public class GameState {
     RectF mpModeBtn;      // Lobby: choose ARCADE / CLASSIC (host only)
     RectF mpRestartBtn, mpMenuBtn;
 
+    // Manual IP connection for hotspot scenarios
+    RectF manualIpBtn;       // Button to open manual IP entry
+    RectF manualIpField;     // Text field for IP address
+    RectF manualPortField;   // Text field for port
+    RectF manualConnectBtn;  // Button to connect
+    RectF manualCancelBtn;   // Button to cancel manual entry
+    boolean manualIpMode = false;  // True when showing manual IP entry UI
+    String manualIpText = "";      // Current IP text being edited
+    String manualPortText = "5010"; // Default port
+    boolean editingManualIp = false;   // True when IP field is active
+    boolean editingManualPort = false; // True when port field is active
+
     float downX, downY;
     int headColor = Color.GREEN;
     int bodyColor = Color.GREEN;
@@ -557,6 +569,16 @@ public class GameState {
         backBtn = makeBtn(cx, screenH * 0.90f, bw, bh);
         hostBtn = makeBtn(cx, startY, bw, bh);
         joinBtn = makeBtn(cx, startY + bh + gap, bw, bh);
+
+        // Manual IP entry UI
+        float fieldH = uiCellSize * 1.3f;
+        manualIpBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
+        manualIpField = new RectF(cx - bw * 0.45f, screenH * 0.35f,
+                                  cx + bw * 0.45f, screenH * 0.35f + fieldH);
+        manualPortField = new RectF(cx + bw * 0.05f, screenH * 0.48f,
+                                    cx + bw * 0.45f, screenH * 0.48f + fieldH);
+        manualConnectBtn = makeBtn(cx, screenH * 0.62f, bw * 0.5f, bh);
+        manualCancelBtn = makeBtn(cx, screenH * 0.72f, bw * 0.5f, bh);
 
         cancelBtn = makeBtn(cx, screenH * 0.80f, bw, bh);
         readyBtn = makeBtn(cx, screenH * 0.60f, bw, bh);

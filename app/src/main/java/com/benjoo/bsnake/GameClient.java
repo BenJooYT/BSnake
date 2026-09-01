@@ -18,6 +18,7 @@ class GameClient {
 
     private static final String TAG = "GameClient";
     private static final int BEACON_PORT = 5010;
+    private static final int BROADCAST_PORT = 5011;
 
     private final Context context;
     private Socket socket;
@@ -57,6 +58,9 @@ class GameClient {
             callback.onDiscoveryStarted();
             discoveryThread = new Thread(this::discoveryLoop);
             discoveryThread.start();
+            // Also start a broadcast listener for hotspot scenarios
+            Thread broadcastThread = new Thread(this::broadcastDiscoveryLoop);
+            broadcastThread.start();
         } catch (Exception e) {
             Log.e(TAG, "Discovery failed", e);
             callback.onDiscoveryFailed();
@@ -95,7 +99,37 @@ class GameClient {
         }
     }
 
-    void connectTo(String host, int port) {
+    private void broadcastDiscoveryLoop() {
+        try {
+            MulticastSocket socket = new MulticastSocket(BROADCAST_PORT);
+            socket.setBroadcast(true);
+            socket.setSoTimeout(3000);
+            byte[] buf = new byte[256];
+            while (running) {
+                DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                try {
+                    socket.receive(packet);
+                    String data = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
+                    if (data.startsWith("BSNAKE:")) {
+                        String[] parts = data.split(":");
+                        if (parts.length >= 3) {
+                            String name = parts[1];
+                            String host = packet.getAddress().getHostAddress();
+                            int port = Integer.parseInt(parts[2]);
+                            callback.onHostFound(name, host, port);
+                        }
+                    }
+                } catch (SocketTimeoutException e) {
+                    // Timeout is normal, just keep listening
+                }
+            }
+            socket.close();
+        } catch (Exception e) {
+            Log.e(TAG, "Broadcast discovery loop failed", e);
+        }
+    }
+
+    void connectToHost(String host, int port) {
         new Thread(() -> connect(host, port)).start();
     }
 

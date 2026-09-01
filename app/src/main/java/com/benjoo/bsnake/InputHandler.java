@@ -35,6 +35,9 @@ class InputHandler {
         void cycleMpMode();
         void sendSwipe(int dx, int dy);
         void connectToHost(int index);
+        void openManualIpEntry();
+        void cancelManualIp();
+        void connectManualIp();
         void openColorPicker();
         void applyColorPicker();
         void setPickerHue(float hue);
@@ -291,9 +294,31 @@ class InputHandler {
                 break;
 
             case MP_JOIN:
-                if (contains(state.cancelBtn, upX, upY)) {
+                if (state.manualIpMode) {
+                    // Manual IP entry UI
+                    if (contains(state.manualIpField, upX, upY)) {
+                        actions.playClick();
+                        state.editingManualIp = true;
+                        state.editingManualPort = false;
+                        actions.openManualIpEntry();
+                    } else if (contains(state.manualPortField, upX, upY)) {
+                        actions.playClick();
+                        state.editingManualIp = false;
+                        state.editingManualPort = true;
+                        actions.openManualIpEntry();
+                    } else if (contains(state.manualConnectBtn, upX, upY)) {
+                        actions.playClick();
+                        actions.connectManualIp();
+                    } else if (contains(state.manualCancelBtn, upX, upY)) {
+                        actions.playClick();
+                        actions.cancelManualIp();
+                    }
+                } else if (contains(state.cancelBtn, upX, upY)) {
                     actions.playClick();
                     actions.cancelMp();
+                } else if (contains(state.manualIpBtn, upX, upY)) {
+                    actions.playClick();
+                    actions.openManualIpEntry();
                 } else {
                     for (int i = 0; i < state.hostItemRects.size(); i++) {
                         if (contains(state.hostItemRects.get(i), upX, upY)) {

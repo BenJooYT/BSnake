@@ -1002,6 +1002,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         if (server.start()) {
             String device = android.os.Build.MODEL != null ? android.os.Build.MODEL : "Android";
             state.mpStatus = "Advertising as: BSnake - " + device;
+            // Show IP address if on hotspot so the client can connect manually
+            boolean isHotspot = HotspotHelper.isWifiApEnabled(getContext())
+                    || HotspotHelper.isHotspotEnabled(getContext());
+            if (isHotspot) {
+                String ip = HotspotHelper.getHotspotIpAddress(getContext());
+                if (ip != null && !ip.isEmpty()) {
+                    state.mpStatus = "Hotspot IP: " + ip + "\nPort: " + 5010;
+                }
+            }
             state.currentState = GameState.State.MP_HOST;
         } else {
             state.mpStatus = "Failed to start server!";
@@ -1067,6 +1076,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void cancelMp() {
         stopNetworking();
+        state.manualIpMode = false;
         state.currentState = GameState.State.MENU;
     }
 
@@ -1155,7 +1165,90 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         GameState.DiscoveredHost dh = state.discoveredHosts.get(index);
         if (!dh.resolved) return;
         state.mpStatus = "Connecting to " + dh.name + "...";
-        client.connectTo(dh.host, dh.port);
+        client.connectToHost(dh.host, dh.port);
+    }
+
+    @Override
+    public void openManualIpEntry() {
+        state.manualIpMode = true;
+        state.manualIpText = "";
+        state.manualPortText = "5010";
+        state.editingManualIp = true;
+        state.editingManualPort = false;
+        showKeyboardForManualIp();
+    }
+
+    @Override
+    public void cancelManualIp() {
+        state.manualIpMode = false;
+        state.editingManualIp = false;
+        state.editingManualPort = false;
+        hideKeyboardInternal();
+    }
+
+    @Override
+    public void connectManualIp() {
+        String ip = state.manualIpText.trim();
+        String portStr = state.manualPortText.trim();
+        if (ip.isEmpty()) {
+            state.mpStatus = "Enter an IP address";
+            return;
+        }
+        int port;
+        try {
+            port = Integer.parseInt(portStr);
+        } catch (NumberFormatException e) {
+            port = 5010;
+        }
+        state.manualIpMode = false;
+        state.editingManualIp = false;
+        state.editingManualPort = false;
+        hideKeyboardInternal();
+        state.mpStatus = "Connecting to " + ip + "...";
+        if (client == null) {
+            // Create client if not already created
+            client = new GameClient(getContext(), new GameClient.ClientCallback() {
+                @Override public void onDiscoveryStarted() { }
+                @Override public void onDiscoveryFailed() { }
+                @Override public void onHostFound(String name, String host, int p) { }
+                @Override
+                public void onConnected() {
+                    state.opponentConnected = true;
+                    state.mpStatus = "Connected!";
+                    client.send(NetworkMessage.hello(state.headColor, state.bodyColor, state.screenW, state.screenH));
+                    state.currentState = GameState.State.MP_LOBBY;
+                }
+                @Override
+                public void onConnectFailed() {
+                    state.mpStatus = "Connection failed!";
+                }
+                @Override public void onMessage(String msg) { }
+                @Override
+                public void onDisconnected() {
+                    if (state.currentState == GameState.State.MP_PLAYING) {
+                        state.inMp = false;
+                        state.currentState = GameState.State.MENU;
+                    }
+                }
+            });
+            state.isHost = false;
+        }
+        client.connectToHost(ip, port);
+    }
+
+    private void showKeyboardForManualIp() {
+        if (keyboardInput == null) return;
+        state.editingColor = -1;
+        state.editingDevScore = false;
+        state.pickerEditingHex = false;
+        keyboardInput.setText(state.editingManualIp ? state.manualIpText : state.manualPortText);
+        keyboardInput.setSelection(keyboardInput.length());
+        keyboardInput.setInputType(state.editingManualIp
+                ? (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
+                : InputType.TYPE_CLASS_NUMBER);
+        keyboardInput.requestFocus();
+        InputMethodManager imm = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.showSoftInput(keyboardInput, InputMethodManager.SHOW_IMPLICIT);
     }
 
     @Override
@@ -1185,6 +1278,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.mpStatus = "";
         state.discoveredHosts.clear();
         state.hostItemRects.clear();
+        state.manualIpMode = false;
+        state.editingManualIp = false;
+        state.editingManualPort = false;
     }
 
     // ----- Keyboard setup -----
@@ -1215,6 +1311,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                         state.pickerSat = hsv[1];
                         state.pickerVal = hsv[2];
                     }
+                } else if (state.manualIpMode && state.editingManualIp) {
+                    state.manualIpText = s.toString();
+                } else if (state.manualIpMode && state.editingManualPort) {
+                    state.manualPortText = s.toString();
                 }
                 invalidate();
             }
