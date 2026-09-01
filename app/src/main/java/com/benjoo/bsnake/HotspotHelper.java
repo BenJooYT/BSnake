@@ -58,7 +58,9 @@ class HotspotHelper {
 
     private static boolean isHotspotViaInterface() {
         try {
-            for (NetworkInterface intf : NetworkInterface.getNetworkInterfaces()) {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface intf = interfaces.nextElement();
                 String name = intf.getName();
                 if (name.contains("wlan1") || name.contains("ap0")
                         || name.contains("softap")) {
