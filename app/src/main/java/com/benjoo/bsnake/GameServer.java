@@ -47,6 +47,10 @@ class GameServer {
         this.callback = callback;
     }
 
+    int getPort() {
+        return port;
+    }
+
     boolean start() {
         try {
             serverSocket = new ServerSocket(0);

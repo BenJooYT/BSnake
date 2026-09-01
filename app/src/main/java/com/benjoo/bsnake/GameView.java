@@ -1008,7 +1008,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             if (isHotspot) {
                 String ip = HotspotHelper.getHotspotIpAddress(getContext());
                 if (ip != null && !ip.isEmpty()) {
-                    state.mpStatus = "Hotspot IP: " + ip + "\nPort: " + 5010;
+                    state.mpStatus = "Hotspot IP: " + ip + "\nPort: " + server.getPort();
                 }
             }
             state.currentState = GameState.State.MP_HOST;
@@ -1024,7 +1024,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.opponentConnected = false;
         state.opponentReady = false;
         state.localReady = false;
-        state.discoveredHosts.clear();
+        synchronized (state.discoveredHosts) {
+            state.discoveredHosts.clear();
+        }
         state.mpStatus = "Scanning for hosts...";
         client = new GameClient(getContext(), new GameClient.ClientCallback() {
             @Override
@@ -1067,6 +1069,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 if (state.currentState == GameState.State.MP_PLAYING) {
                     state.inMp = false;
                     state.currentState = GameState.State.MENU;
+                } else if (state.currentState == GameState.State.MP_LOBBY
+                        || state.currentState == GameState.State.MP_JOIN) {
+                    state.opponentConnected = false;
+                    state.opponentReady = false;
+                    state.localReady = false;
+                    state.mpStatus = "Disconnected!";
                 }
             }
         });
@@ -1163,8 +1171,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void connectToHost(int index) {
-        if (client == null || index < 0 || index >= state.discoveredHosts.size()) return;
-        GameState.DiscoveredHost dh = state.discoveredHosts.get(index);
+        if (client == null) return;
+        GameState.DiscoveredHost dh;
+        synchronized (state.discoveredHosts) {
+            if (index < 0 || index >= state.discoveredHosts.size()) return;
+            dh = state.discoveredHosts.get(index);
+        }
         if (!dh.resolved) return;
         state.mpStatus = "Connecting to " + dh.name + "...";
         client.connectToHost(dh.host, dh.port);
@@ -1233,6 +1245,12 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 if (state.currentState == GameState.State.MP_PLAYING) {
                     state.inMp = false;
                     state.currentState = GameState.State.MENU;
+                } else if (state.currentState == GameState.State.MP_LOBBY
+                        || state.currentState == GameState.State.MP_JOIN) {
+                    state.opponentConnected = false;
+                    state.opponentReady = false;
+                    state.localReady = false;
+                    state.mpStatus = "Disconnected!";
                 }
             }
         });
@@ -1280,7 +1298,9 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.isHost = false;
         state.inMp = false;
         state.mpStatus = "";
-        state.discoveredHosts.clear();
+        synchronized (state.discoveredHosts) {
+            state.discoveredHosts.clear();
+        }
         state.hostItemRects.clear();
         state.manualIpMode = false;
         state.editingManualIp = false;
