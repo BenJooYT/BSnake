@@ -1205,34 +1205,36 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.editingManualPort = false;
         hideKeyboardInternal();
         state.mpStatus = "Connecting to " + ip + "...";
-        if (client == null) {
-            // Create client if not already created
-            client = new GameClient(getContext(), new GameClient.ClientCallback() {
-                @Override public void onDiscoveryStarted() { }
-                @Override public void onDiscoveryFailed() { }
-                @Override public void onHostFound(String name, String host, int p) { }
-                @Override
-                public void onConnected() {
-                    state.opponentConnected = true;
-                    state.mpStatus = "Connected!";
-                    client.send(NetworkMessage.hello(state.headColor, state.bodyColor, state.screenW, state.screenH));
-                    state.currentState = GameState.State.MP_LOBBY;
-                }
-                @Override
-                public void onConnectFailed() {
-                    state.mpStatus = "Connection failed!";
-                }
-                @Override public void onMessage(String msg) { }
-                @Override
-                public void onDisconnected() {
-                    if (state.currentState == GameState.State.MP_PLAYING) {
-                        state.inMp = false;
-                        state.currentState = GameState.State.MENU;
-                    }
-                }
-            });
-            state.isHost = false;
+        // Always tear down the old client (discovery threads may still be running)
+        if (client != null) {
+            client.stop();
+            client = null;
         }
+        client = new GameClient(getContext(), new GameClient.ClientCallback() {
+            @Override public void onDiscoveryStarted() { }
+            @Override public void onDiscoveryFailed() { }
+            @Override public void onHostFound(String name, String host, int p) { }
+            @Override
+            public void onConnected() {
+                state.opponentConnected = true;
+                state.mpStatus = "Connected!";
+                client.send(NetworkMessage.hello(state.headColor, state.bodyColor, state.screenW, state.screenH));
+                state.currentState = GameState.State.MP_LOBBY;
+            }
+            @Override
+            public void onConnectFailed() {
+                state.mpStatus = "Connection failed!";
+            }
+            @Override public void onMessage(String msg) { }
+            @Override
+            public void onDisconnected() {
+                if (state.currentState == GameState.State.MP_PLAYING) {
+                    state.inMp = false;
+                    state.currentState = GameState.State.MENU;
+                }
+            }
+        });
+        state.isHost = false;
         client.connectToHost(ip, port);
     }
 
