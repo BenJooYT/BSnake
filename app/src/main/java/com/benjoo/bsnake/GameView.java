@@ -1185,10 +1185,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     @Override
     public void openManualIpEntry() {
         state.manualIpMode = true;
-        state.manualIpText = "";
-        state.manualPortText = "5010";
-        state.editingManualIp = true;
-        state.editingManualPort = false;
+        if (state.manualIpText.isEmpty()) state.manualIpText = "";
+        if (state.manualPortText.isEmpty()) state.manualPortText = "5010";
         showKeyboardForManualIp();
     }
 

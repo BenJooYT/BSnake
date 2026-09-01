@@ -1,7 +1,7 @@
 {
-  "versionCode": 27,
-  "versionName": "1.7.5",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.7.5/BSnake-v1.7.5.apk",
-  "changelog": "1.7.5 - Hotspot IP Fix\n  FIXED: Hotspot IP detection now walks network interfaces directly instead of relying on WifiManager\n  FIXED: Broadcast address derived from actual hotspot interface IP\n  FIXED: Duplicate host discovery entries from race condition\n1.7.4 - Hotspot Multiplayer Fix\n  ADDED: Multiplayer support when one device is a hotspot\n  ADDED: UDP broadcast discovery for hotspot scenarios (port 5011)\n  ADDED: Manual IP entry option in the Join screen for direct connection\n  ADDED: Host screen now displays hotspot IP address and port for easy sharing\n  CHANGED: Client now listens for both multicast and broadcast beacons simultaneously",
+  "versionCode": 28,
+  "versionName": "1.7.6",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.7.6/BSnake-v1.7.6.apk",
+  "changelog": "1.7.6 - Manual IP Fix\n  FIXED: IP and port fields now properly accept input and switch focus\n1.7.5 - Hotspot IP Fix\n  ADDED: Multiplayer support when one device is a hotspot\n  ADDED: UDP broadcast discovery for hotspot scenarios (port 5011)\n  ADDED: Manual IP entry option in the Join screen for direct connection\n  ADDED: Host screen now displays hotspot IP address and port for easy sharing\n  CHANGED: Client now listens for both multicast and broadcast beacons simultaneously",
   "needsReinstall": false
 }
