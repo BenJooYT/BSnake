@@ -360,19 +360,17 @@ public class GameState {
 
     // Multiplayer state
     volatile boolean isHost;
-    // True once an MP run is actually in progress (between start and game-over),
-    // so engine/game-view can branch on "is this a networked session".
     volatile boolean inMp;
     String mpStatus = "";
     ArrayList<DiscoveredHost> discoveredHosts = new ArrayList<>();
-    ArrayList<RectF> hostItemRects = new ArrayList<>();
-    int clientColor = Color.GREEN;
-    int clientBodyColor = Color.rgb(0, 160, 0);
+    volatile ArrayList<RectF> hostItemRects = new ArrayList<>();
+    volatile int clientColor = Color.GREEN;
+    volatile int clientBodyColor = Color.rgb(0, 160, 0);
     volatile boolean opponentReady;
     volatile boolean localReady;
-    int mpModeSel = 0;          // Shared MP mode: 0 = ARCADE, 1 = CLASSIC (host choice)
-    int mpBoardCols = 0, mpBoardRows = 0;  // Agreed MP board size (smallest screen)
-    int clientScreenW = 0, clientScreenH = 0;  // Opponent's screen dims (host uses for sizing)
+    volatile int mpModeSel = 0;          // Shared MP mode: 0 = ARCADE, 1 = CLASSIC (host choice)
+    volatile int mpBoardCols = 0, mpBoardRows = 0;  // Agreed MP board size (smallest screen)
+    volatile int clientScreenW = 0, clientScreenH = 0;  // Opponent's screen dims (host uses for sizing)
     volatile boolean opponentConnected;
     volatile boolean mpLabelVisible;
     volatile boolean mpGameOverSent;

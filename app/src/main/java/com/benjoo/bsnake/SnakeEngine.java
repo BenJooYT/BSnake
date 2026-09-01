@@ -646,8 +646,13 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             }
 
             // Consume one queued direction
-            if (!sd.inputQueue.isEmpty()) {
-                Point nextDir = sd.inputQueue.remove(0);
+            Point nextDir = null;
+            synchronized (sd.inputQueue) {
+                if (!sd.inputQueue.isEmpty()) {
+                    nextDir = sd.inputQueue.remove(0);
+                }
+            }
+            if (nextDir != null) {
                 // Mirror fruit: while active, the player's new controls are
                 // inverted (only affects future movement), then re-validated so
                 // the flip can never force the snake to reverse into itself.

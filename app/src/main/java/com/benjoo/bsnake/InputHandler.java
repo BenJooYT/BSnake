@@ -510,12 +510,14 @@ class InputHandler {
                     int si = state.isHost ? state.playerIndex : 0;
                     GameState.SnakeData sd = state.snakes[si];
                     if (!sd.alive) return;
-                    Point lastDir = sd.inputQueue.isEmpty()
-                            ? new Point(sd.dirX, sd.dirY)
-                            : sd.inputQueue.get(sd.inputQueue.size() - 1);
-                    if (!(ndx == -lastDir.x && ndy == -lastDir.y) && sd.inputQueue.size() < 2) {
-                        if (!(ndx == lastDir.x && ndy == lastDir.y)) {
-                            sd.inputQueue.add(new Point(ndx, ndy));
+                    synchronized (sd.inputQueue) {
+                        Point lastDir = sd.inputQueue.isEmpty()
+                                ? new Point(sd.dirX, sd.dirY)
+                                : sd.inputQueue.get(sd.inputQueue.size() - 1);
+                        if (!(ndx == -lastDir.x && ndy == -lastDir.y) && sd.inputQueue.size() < 2) {
+                            if (!(ndx == lastDir.x && ndy == lastDir.y)) {
+                                sd.inputQueue.add(new Point(ndx, ndy));
+                            }
                         }
                     }
                 }

@@ -1,7 +1,7 @@
 {
-  "versionCode": 28,
-  "versionName": "1.7.6",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.7.6/BSnake-v1.7.6.apk",
-  "changelog": "1.7.6 - Manual IP Fix\n  FIXED: IP and port fields now properly accept input and switch focus\n1.7.5 - Hotspot IP Fix\n  ADDED: Multiplayer support when one device is a hotspot\n  ADDED: UDP broadcast discovery for hotspot scenarios (port 5011)\n  ADDED: Manual IP entry option in the Join screen for direct connection\n  ADDED: Host screen now displays hotspot IP address and port for easy sharing\n  CHANGED: Client now listens for both multicast and broadcast beacons simultaneously",
+  "versionCode": 29,
+  "versionName": "1.7.7",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.7.7/BSnake-v1.7.7.apk",
+  "changelog": "1.7.7 - Multiplayer Thread Safety\n  FIXED: Critical inputQueue race condition between UI thread and game thread\n  FIXED: Client no longer gets stuck in cinematic/upgrade when host disconnects\n  FIXED: Host no longer gets stuck in MP_PLAYING when client disconnects\n  FIXED: hostItemRects race condition (rebuild per-frame instead of mutating shared list)\n  FIXED: Added volatile to cross-thread fields (clientColor, clientBodyColor, mpModeSel, mpBoardCols, etc.)\n  FIXED: Manual IP connect failure now shows retry hint; cancel restarts discovery",
   "needsReinstall": false
 }

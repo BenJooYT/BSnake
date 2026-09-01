@@ -45,8 +45,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
     InputHandler input;
     MenuMusic menuMusic;
     SoundEffects soundEffects;
-    GameServer server;
-    GameClient client;
+    volatile GameServer server;
+    volatile GameClient client;
 
     EditText keyboardInput;
 
@@ -710,12 +710,14 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         int si = state.isHost ? state.playerIndex : 0;
         GameState.SnakeData sd = state.snakes[si];
         if (!sd.alive) return;
-        Point lastDir = sd.inputQueue.isEmpty()
-                ? new Point(sd.dirX, sd.dirY)
-                : sd.inputQueue.get(sd.inputQueue.size() - 1);
-        if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
-            if (!(dx == lastDir.x && dy == lastDir.y)) {
-                sd.inputQueue.add(new Point(dx, dy));
+        synchronized (sd.inputQueue) {
+            Point lastDir = sd.inputQueue.isEmpty()
+                    ? new Point(sd.dirX, sd.dirY)
+                    : sd.inputQueue.get(sd.inputQueue.size() - 1);
+            if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
+                if (!(dx == lastDir.x && dy == lastDir.y)) {
+                    sd.inputQueue.add(new Point(dx, dy));
+                }
             }
         }
     }
@@ -990,12 +992,16 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             public void onMessage(String msg) { }
             @Override
             public void onClientDisconnected() {
-                // A fresh lobby must not inherit stale readiness from the old client
-                state.opponentConnected = false;
-                state.opponentReady = false;
-                state.localReady = false;
-                state.inMp = false;
-                state.currentState = GameState.State.MENU;
+                if (state.inMp || state.currentState == GameState.State.BOSS_DEATH_CINEMATIC
+                        || state.currentState == GameState.State.BOSS_UPGRADE) {
+                    state.inMp = false;
+                    state.currentState = GameState.State.MENU;
+                } else {
+                    state.opponentConnected = false;
+                    state.opponentReady = false;
+                    state.localReady = false;
+                    state.currentState = GameState.State.MENU;
+                }
             }
         });
         state.isHost = true;
@@ -1066,7 +1072,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             public void onMessage(String msg) { }
             @Override
             public void onDisconnected() {
-                if (state.currentState == GameState.State.MP_PLAYING) {
+                if (state.inMp || state.currentState == GameState.State.BOSS_DEATH_CINEMATIC
+                        || state.currentState == GameState.State.BOSS_UPGRADE) {
                     state.inMp = false;
                     state.currentState = GameState.State.MENU;
                 } else if (state.currentState == GameState.State.MP_LOBBY
@@ -1196,6 +1203,10 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
         state.editingManualIp = false;
         state.editingManualPort = false;
         hideKeyboardInternal();
+        // If client was torn down for manual connect, restart discovery
+        if (client == null) {
+            startJoin();
+        }
     }
 
     @Override
@@ -1235,12 +1246,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             }
             @Override
             public void onConnectFailed() {
-                state.mpStatus = "Connection failed!";
+                state.mpStatus = "Connection failed! Tap scan to retry.";
             }
             @Override public void onMessage(String msg) { }
             @Override
             public void onDisconnected() {
-                if (state.currentState == GameState.State.MP_PLAYING) {
+                if (state.inMp || state.currentState == GameState.State.BOSS_DEATH_CINEMATIC
+                        || state.currentState == GameState.State.BOSS_UPGRADE) {
                     state.inMp = false;
                     state.currentState = GameState.State.MENU;
                 } else if (state.currentState == GameState.State.MP_LOBBY
@@ -1273,15 +1285,16 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void sendSwipe(int dx, int dy) {
-        // Local prediction: enqueue input immediately
         GameState.SnakeData sd = state.snakes[state.playerIndex];
         if (sd.alive) {
-            Point lastDir = sd.inputQueue.isEmpty()
-                    ? new Point(sd.dirX, sd.dirY)
-                    : sd.inputQueue.get(sd.inputQueue.size() - 1);
-            if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
-                if (!(dx == lastDir.x && dy == lastDir.y)) {
-                    sd.inputQueue.add(new Point(dx, dy));
+            synchronized (sd.inputQueue) {
+                Point lastDir = sd.inputQueue.isEmpty()
+                        ? new Point(sd.dirX, sd.dirY)
+                        : sd.inputQueue.get(sd.inputQueue.size() - 1);
+                if (!(dx == -lastDir.x && dy == -lastDir.y) && sd.inputQueue.size() < 2) {
+                    if (!(dx == lastDir.x && dy == lastDir.y)) {
+                        sd.inputQueue.add(new Point(dx, dy));
+                    }
                 }
             }
         }

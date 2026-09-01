@@ -1250,10 +1250,12 @@ class GameRenderer {
         if (!sd.alive || sd.body.isEmpty()) return;
 
         int dirX = sd.dirX, dirY = sd.dirY;
-        if (!sd.inputQueue.isEmpty()) {
-            Point last = sd.inputQueue.get(sd.inputQueue.size() - 1);
-            dirX = last.x;
-            dirY = last.y;
+        synchronized (sd.inputQueue) {
+            if (!sd.inputQueue.isEmpty()) {
+                Point last = sd.inputQueue.get(sd.inputQueue.size() - 1);
+                dirX = last.x;
+                dirY = last.y;
+            }
         }
 
         paint.setTextAlign(Paint.Align.CENTER);
@@ -2185,7 +2187,7 @@ class GameRenderer {
                     ? state.mpStatus : "Scanning for hosts...";
             drawCenteredText(canvas, status, state.screenW / 2f, state.screenH * 0.35f, 24, Color.WHITE, false);
             // Draw discovered hosts list
-            state.hostItemRects.clear();
+            ArrayList<RectF> newHostRects = new ArrayList<>();
             if (!state.discoveredHosts.isEmpty()) {
                 float listY = state.screenH * 0.43f;
                 float itemH = state.uiCellSize * 1.4f;
@@ -2196,13 +2198,14 @@ class GameRenderer {
                     GameState.DiscoveredHost dh = state.discoveredHosts.get(i);
                     float cy = listY + i * (itemH + gap);
                     RectF r = new RectF(left, cy - itemH / 2f, left + itemW, cy + itemH / 2f);
-                    state.hostItemRects.add(r);
+                    newHostRects.add(r);
                     paint.setColor(dh.resolved ? Color.GREEN : Color.DKGRAY);
                     canvas.drawRect(r.left, r.top, r.right - 2, r.bottom - 2, paint);
                     drawCenteredText(canvas, dh.name, r.centerX(), r.centerY(), 28,
                             dh.resolved ? Color.BLACK : Color.GRAY, true);
                 }
             }
+            state.hostItemRects = newHostRects;
             // Manual IP entry button
             drawButton(canvas, state.manualIpBtn, "ENTER IP MANUALLY");
             drawButton(canvas, state.cancelBtn, "CANCEL");
