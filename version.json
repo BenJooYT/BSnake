@@ -1,7 +1,7 @@
 {
-  "versionCode": 29,
-  "versionName": "1.7.7",
-  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.7.7/BSnake-v1.7.7.apk",
-  "changelog": "1.7.7 - Multiplayer Thread Safety\n  FIXED: Critical inputQueue race condition between UI thread and game thread\n  FIXED: Client no longer gets stuck in cinematic/upgrade when host disconnects\n  FIXED: Host no longer gets stuck in MP_PLAYING when client disconnects\n  FIXED: hostItemRects race condition (rebuild per-frame instead of mutating shared list)\n  FIXED: Added volatile to cross-thread fields (clientColor, clientBodyColor, mpModeSel, mpBoardCols, etc.)\n  FIXED: Manual IP connect failure now shows retry hint; cancel restarts discovery",
+  "versionCode": 30,
+  "versionName": "1.8.0",
+  "downloadUrl": "https://github.com/BenJooYT/BSnake/releases/download/v1.8.0/BSnake-v1.8.0.apk",
+  "changelog": "1.8.0 - Phantom & Summoner\n  NEW: PHANTOM boss — cycles between tangible and intangible phases, passing through everything and immune to damage while intangible, with a phase-shift flash and sound\n  NEW: SUMMONER boss — spawns up to 5 chasing minion snakes that attack the player; all minions die with the boss and drop a score trail to collect\n  FIXED: Minions can now be defeated individually — striking one with your head kills it\n  FIXED: Minion AI no longer reverses 180 degrees; they keep moving forward and turn instead of flipping into their own body\n  FIXED: Boss now spawns when the target score is reached (single-player regression from the multiplayer world-authority refactor)\n  FIXED: Multiplayer client's own snake no longer freezes from a transient host alive flag\n  FIXED: Multiplayer client falls back to the game-over panel if the host's game-over message is delayed or lost\n  FIXED: Dev boss selector now cycles PHANTOM and SUMMONER without crashing\n  MULTIPLAYER: Host + client run the identical simulation; world objects stay host-authoritative while each side owns its snake (peer prediction)",
   "needsReinstall": false
 }

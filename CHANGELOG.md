@@ -3,6 +3,27 @@
 All notable changes to BSnake are documented here. See [README.md](README.md) for
 the full feature history; this file tracks the most recent releases.
 
+## 1.8.0 — Phantom & Summoner
+
+**New Boss: PHANTOM**
+- A cyan boss that cycles between **tangible** and **intangible** phases
+- While intangible it passes through everything and cannot be damaged; a phase-shift flash and sound telegraph the change
+
+**New Boss: SUMMONER**
+- An orange boss that periodically spawns up to **5 chasing minion snakes** which attack the player and shrink them on contact
+- All minions die with the boss and drop a score trail to collect
+- Minions can be defeated **individually** — strike one with your head to kill it and earn score
+- Minion AI no longer reverses 180 degrees; they keep moving forward and turn around obstacles instead of flipping into their own body
+
+**Stability**
+- Fixed the boss not spawning when the target score is reached — a single-player regression from the multiplayer world-authority refactor
+- Multiplayer client's own snake no longer freezes from a transient host alive flag
+- Multiplayer client falls back to the game-over panel if the host's game-over message is delayed or lost
+- Dev boss selector now cycles PHANTOM and SUMMONER without crashing
+
+**Multiplayer**
+- Host + client run the identical simulation; world objects (boss, walls, food, minions) stay host-authoritative while each side owns its own snake (peer prediction)
+
 ## 1.7.2 — Cards
 
 **New Boss: MIRROR**
