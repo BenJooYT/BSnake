@@ -881,6 +881,49 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             } else {
                 sd.body.remove(sd.body.size() - 1);
             }
+
+            // SUMMONER minion collision, resolved on the player's movement tick
+            // so that walking into a stationary minion (or a minion walking into
+            // the player) registers immediately and every tick. A player's HEAD
+            // striking any part of a minion defeats it individually (+score
+            // +trail). But the rest of the player's body is vulnerable: any
+            // minion segment that reaches the player's body costs a segment, or
+            // the whole snake if it is already too short.
+            if (state.boss.type == GameState.BossType.SUMMONER) {
+                for (int mi = state.minions.size() - 1; mi >= 0; mi--) {
+                    GameState.MinionSnake minion = state.minions.get(mi);
+                    if (!minion.alive || minion.body.isEmpty()) continue;
+
+                    Point ph = sd.body.get(0);
+                    boolean killed = false;
+                    for (Point bp : minion.body) {
+                        if (ph.x == bp.x && ph.y == bp.y) {
+                            defeatMinion(mi, sd);
+                            killed = true;
+                            break;
+                        }
+                    }
+                    if (killed) continue;
+
+                    boolean hitPlayer = false;
+                    for (int pi = 1; pi < sd.body.size() && !hitPlayer; pi++) {
+                        Point pp = sd.body.get(pi);
+                        for (Point bp : minion.body) {
+                            if (pp.x == bp.x && pp.y == bp.y) { hitPlayer = true; break; }
+                        }
+                    }
+                    if (!hitPlayer) continue;
+
+                    if (sd.body.size() > 3) {
+                        sd.body.remove(sd.body.size() - 1);
+                        sd.growthPending = Math.max(0, sd.growthPending - 1);
+                    } else {
+                        sd.alive = false;
+                        killSnake(sd);
+                    }
+                }
+                if (!sd.alive) continue;
+            }
         }
 
         // Boss auto-movement, spawn, food refill, challenges, upgrades: host only.
@@ -940,56 +983,6 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                 }
                 if (bossHitIdx >= 0) {
                     damageBoss(bossHitIdx, true);
-                }
-
-                // SUMMONER: minion collision with players (after boss movement).
-                // A player's HEAD striking any part of a minion defeats it
-                // individually (+score +trail). But the rest of the player's body
-                // is vulnerable: any minion segment (head or body) that reaches the
-                // player's body costs a segment, so a minion's whole body is a real
-                // collision hazard you can't just walk through.
-                if (state.boss.type == GameState.BossType.SUMMONER) {
-                    for (int mi = state.minions.size() - 1; mi >= 0; mi--) {
-                        GameState.MinionSnake minion = state.minions.get(mi);
-                        if (!minion.alive || minion.body.isEmpty()) continue;
-                        boolean killed = false;
-                        for (int si = 0; si < 2 && !killed; si++) {
-                            if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
-                            GameState.SnakeData psd = state.snakes[si];
-                            Point ph = psd.body.get(0);
-
-                            // Player head on any minion segment -> defeat the minion.
-                            for (Point bp : minion.body) {
-                                if (ph.x == bp.x && ph.y == bp.y) {
-                                    defeatMinion(mi, psd);
-                                    killed = true;
-                                    break;
-                                }
-                            }
-                            if (killed) break;
-
-                            // Any minion segment touching the player's BODY (not the
-                            // player's head) damages the player — lose one segment,
-                            // or die outright if already too short.
-                            boolean hitPlayer = false;
-                            for (int pi = 1; pi < psd.body.size() && !hitPlayer; pi++) {
-                                Point pp = psd.body.get(pi);
-                                for (Point bp : minion.body) {
-                                    if (pp.x == bp.x && pp.y == bp.y) { hitPlayer = true; break; }
-                                }
-                            }
-                            if (!hitPlayer) continue;
-
-                            if (psd.body.size() > 3) {
-                                psd.body.remove(psd.body.size() - 1);
-                                psd.growthPending = Math.max(0, psd.growthPending - 1);
-                            } else {
-                                psd.alive = false;
-                                killSnake(psd);
-                            }
-                            if (!psd.alive) killSnake(psd);
-                        }
-                    }
                 }
 
                 // Boss eats food at new head position
