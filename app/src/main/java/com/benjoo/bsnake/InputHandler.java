@@ -255,17 +255,10 @@ class InputHandler {
                 } else if (contains(state.classicBtn, upX, upY)) {
                     actions.playClick();
                     state.selectedModeIndex = 1;
-                } else if (contains(state.openWorldBtn, upX, upY)) {
-                    actions.playClick();
-                    state.selectedModeIndex = 2;
                 } else if (contains(state.modePlayBtn, upX, upY)) {
                     actions.playClick();
-                    if (state.selectedModeIndex == 2) {
-                        state.gameMode = GameState.GameMode.OPEN_WORLD;
-                    } else {
-                        state.gameMode = state.selectedModeIndex == 0
-                                ? GameState.GameMode.ARCADE : GameState.GameMode.CLASSIC;
-                    }
+                    state.gameMode = state.selectedModeIndex == 0
+                            ? GameState.GameMode.ARCADE : GameState.GameMode.CLASSIC;
                     actions.startNewGame();
                 } else if (contains(state.modeBackBtn, upX, upY)) {
                     actions.playClick();

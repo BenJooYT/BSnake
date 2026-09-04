@@ -31,6 +31,9 @@ public class SoundEffects {
     private static final int UPGRADE_PICK_MS = 220;
     private static final int UPGRADE_SELECT_MS = 110;
     private static final int UPGRADE_EPIC_MS = 1400;
+    private static final int PHANTOM_PHASE_MS = 300;
+    private static final int SUMMON_SPAWN_MS = 200;
+    private static final int MINION_DEATH_MS = 150;
 
     private short[] clickBuffer;
     private short[] crunchBuffer;
@@ -50,11 +53,15 @@ public class SoundEffects {
     private short[] upgradePickBuffer;
     private short[] upgradeSelectBuffer;
     private short[] upgradeEpicBuffer;
+    private short[] phantomPhaseBuffer;
+    private short[] summonSpawnBuffer;
+    private short[] minionDeathBuffer;
 
     private AudioTrack clickTrack, crunchTrack, healTrack, bossDamageTrack, bossDefeatTrack,
             bossWindupTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack, challengeTrack,
             challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack, upgradeTrack,
-            upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack;
+            upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack,
+            phantomPhaseTrack, summonSpawnTrack, minionDeathTrack;
     private volatile float volume = 1.0f;
     private volatile boolean muted;
 
@@ -84,6 +91,9 @@ public class SoundEffects {
         generateUpgradePick();
         generateUpgradeSelect();
         generateUpgradeEpic();
+        generatePhantomPhaseShift();
+        generateSummonMinion();
+        generateMinionDeath();
         initTracks();
     }
 
@@ -136,6 +146,12 @@ public class SoundEffects {
         upgradeSelectTrack.write(upgradeSelectBuffer, 0, upgradeSelectBuffer.length);
         upgradeEpicTrack = createTrack(upgradeEpicBuffer.length * 2);
         upgradeEpicTrack.write(upgradeEpicBuffer, 0, upgradeEpicBuffer.length);
+        phantomPhaseTrack = createTrack(phantomPhaseBuffer.length * 2);
+        phantomPhaseTrack.write(phantomPhaseBuffer, 0, phantomPhaseBuffer.length);
+        summonSpawnTrack = createTrack(summonSpawnBuffer.length * 2);
+        summonSpawnTrack.write(summonSpawnBuffer, 0, summonSpawnBuffer.length);
+        minionDeathTrack = createTrack(minionDeathBuffer.length * 2);
+        minionDeathTrack.write(minionDeathBuffer, 0, minionDeathBuffer.length);
 
         audioThread = new Thread(this::audioLoop, "SoundFX");
         audioThread.setDaemon(true);
@@ -518,6 +534,64 @@ public class SoundEffects {
         }
     }
 
+    // PHANTOM: spectral whoosh — descending pitch sweep with filtered noise
+    private void generatePhantomPhaseShift() {
+        int n = SAMPLE_RATE * PHANTOM_PHASE_MS / 1000;
+        phantomPhaseBuffer = new short[n];
+        Random rng = new Random(42);
+        double lp = 0, bp = 0;
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double p = t / (PHANTOM_PHASE_MS / 1000.0);
+            // Descending sweep: 400 Hz → 150 Hz
+            double freq = 400.0 - 250.0 * Math.min(1.0, p);
+            double sin = Math.sin(2 * Math.PI * freq * t);
+            // Bandpass state-variable filter
+            double f = 2.0 * Math.sin(Math.PI * freq / SAMPLE_RATE);
+            double input = sin * 0.6 + (rng.nextDouble() * 2 - 1) * 0.25;
+            lp += f * bp;
+            bp += f * (input - lp - bp * 0.4);
+            double filtered = lp;
+            double a = Math.min(1.0, t / 0.005);
+            double d = Math.exp(-t * 5.0);
+            phantomPhaseBuffer[i] = (short) (filtered * a * d * 0.45 * Short.MAX_VALUE);
+        }
+    }
+
+    // SUMMONER: short punchy pop — rising chirp with noise burst
+    private void generateSummonMinion() {
+        int n = SAMPLE_RATE * SUMMON_SPAWN_MS / 1000;
+        summonSpawnBuffer = new short[n];
+        Random rng = new Random(77);
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            // Rising chirp: 300 Hz → 600 Hz over 150ms
+            double chirpT = Math.min(t, 0.15);
+            double freq = 300.0 + 300.0 * (chirpT / 0.15);
+            double sin = Math.sin(2 * Math.PI * freq * t);
+            double noise = (rng.nextDouble() * 2 - 1) * 0.3;
+            double a = Math.min(1.0, t / 0.003);
+            double d = Math.exp(-t * 10.0);
+            double s = (sin * 0.7 + noise * Math.exp(-t * 15.0)) * a * d;
+            summonSpawnBuffer[i] = (short) (s * 0.38 * Short.MAX_VALUE);
+        }
+    }
+
+    // MINION DEATH: soft thud with filtered noise
+    private void generateMinionDeath() {
+        int n = SAMPLE_RATE * MINION_DEATH_MS / 1000;
+        minionDeathBuffer = new short[n];
+        Random rng = new Random(99);
+        for (int i = 0; i < n; i++) {
+            double t = (double) i / SAMPLE_RATE;
+            double thud = Math.sin(2 * Math.PI * 200.0 * t) * Math.exp(-t * 20.0);
+            double noise = (rng.nextDouble() * 2 - 1) * 0.3 * Math.exp(-t * 18.0);
+            double a = Math.min(1.0, t / 0.002);
+            double s = (thud * 0.7 + noise) * a;
+            minionDeathBuffer[i] = (short) (s * 0.30 * Short.MAX_VALUE);
+        }
+    }
+
     // ----- shared play helper -----
 
     // Enqueue a sound for the background thread — returns immediately so the
@@ -568,6 +642,9 @@ public class SoundEffects {
     public void playUpgradePick(){ if (!muted) playTrack(upgradePickTrack); }
     public void playUpgradeSelect(){ if (!muted) playTrack(upgradeSelectTrack); }
     public void playUpgradeEpic(){ if (!muted) playTrack(upgradeEpicTrack); }
+    public void playPhantomPhaseShift() { if (!muted) playTrack(phantomPhaseTrack); }
+    public void playSummonMinion() { if (!muted) playTrack(summonSpawnTrack); }
+    public void playMinionDeath() { if (!muted) playTrack(minionDeathTrack); }
     public void setMuted(boolean m) { muted = m; }
 
     public void setVolume(float vol) {
@@ -579,7 +656,8 @@ public class SoundEffects {
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWindupTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
                 challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
-        upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack };
+        upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack,
+        phantomPhaseTrack, summonSpawnTrack, minionDeathTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); } catch (Exception e) { }
@@ -598,7 +676,8 @@ public class SoundEffects {
         AudioTrack[] tracks = { clickTrack, crunchTrack, healTrack, bossDamageTrack,
                 bossDefeatTrack, bossWindupTrack, bossWarningTrack, bossSpawnTrack, wallDestroyTrack,
                 challengeTrack, challengeFailTrack, segmentLostTrack, deathTrack, pauseTrack,
-        upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack };
+        upgradeTrack, upgradePickTrack, upgradeSelectTrack, upgradeEpicTrack,
+        phantomPhaseTrack, summonSpawnTrack, minionDeathTrack };
         for (AudioTrack t : tracks) {
             if (t != null) {
                 try { t.stop(); t.release(); } catch (Exception e) { }
@@ -613,5 +692,7 @@ public class SoundEffects {
         deathTrack = null; pauseTrack = null; upgradeTrack = null;
         upgradePickTrack = null; upgradeSelectTrack = null;
         upgradeEpicTrack = null;
+        phantomPhaseTrack = null; summonSpawnTrack = null;
+        minionDeathTrack = null;
     }
 }

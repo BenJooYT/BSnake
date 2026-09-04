@@ -209,8 +209,32 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             boolean isPlaying = state.currentState == GameState.State.PLAYING;
             boolean isMpHost = state.currentState == GameState.State.MP_PLAYING && state.isHost;
             boolean isCinematic = state.currentState == GameState.State.BOSS_DEATH_CINEMATIC;
-            if ((isPlaying || isMpHost) && now - lastTick >= state.tickDelay) {
-                engine.update();
+            if ((isPlaying || isMpHost || isMpClient) && now - lastTick >= state.tickDelay) {
+                // Both host and client run the same full simulation locally. World
+                // objects (boss, walls, food, minions) are authoritative on the
+                // host; each side is authoritative for its own snake. The client
+                // therefore plays over local prediction with full freedom.
+                if (state.inMp && !state.isHost) {
+                    GameState.SnakeData mine = state.snakes[state.playerIndex];
+                    boolean wasAlive = mine.alive;
+                    engine.update();
+                    // Client landed a boss head-on locally — ask the host to apply it.
+                    if (state.clientBossHit && client != null) {
+                        String bm = NetworkMessage.bossHit();
+                        if (bm != null) client.send(bm);
+                        state.clientBossHit = false;
+                    }
+                    // The client is authoritative for its own snake, so a local
+                    // death is real. Start the death dissolve so the game-over
+                    // fallback (below) can show even if the host's gameOver
+                    // message is delayed or lost.
+                    if (!mine.alive && wasAlive && !state.deathPending) {
+                        state.deathPending = true;
+                        if (soundEffects != null) soundEffects.playDeath();
+                    }
+                } else {
+                    engine.update();
+                }
                 if (state.isHost) {
                     if (state.currentState == GameState.State.BOSS_DEATH_CINEMATIC
                             && !state.bossCinematicSynced) {
@@ -231,26 +255,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 }
                 lastTick = now;
                 now = System.currentTimeMillis();
-                    } else if (isMpClient && now - lastTick >= state.tickDelay) {
-                        // Client prediction: run simulation locally for responsive input
-                        soundEffects.setMuted(true);
-                        boolean savedAlive = state.snakes[state.playerIndex].alive;
-                        engine.update(true);
-                        // If prediction cleared the local body the snake died — keep it dead
-                        // so the client reports the death and doesn't get stuck as a ghost.
-                        if (!state.snakes[state.playerIndex].body.isEmpty()) {
-                            state.snakes[state.playerIndex].alive = savedAlive;
-                        }
-                        soundEffects.setMuted(false);
-                        // Prediction detected a boss head-on — notify the host to apply it
-                        if (state.clientBossHit && client != null) {
-                            String bm = NetworkMessage.bossHit();
-                            if (bm != null) client.send(bm);
-                            state.clientBossHit = false;
-                        }
-                        lastTick = now;
-                        now = System.currentTimeMillis();
-                    } else if (isCinematic) {
+            } else if (isCinematic) {
                 // Cinematic boss death sequence: drive phases by wall-clock time
                 long elapsed = now - state.cinematicStartMs;
                 long explosionAt = GameState.BOSS_DEATH_CAMERA_END_MS;
@@ -279,7 +284,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                     lastState = null; // force transition fade
                 }
                 lastTick = now;
-                    } else if (!isPlaying && !isMpHost && !isMpClient && !isCinematic) {
+            } else if (!isPlaying && !isMpHost && !isMpClient && !isCinematic) {
                 lastTick = now;
             }
 
@@ -289,6 +294,13 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 if (state.isHost) {
                     state.mpWinner = state.snakes[0].score > state.snakes[1].score ? 0 :
                                      state.snakes[1].score > state.snakes[0].score ? 1 : -1;
+                    state.currentState = GameState.State.MP_GAME_OVER;
+                } else if (state.inMp) {
+                    // Client "you died" fallback. The host normally drives the
+                    // official game-over via the gameOver message, but if that is
+                    // delayed or lost we must not leave the client stuck frozen on
+                    // a dead snake. Move to the MP game-over panel; the host's
+                    // authoritative message (if it arrives) refines the result.
                     state.currentState = GameState.State.MP_GAME_OVER;
                 } else {
                     if (!state.devMode)
@@ -570,9 +582,25 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.boss.growthPending = bj.getInt("growthPending");
                 state.boss.type = GameState.BossType.values()[bj.optInt("type", 0)];
                 state.boss.storedFruits = bj.optInt("storedFruits", 0);
+                state.boss.phantomIsTangible = bj.optInt("phantomTangible", 1) == 1;
+                state.boss.phantomPhaseTick = bj.optInt("phantomPhaseTick", 0);
                 state.boss.alive = true;
             } else {
                 state.boss.alive = false;
+            }
+            // Minions (SUMMONER)
+            state.minions.clear();
+            if (obj.has("minions")) {
+                JSONArray mj = obj.getJSONArray("minions");
+                for (int i = 0; i < mj.length(); i++) {
+                    JSONObject mjo = mj.getJSONObject(i);
+                    GameState.MinionSnake minion = new GameState.MinionSnake();
+                    minion.body = NetworkMessage.jsonToBody(mjo.getJSONArray("body"));
+                    minion.dirX = mjo.getInt("dirX");
+                    minion.dirY = mjo.getInt("dirY");
+                    minion.lastMoveTick = mjo.getInt("lastMoveTick");
+                    state.minions.add(minion);
+                }
             }
             JSONArray trArr = obj.getJSONArray("trail");
             state.bossTrail.clear();
@@ -607,14 +635,15 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
             state.tickCount = obj.getInt("tick");
             JSONArray alArr = obj.getJSONArray("alive");
             state.snakes[0].alive = alArr.getBoolean(0);
-            state.snakes[1].alive = alArr.getBoolean(1);
+            // snake[1] (the client's own) is locally authoritative. Its body and
+            // alive state come from local prediction, so the host's transient
+            // flag must not override, overwrite, or freeze it here.
             JSONArray hcArr = obj.getJSONArray("headColors");
             state.snakes[0].headColor = hcArr.getInt(0);
             state.snakes[1].headColor = hcArr.getInt(1);
             JSONArray bcArr = obj.getJSONArray("bodyColors");
             state.snakes[0].bodyColor = bcArr.getInt(0);
             state.snakes[1].bodyColor = bcArr.getInt(1);
-            state.mpLastStateTime = System.currentTimeMillis();
         } catch (Exception e) { }
     }
 
@@ -630,7 +659,8 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
                 state.wallPreviewPositions, state.wallPreviewStartTick,
                 state.wallPreviewActive, state.nextWallTick,
                 state.snakes[0].headColor, state.snakes[1].headColor,
-                state.snakes[0].bodyColor, state.snakes[1].bodyColor);
+                state.snakes[0].bodyColor, state.snakes[1].bodyColor,
+                state.minions);
         if (msg != null) server.send(msg);
     }
 
@@ -885,7 +915,7 @@ public class GameView extends SurfaceView implements Runnable, SurfaceHolder.Cal
 
     @Override
     public void cycleDevBossType() {
-        state.devForcedBossType = (state.devForcedBossType + 1) % 5;
+        state.devForcedBossType = (state.devForcedBossType + 1) % 7;
     }
 
     @Override

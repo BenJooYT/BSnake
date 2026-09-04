@@ -253,27 +253,34 @@ class GameRenderer {
             boolean isWallBuilder = state.boss.type == GameState.BossType.WALL_BUILDER;
             boolean isHealer = state.boss.type == GameState.BossType.HEALER;
             boolean isMirror = state.boss.type == GameState.BossType.MIRROR;
+            boolean isPhantom = state.boss.type == GameState.BossType.PHANTOM;
+            boolean isSummoner = state.boss.type == GameState.BossType.SUMMONER;
+            boolean isIntangible = isPhantom && !state.boss.phantomIsTangible;
             boolean flashed = state.bossFlashTicks > 0;
             long now = System.currentTimeMillis();
             float auraPulse = 0.5f + 0.5f * (float) Math.sin(now * 0.006);
             int auraColor = isWallBuilder ? Color.rgb(0, 140, 255)
                     : isHealer ? Color.rgb(0, 200, 90)
-                    : isMirror ? Color.rgb(170, 80, 255) : Color.rgb(200, 60, 220);
+                    : isMirror ? Color.rgb(170, 80, 255)
+                    : isPhantom ? Color.rgb(0, 220, 220)
+                    : isSummoner ? Color.rgb(255, 140, 0)
+                    : Color.rgb(200, 60, 220);
+            // PHANTOM intangible: aura shrinks and pulses more aggressively
+            float auraScale = isIntangible ? 0.08f : 0.18f;
+            float auraBoost = isIntangible ? 0.15f : 0f;
 
             // Pulsing aura glow behind the body
             for (int i = 0; i < state.boss.body.size(); i++) {
                 Point seg = state.boss.body.get(i);
                 float aDx = seg.x - viewCameraX;
                 float aDy = seg.y - viewCameraY;
-                // Keep cells that are at least partially visible (within half a
-                // viewport plus half a cell) so the boss aura doesn't pop in.
                 if (Math.abs(aDx) > state.viewportWidthCells / 2f + 0.5f
                         || Math.abs(aDy) > state.viewportHeightCells / 2f + 0.5f) continue;
                 float ax = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + aDx);
                 float ay = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + aDy);
-                int aAlpha = (i == 0 ? 90 : 35) + (int) (30 * auraPulse);
+                int aAlpha = (i == 0 ? 90 : 35) + (int) ((30 + auraBoost * 100) * auraPulse);
                 paint.setColor(Color.argb(aAlpha, Color.red(auraColor), Color.green(auraColor), Color.blue(auraColor)));
-                float inset = -state.cellSize * 0.18f;
+                float inset = -state.cellSize * auraScale;
                 canvas.drawRect(ax + inset, ay + inset,
                         ax + state.cellSize - 1 - inset, ay + state.cellSize - 1 - inset, paint);
             }
@@ -288,10 +295,18 @@ class GameRenderer {
                 float by = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + bDy);
                 if (flashed) {
                     paint.setColor(Color.argb(235, 255, 255, 255));
+                } else if (isIntangible) {
+                    // PHANTOM intangible: ghostly pulsing alpha
+                    float ghostAlpha = 0.25f + 0.15f * (float) Math.sin(now * 0.008 + i * 0.5);
+                    int ga = (int) (255 * ghostAlpha);
+                    paint.setColor(Color.argb(ga, 0, 220, 220));
                 } else if (i == 0) {
                     paint.setColor(isWallBuilder ? Color.rgb(0, 140, 255)
                             : isHealer ? Color.rgb(0, 200, 90)
-                            : isMirror ? Color.rgb(170, 80, 255) : Color.rgb(200, 60, 220));
+                            : isMirror ? Color.rgb(170, 80, 255)
+                            : isPhantom ? Color.rgb(0, 220, 220)
+                            : isSummoner ? Color.rgb(255, 140, 0)
+                            : Color.rgb(200, 60, 220));
                 } else {
                     if (isWallBuilder) {
                         int dim = Math.max(120, 255 - i * 20);
@@ -302,6 +317,12 @@ class GameRenderer {
                     } else if (isMirror) {
                         int dim = Math.max(70, 190 - i * 15);
                         paint.setColor(Color.rgb(dim / 2, dim / 4, dim));
+                    } else if (isPhantom) {
+                        int dim = Math.max(60, 180 - i * 15);
+                        paint.setColor(Color.rgb(dim / 4, dim, dim));
+                    } else if (isSummoner) {
+                        int dim = Math.max(70, 200 - i * 15);
+                        paint.setColor(Color.rgb(dim, dim / 2, 0));
                     } else {
                         int dim = Math.max(80, 180 - i * 15);
                         paint.setColor(Color.rgb(dim, dim / 3, dim));
@@ -338,6 +359,36 @@ class GameRenderer {
                     canvas.drawCircle(hx + state.cellSize / 2f, hy + state.cellSize / 2f, radius, paint);
                     paint.setStyle(Paint.Style.FILL);
                     paint.setStrokeWidth(0);
+                }
+            }
+
+            // SUMMONER: render minions as small orange snakes
+            if (isSummoner) {
+                for (GameState.MinionSnake minion : state.minions) {
+                    if (!minion.alive || minion.body.isEmpty()) continue;
+                    for (int mi = 0; mi < minion.body.size(); mi++) {
+                        Point seg = minion.body.get(mi);
+                        float mDx = seg.x - viewCameraX;
+                        float mDy = seg.y - viewCameraY;
+                        if (Math.abs(mDx) > state.viewportWidthCells / 2f + 0.5f
+                                || Math.abs(mDy) > state.viewportHeightCells / 2f + 0.5f) continue;
+                        float mx = state.boardLeft + state.cellSize * (state.viewportWidthCells / 2f - 0.5f + mDx);
+                        float my = state.boardTop + state.cellSize * (state.viewportHeightCells / 2f - 0.5f + mDy);
+                        // Small aura
+                        int mA = (mi == 0 ? 50 : 20) + (int) (15 * auraPulse);
+                        paint.setColor(Color.argb(mA, 220, 100, 0));
+                        float mInset = -state.cellSize * 0.10f;
+                        canvas.drawRect(mx + mInset, my + mInset,
+                                mx + state.cellSize - 1 - mInset, my + state.cellSize - 1 - mInset, paint);
+                        // Body segment
+                        if (mi == 0) {
+                            paint.setColor(Color.rgb(220, 100, 0));
+                        } else {
+                            int dim = Math.max(60, 160 - mi * 30);
+                            paint.setColor(Color.rgb(dim, dim / 2, 0));
+                        }
+                        canvas.drawRect(mx, my, mx + state.cellSize - 1, my + state.cellSize - 1, paint);
+                    }
                 }
             }
 
@@ -1391,6 +1442,8 @@ class GameRenderer {
             case WALL_BUILDER: color = Color.rgb(0, 140, 255); name = "WALL BUILDER"; break;
             case HEALER: color = Color.rgb(0, 200, 90); name = "HEALER"; break;
             case MIRROR: color = Color.rgb(170, 80, 255); name = "MIRROR"; break;
+            case PHANTOM: color = Color.rgb(0, 220, 220); name = "PHANTOM"; break;
+            case SUMMONER: color = Color.rgb(255, 140, 0); name = "SUMMONER"; break;
             default: color = Color.rgb(200, 60, 220); name = "CHASER";
         }
 
@@ -1408,6 +1461,15 @@ class GameRenderer {
         for (int i = 0; i < segs; i++) {
             float cx = x + i * (cellW + gap);
             canvas.drawRoundRect(cx, y0, cx + cellW, y0 + h, 3, 3, paint);
+        }
+
+        // PHANTOM: pulsing white overlay during intangible phase
+        if (state.boss.type == GameState.BossType.PHANTOM && !state.boss.phantomIsTangible) {
+            long now = System.currentTimeMillis();
+            float pulse = 0.5f + 0.5f * (float) Math.sin(now * 0.01);
+            int washAlpha = (int) (40 + 30 * pulse);
+            paint.setColor(Color.argb(washAlpha, 255, 255, 255));
+            canvas.drawRoundRect(x, y0, x + w, y0 + h, 3, 3, paint);
         }
 
         // Outline around the whole bar.
@@ -1965,6 +2027,8 @@ class GameRenderer {
             case WALL_BUILDER: return Color.rgb(0, 140, 255);
             case HEALER: return Color.rgb(0, 200, 90);
             case MIRROR: return Color.rgb(170, 80, 255);
+            case PHANTOM: return Color.rgb(0, 220, 220);
+            case SUMMONER: return Color.rgb(255, 140, 0);
             default: return Color.rgb(200, 60, 220);
         }
     }
@@ -1975,6 +2039,8 @@ class GameRenderer {
             case WALL_BUILDER: return Color.rgb(255, 140, 0);
             case HEALER: return Color.rgb(0, 180, 90);
             case MIRROR: return Color.rgb(140, 60, 220);
+            case PHANTOM: return Color.rgb(0, 160, 160);
+            case SUMMONER: return Color.rgb(200, 100, 0);
             default: return Color.rgb(180, 60, 200);
         }
     }
@@ -2055,7 +2121,7 @@ class GameRenderer {
         if (state.devMode) {
             drawCenteredText(canvas, "DEV MODE", state.screenW / 2f, state.screenH * 0.17f, 28, Color.RED, true);
             drawButton(canvas, state.devScoreBtn, "START SCORE: " + state.devScoreText);
-            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER", "BOSS: MIRROR"};
+            String[] bossLabels = {"BOSS: RANDOM", "BOSS: CHASER", "BOSS: WALL", "BOSS: HEALER", "BOSS: MIRROR", "BOSS: PHANTOM", "BOSS: SUMMONER"};
             drawButton(canvas, state.devBossBtn, bossLabels[state.devForcedBossType]);
             drawButton(canvas, state.devPathBtn, "PATH: " + (state.showBossPathfinding ? "ON" : "OFF"));
         }
@@ -2074,7 +2140,6 @@ class GameRenderer {
         // Mode buttons — highlight the selected one
         int arcadeBg = state.selectedModeIndex == 0 ? Color.GREEN : Color.DKGRAY;
         int classicBg = state.selectedModeIndex == 1 ? Color.GREEN : Color.DKGRAY;
-        int openWorldBg = state.selectedModeIndex == 2 ? Color.GREEN : Color.DKGRAY;
         paint.setColor(arcadeBg);
         if (state.arcadeBtn != null)
             canvas.drawRect(state.arcadeBtn.left, state.arcadeBtn.top,
@@ -2087,23 +2152,15 @@ class GameRenderer {
                     state.classicBtn.right - 2, state.classicBtn.bottom - 2, paint);
         drawCenteredText(canvas, "CLASSIC", state.classicBtn.centerX(),
                 state.classicBtn.centerY(), 36, Color.BLACK, true);
-        paint.setColor(openWorldBg);
-        if (state.openWorldBtn != null)
-            canvas.drawRect(state.openWorldBtn.left, state.openWorldBtn.top,
-                    state.openWorldBtn.right - 2, state.openWorldBtn.bottom - 2, paint);
-        drawCenteredText(canvas, "OPEN WORLD", state.openWorldBtn.centerX(),
-                state.openWorldBtn.centerY(), 36, Color.BLACK, true);
 
         // Description for the selected mode
         String desc;
         if (state.selectedModeIndex == 0) {
             desc = "A fixed 32x32 grid.\nBosses, progression, and\npure fun guaranteed!";
-        } else if (state.selectedModeIndex == 2) {
-            desc = "An infinite, unbounded world.\nExplore, survive, and grow in\nworld coordinates.";
         } else {
             desc = "The Classic Snake Experience.\nNo bosses, no gimmicks.\nRelive the way Snake was\nmeant to be played.";
         }
-        float descY = state.openWorldBtn.bottom + (state.modePlayBtn.top - state.openWorldBtn.bottom) * 0.35f;
+        float descY = state.classicBtn.bottom + (state.modePlayBtn.top - state.classicBtn.bottom) * 0.35f;
         drawCenteredText(canvas, desc, state.screenW / 2f, descY, 24, Color.LTGRAY, false);
 
         drawButton(canvas, state.modePlayBtn, "PLAY");

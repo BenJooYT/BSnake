@@ -89,12 +89,16 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         state.boss.alive = false;
         state.bossGrowthPending = 0;
         state.boss.storedFruits = 0;
+        state.boss.phantomPhaseTick = 0;
+        state.boss.phantomIsTangible = true;
         state.bossTrail.clear();
         state.walls.clear();
         state.wallPreviewPositions.clear();
         state.wallPreviewActive = false;
         state.wallsDying = false;
         state.nextWallTick = 0;
+        state.minions.clear();
+        state.nextMinionSpawnTick = 0;
         state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
         state.bossDefeats = 0;
         state.tickCount = 0;
@@ -157,12 +161,16 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         state.boss.alive = false;
         state.bossGrowthPending = 0;
         state.boss.storedFruits = 0;
+        state.boss.phantomPhaseTick = 0;
+        state.boss.phantomIsTangible = true;
         state.bossTrail.clear();
         state.walls.clear();
         state.wallPreviewPositions.clear();
         state.wallPreviewActive = false;
         state.wallsDying = false;
         state.nextWallTick = 0;
+        state.minions.clear();
+        state.nextMinionSpawnTick = 0;
         state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
         state.bossDefeats = 0;
         state.tickCount = 0;
@@ -233,12 +241,16 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         state.boss.alive = false;
         state.bossGrowthPending = 0;
         state.boss.storedFruits = 0;
+        state.boss.phantomPhaseTick = 0;
+        state.boss.phantomIsTangible = true;
         state.bossTrail.clear();
         state.walls.clear();
         state.wallPreviewPositions.clear();
         state.wallPreviewActive = false;
         state.wallsDying = false;
         state.nextWallTick = 0;
+        state.minions.clear();
+        state.nextMinionSpawnTick = 0;
         state.nextBossSpawnScore = BOSS_SPAWN_INTERVAL;
         state.bossDefeats = 0;
         state.tickCount = 0;
@@ -453,11 +465,7 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         return level;
     }
 
-    void update() {
-        update(false);
-    }
-
-// Ids of the currently-offered upgrade cards, for syncing to the MP client.
+    // Ids of the currently-offered upgrade cards, for syncing to the MP client.
     ArrayList<String> upgradeOfferIds() {
         return upgrades.offeredIds();
     }
@@ -565,11 +573,13 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             case WALL_BUILDER: return android.graphics.Color.rgb(0, 140, 255);
             case HEALER: return android.graphics.Color.rgb(0, 200, 90);
             case MIRROR: return android.graphics.Color.rgb(170, 80, 255);
+            case PHANTOM: return android.graphics.Color.rgb(0, 220, 220);
+            case SUMMONER: return android.graphics.Color.rgb(255, 140, 0);
             default: return android.graphics.Color.rgb(200, 60, 220);
         }
     }
 
-    void update(boolean predict) {
+    void update() {
         state.tickCount++;
 
         // Prune expired visual particles.
@@ -635,7 +645,7 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                     }
                 }
                 // On host: remove food at client's current head (food client already ate)
-                if (!predict) {
+                if (state.isHost) {
                     Point h = sd.body.get(0);
                     for (int fi = 0; fi < state.foods.size(); fi++) {
                         GameState.Fruit f = state.foods.get(fi);
@@ -784,21 +794,23 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             }
 
             // Boss collision — head-on damages boss, body kills player
+            // PHANTOM in intangible phase passes through everything
             boolean hitBoss = false;
             boolean bossKillingBlow = false;
-            if (state.boss.alive) {
+            boolean bossCollidable = state.boss.type != GameState.BossType.PHANTOM
+                    || state.boss.phantomIsTangible;
+            if (state.boss.alive && bossCollidable) {
                 Point bh = state.boss.body.get(0);
                 if (nx == bh.x && ny == bh.y) {
                     hitBoss = true;
                     bossKillingBlow = state.boss.body.size() <= 2;
-                    if (!predict) {
-                        sd.score += BOSS_HIT_SCORE;
-                        state.score = sd.score;
-                        state.triggerScorePop(BOSS_HIT_SCORE);
-                    }
-                    damageBoss(si, !predict);
-                    if (predict && si == state.playerIndex) {
-                        // The client landed the hit locally — ask the host to apply it
+                    sd.score += BOSS_HIT_SCORE;
+                    state.score = sd.score;
+                    state.triggerScorePop(BOSS_HIT_SCORE);
+                    damageBoss(si, true);
+                    if (!state.isHost && si == state.playerIndex) {
+                        // The client landed the hit locally — flag it so GameView
+                        // can ask the host to apply it authoritatively.
                         state.clientBossHit = true;
                     }
                 } else {
@@ -871,8 +883,9 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             }
         }
 
-        // Boss auto-movement, spawn, and food refill: host only
-        if (!predict) {
+        // Boss auto-movement, spawn, food refill, challenges, upgrades: host only.
+        // Single-player (inMp=false) acts as its own host, so run it too.
+        if (state.isHost || !state.inMp) {
             // Open World is an isolated subsystem: it does not run the arcade
             // boss/wall/challenge/upgrade economy and never wraps. Handle its
             // own host-side maintenance and return before the arcade systems.
@@ -896,18 +909,87 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                     }
                     state.boss.lastMoveTick = state.tickCount;
 
+                    // PHANTOM: cycle between tangible and intangible phases
+                    if (state.boss.type == GameState.BossType.PHANTOM) {
+                        state.boss.phantomPhaseTick++;
+                        int phaseLen = state.boss.phantomIsTangible
+                                ? GameState.PHANTOM_TANGIBLE_TICKS
+                                : GameState.PHANTOM_INTANGIBLE_TICKS;
+                        if (state.boss.phantomPhaseTick >= phaseLen) {
+                            state.boss.phantomPhaseTick = 0;
+                            state.boss.phantomIsTangible = !state.boss.phantomIsTangible;
+                            state.bossFlashTicks = 2;
+                            if (sound != null) sound.playPhantomPhaseShift();
+                        }
+                    }
+
                 // After moving, check if boss head overlaps a player snake segment
                 Point bh = state.boss.body.get(0);
                 int bossHitIdx = -1;
-                for (int si = 0; si < 2; si++) {
-                    if (!state.snakes[si].alive) continue;
-                    for (Point p : state.snakes[si].body) {
-                        if (p.x == bh.x && p.y == bh.y) { bossHitIdx = si; break; }
+                // PHANTOM in intangible phase skips collision entirely
+                boolean bossCollidable = state.boss.type != GameState.BossType.PHANTOM
+                        || state.boss.phantomIsTangible;
+                if (bossCollidable) {
+                    for (int si = 0; si < 2; si++) {
+                        if (!state.snakes[si].alive) continue;
+                        for (Point p : state.snakes[si].body) {
+                            if (p.x == bh.x && p.y == bh.y) { bossHitIdx = si; break; }
+                        }
+                        if (bossHitIdx >= 0) break;
                     }
-                    if (bossHitIdx >= 0) break;
                 }
                 if (bossHitIdx >= 0) {
                     damageBoss(bossHitIdx, true);
+                }
+
+                // SUMMONER: minion collision with players (after boss movement)
+                if (state.boss.type == GameState.BossType.SUMMONER) {
+                    for (int mi = state.minions.size() - 1; mi >= 0; mi--) {
+                        GameState.MinionSnake minion = state.minions.get(mi);
+                        if (!minion.alive || minion.body.isEmpty()) continue;
+                        Point mh = minion.body.get(0);
+                        for (int si = 0; si < 2; si++) {
+                            if (!state.snakes[si].alive) continue;
+                            GameState.SnakeData psd = state.snakes[si];
+                            // Minion head overlaps player — player loses 1 segment
+                            for (int pi = 0; pi < psd.body.size(); pi++) {
+                                Point pp = psd.body.get(pi);
+                                if (mh.x == pp.x && mh.y == pp.y) {
+                                    if (pi == 0) continue; // head overlap handled below
+                                    if (psd.body.size() > 3) {
+                                        psd.body.remove(psd.body.size() - 1);
+                                        psd.growthPending = Math.max(0, psd.growthPending - 1);
+                                    } else {
+                                        psd.alive = false;
+                                        killSnake(psd);
+                                    }
+                                    break;
+                                }
+                            }
+                            if (!psd.alive) break;
+                            // Player head hits minion body — kill minion or player
+                            Point ph = psd.body.get(0);
+                            for (int bi = 0; bi < minion.body.size(); bi++) {
+                                Point bp = minion.body.get(bi);
+                                if (ph.x == bp.x && ph.y == bp.y) {
+                                    if (bi == 0) {
+                                        // Player head hits minion head — kill minion
+                                        minion.alive = false;
+                                        state.minions.remove(mi);
+                                        psd.score += BOSS_HIT_SCORE / 3;
+                                        state.score = psd.score;
+                                        state.triggerScorePop(BOSS_HIT_SCORE / 3);
+                                        spawnBossTrailAtPos(bp.x, bp.y);
+                                        if (sound != null) sound.playMinionDeath();
+                                    } else {
+                                        psd.alive = false;
+                                    }
+                                    break;
+                                }
+                            }
+                            if (!psd.alive) { killSnake(psd); break; }
+                        }
+                    }
                 }
 
                 // Boss eats food at new head position
@@ -955,6 +1037,29 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                 }
             }
 
+            // Summoner: spawn and move minions
+            if (state.boss.alive && state.boss.type == GameState.BossType.SUMMONER) {
+                // Spawn new minions on schedule
+                if (state.tickCount >= state.nextMinionSpawnTick
+                        && state.minions.size() < GameState.MINION_MAX) {
+                    spawnMinion();
+                    state.nextMinionSpawnTick = state.tickCount + GameState.MINION_SPAWN_INTERVAL;
+                    state.bossFlashTicks = 1;
+                }
+                // Move existing minions
+                for (int mi = state.minions.size() - 1; mi >= 0; mi--) {
+                    GameState.MinionSnake minion = state.minions.get(mi);
+                    if (!minion.alive || minion.body.isEmpty()) {
+                        state.minions.remove(mi);
+                        continue;
+                    }
+                    if (state.tickCount - minion.lastMoveTick >= GameState.MINION_MOVE_INTERVAL) {
+                        moveMinion(minion);
+                        minion.lastMoveTick = state.tickCount;
+                    }
+                }
+            }
+
             // Remove fully decayed dying walls
             for (int i = state.walls.size() - 1; i >= 0; i--) {
                 GameState.WallCell w = state.walls.get(i);
@@ -997,8 +1102,8 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             }
         }
 
-        // Check game over (skip during client prediction — host is authoritative)
-        if (!predict) {
+        // Check game over (host is authoritative; single-player is its own host)
+        if (state.isHost || !state.inMp) {
             boolean allDead = true;
             for (int i = 0; i < 2; i++) {
                 if (state.snakes[i].alive) { allDead = false; break; }
@@ -1245,7 +1350,9 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             if (green != null) return new Point(green.x, green.y);
             return findBestTarget(head.x, head.y);
         }
-        if (state.boss.type == GameState.BossType.WALL_BUILDER) {
+        if (state.boss.type == GameState.BossType.WALL_BUILDER
+                || state.boss.type == GameState.BossType.PHANTOM
+                || state.boss.type == GameState.BossType.SUMMONER) {
             return findBestTarget(head.x, head.y);
         }
         return findNearestFood(head.x, head.y);
@@ -1436,6 +1543,10 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
     }
 
     private void damageBoss(int hitterIndex, boolean creditScore) {
+        // PHANTOM in intangible phase cannot be damaged
+        if (state.boss.type == GameState.BossType.PHANTOM && !state.boss.phantomIsTangible) {
+            return;
+        }
         int removed = 0;
         boolean killingBlow = state.boss.body.size() <= 2;
         state.bossFlashTicks = 4;
@@ -1463,8 +1574,14 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             removed++;
         }
 
+        // The boss (and its defeat handling) is host-authoritative. Both sides
+        // mark it dead so we never index an empty alive body, but the client
+        // only predicts the body removal; the defeat's
+        // transitions/upgrades/cinematic fire only when the host applies it.
         if (state.boss.body.isEmpty()) {
             state.boss.alive = false;
+        }
+        if ((state.isHost || !state.inMp) && state.boss.body.isEmpty()) {
             state.bossTargetX = -1;
             state.bossTargetY = -1;
             // Stored fruit is lost when the HEALER is destroyed, so the food cap
@@ -1472,6 +1589,10 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             state.boss.storedFruits = 0;
             if (state.boss.type == GameState.BossType.WALL_BUILDER) {
                 startWallDeathAnimation();
+            }
+            // SUMMONER: all minions die with the boss
+            if (state.boss.type == GameState.BossType.SUMMONER) {
+                killAllMinions();
             }
             if (creditScore) {
                 state.snakes[hitterIndex].score += BOSS_DEFEAT_SCORE;
@@ -1530,17 +1651,22 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                     finishBossDefeatTransition();
                 }
             }
-        } else {
+        } else if (state.isHost || !state.inMp) {
             teleportBoss();
             // HEALER releases its stored fruit as green healing fruit after damage
             if (state.boss.type == GameState.BossType.HEALER) {
                 spawnHealerFruits();
             }
+            // SUMMONER: all minions destroyed on boss damage
+            if (state.boss.type == GameState.BossType.SUMMONER) {
+                killAllMinions();
+            }
             if (sound != null) sound.playBossDamage();
         }
     }
 
-    // Called on the host when the client reports it hit the boss head
+    // Called on the host when the client reports it hit the boss head.
+    // The host is authoritative for the boss and its defeat/upgrade rewards.
     void clientHitBoss() {
         if (!state.boss.alive) return;
         state.snakes[1].score += BOSS_HIT_SCORE;
@@ -1899,6 +2025,111 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         return false;
     }
 
+    // ----- Summoner methods -----
+
+    private void spawnMinion() {
+        Point bossHead = state.boss.body.isEmpty() ? null : state.boss.body.get(0);
+        if (bossHead == null) return;
+        for (int attempts = 0; attempts < 60; attempts++) {
+            int hx = bossHead.x + rand.nextInt(7) - 3;
+            int hy = bossHead.y + rand.nextInt(7) - 3;
+            hx = (hx + state.cols) % state.cols;
+            hy = (hy + state.rows) % state.rows;
+            if (overlapsSnake(hx, hy) || overlapsBoss(hx, hy) || overlapsWall(hx, hy)) continue;
+            GameState.MinionSnake minion = new GameState.MinionSnake();
+            int dir = rand.nextInt(4);
+            int[] dx = {0, 0, -1, 1};
+            int[] dy = {-1, 1, 0, 0};
+            minion.dirX = dx[dir];
+            minion.dirY = dy[dir];
+            for (int s = 0; s < GameState.MINION_SEGMENTS; s++) {
+                int sx = (hx - dx[dir] * s + state.cols) % state.cols;
+                int sy = (hy - dy[dir] * s + state.rows) % state.rows;
+                minion.body.add(new Point(sx, sy));
+            }
+            minion.lastMoveTick = state.tickCount;
+            state.minions.add(minion);
+            if (sound != null) sound.playSummonMinion();
+            return;
+        }
+    }
+
+    private void moveMinion(GameState.MinionSnake minion) {
+        if (minion.body.isEmpty()) return;
+        Point mh = minion.body.get(0);
+        // Chase nearest player head
+        int bestDx = 0, bestDy = 0;
+        int bestDist = Integer.MAX_VALUE;
+        for (int si = 0; si < 2; si++) {
+            if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
+            Point ph = state.snakes[si].body.get(0);
+            int ddx = wrappedDir(mh.x, ph.x, state.cols);
+            int ddy = wrappedDir(mh.y, ph.y, state.rows);
+            int dist = Math.abs(ddx) + Math.abs(ddy);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestDx = ddx;
+                bestDy = ddy;
+            }
+        }
+        if (bestDx == 0 && bestDy == 0) return;
+        // Pick the axis with larger distance
+        int ndx, ndy;
+        if (Math.abs(bestDx) >= Math.abs(bestDy)) {
+            ndx = clampDir(bestDx);
+            ndy = 0;
+        } else {
+            ndx = 0;
+            ndy = clampDir(bestDy);
+        }
+        int nx = (mh.x + ndx + state.cols) % state.cols;
+        int ny = (mh.y + ndy + state.rows) % state.rows;
+        // Validate: don't walk into boss body, other minions, or walls
+        boolean blocked = overlapsBoss(nx, ny) || overlapsWall(nx, ny);
+        if (!blocked) {
+            for (GameState.MinionSnake other : state.minions) {
+                if (other == minion || !other.alive) continue;
+                for (Point op : other.body) {
+                    if (op.x == nx && op.y == ny) { blocked = true; break; }
+                }
+                if (blocked) break;
+            }
+        }
+        if (blocked) return;
+        minion.body.add(0, new Point(nx, ny));
+        if (minion.growthPending > 0) {
+            minion.growthPending--;
+        } else {
+            minion.body.remove(minion.body.size() - 1);
+        }
+        // Cap minion length
+        while (minion.body.size() > GameState.MINION_MAX_SEGMENTS) {
+            minion.body.remove(minion.body.size() - 1);
+        }
+    }
+
+    private void killAllMinions() {
+        for (GameState.MinionSnake minion : state.minions) {
+            if (!minion.alive || minion.body.isEmpty()) continue;
+            Point mh = minion.body.get(0);
+            spawnBossBurst(mh.x, mh.y, android.graphics.Color.rgb(220, 100, 0), false);
+            // Leave trail at minion body for players to collect
+            for (Point p : minion.body) {
+                if (!overlapsSnake(p.x, p.y) && !overlapsTrail(p.x, p.y)) {
+                    state.bossTrail.add(new GameState.BossTrailCell(p.x, p.y, state.tickCount));
+                }
+            }
+            minion.alive = false;
+        }
+        state.minions.clear();
+    }
+
+    private void spawnBossTrailAtPos(int x, int y) {
+        if (!overlapsSnake(x, y) && !overlapsTrail(x, y)) {
+            state.bossTrail.add(new GameState.BossTrailCell(x, y, state.tickCount));
+        }
+    }
+
     // ----- Wall builder methods -----
 
     private void selectBossType() {
@@ -1906,6 +2137,10 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         state.boss.evasionCooldown = 0;
         state.boss.hesitationTicks = 0;
         state.boss.storedFruits = 0;
+        state.boss.phantomPhaseTick = 0;
+        state.boss.phantomIsTangible = true;
+        state.minions.clear();
+        state.nextMinionSpawnTick = 0;
         if (state.devForcedBossType == 1) {
             state.boss.type = GameState.BossType.CHASER;
         } else if (state.devForcedBossType == 2) {
@@ -1914,16 +2149,25 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
             state.boss.type = GameState.BossType.HEALER;
         } else if (state.devForcedBossType == 4) {
             state.boss.type = GameState.BossType.MIRROR;
+        } else if (state.devForcedBossType == 5) {
+            state.boss.type = GameState.BossType.PHANTOM;
+        } else if (state.devForcedBossType == 6) {
+            state.boss.type = GameState.BossType.SUMMONER;
         } else {
             int r = rand.nextInt(100);
-            if (r < 25) state.boss.type = GameState.BossType.WALL_BUILDER;
-            else if (r < 45) state.boss.type = GameState.BossType.HEALER;
-            else if (r < 70) state.boss.type = GameState.BossType.CHASER;
-            else state.boss.type = GameState.BossType.MIRROR;
+            if (r < 20) state.boss.type = GameState.BossType.WALL_BUILDER;
+            else if (r < 37) state.boss.type = GameState.BossType.HEALER;
+            else if (r < 57) state.boss.type = GameState.BossType.CHASER;
+            else if (r < 80) state.boss.type = GameState.BossType.MIRROR;
+            else if (r < 90) state.boss.type = GameState.BossType.PHANTOM;
+            else state.boss.type = GameState.BossType.SUMMONER;
         }
         if (state.boss.type == GameState.BossType.WALL_BUILDER) {
             initWallDifficulty();
             state.nextWallTick = state.tickCount + state.wallPlaceInterval;
+        }
+        if (state.boss.type == GameState.BossType.SUMMONER) {
+            state.nextMinionSpawnTick = state.tickCount + GameState.MINION_SPAWN_INTERVAL;
         }
     }
 

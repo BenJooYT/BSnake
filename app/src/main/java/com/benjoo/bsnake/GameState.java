@@ -285,7 +285,7 @@ public class GameState {
 
     RectF startBtn, speedBtn, snakeColorBtn, settingsBtn, leaderboardBtn, exitBtn;
     RectF playBtn, singleplayerBtn, multiplayerBtn, playBackBtn;
-    RectF arcadeBtn, classicBtn, openWorldBtn, modeBackBtn, modePlayBtn;
+        RectF arcadeBtn, classicBtn, modeBackBtn, modePlayBtn;
     int selectedModeIndex = 0; // 0 = ARCADE, 1 = CLASSIC, 2 = OPEN_WORLD (mode select screen)
     RectF settingsBackBtn, cameraModeBtn;
     RectF directionButtonsBtn;
@@ -377,7 +377,6 @@ public class GameState {
     volatile boolean clientBossHit;
     int mpWinner = -1;
     int mpLastScore0, mpLastScore1;
-    volatile long mpLastStateTime;
 
     static class BossSnake {
         ArrayList<Point> body = new ArrayList<>();
@@ -397,9 +396,12 @@ public class GameState {
         // Fractional move interval accumulator, so speed-modifying upgrades
         // (Slow Pressure) work even at sub-tick precision.
         float moveAccum = 0;
+        // PHANTOM: phase cycle state
+        int phantomPhaseTick = 0;
+        boolean phantomIsTangible = true;
     }
 
-    enum BossType { CHASER, WALL_BUILDER, HEALER, MIRROR }
+    enum BossType { CHASER, WALL_BUILDER, HEALER, MIRROR, PHANTOM, SUMMONER }
 
     static class WallCell {
         int x, y;
@@ -416,6 +418,15 @@ public class GameState {
         int x, y;
         int createdAtTick;
         BossTrailCell(int x, int y, int tick) { this.x = x; this.y = y; this.createdAtTick = tick; }
+    }
+
+    // SUMMONER: small minion snakes spawned by the boss
+    static class MinionSnake {
+        ArrayList<Point> body = new ArrayList<>();
+        int dirX = 0, dirY = 1;
+        int lastMoveTick = 0;
+        int growthPending = 0;
+        boolean alive = true;
     }
 
     BossSnake boss = new BossSnake();
@@ -471,12 +482,25 @@ public class GameState {
     boolean wallPreviewActive = false;
     boolean wallsDying = false;
 
+    // PHANTOM: phase cycle constants
+    static final int PHANTOM_TANGIBLE_TICKS = 40;
+    static final int PHANTOM_INTANGIBLE_TICKS = 20;
+
+    // SUMMONER: minion constants and state
+    static final int MINION_MAX = 3;
+    static final int MINION_SEGMENTS = 3;
+    static final int MINION_MOVE_INTERVAL = 5;
+    static final int MINION_SPAWN_INTERVAL = 60;
+    static final int MINION_MAX_SEGMENTS = 5;
+    ArrayList<MinionSnake> minions = new ArrayList<>();
+    int nextMinionSpawnTick = 0;
+
     boolean devMode = false;
     int devStartScore = 0;
     String devScoreText = "0";
     boolean editingDevScore = false;
     RectF devScoreBtn;
-    int devForcedBossType = 0; // 0=RANDOM, 1=CHASER, 2=WALL_BUILDER, 3=HEALER, 4=MIRROR
+    int devForcedBossType = 0; // 0=RANDOM, 1=CHASER, 2=WALL_BUILDER, 3=HEALER, 4=MIRROR, 5=PHANTOM, 6=SUMMONER
     boolean showBossPathfinding = false;
     RectF devBossBtn, devPathBtn;
     int bossTargetX = -1, bossTargetY = -1; // for pathfinding viz
@@ -560,7 +584,6 @@ public class GameState {
         // Mode select
         arcadeBtn = makeBtn(cx, startY, bw, bh);
         classicBtn = makeBtn(cx, startY + bh + gap, bw, bh);
-        openWorldBtn = makeBtn(cx, startY + (bh + gap) * 2, bw, bh);
         modePlayBtn = makeBtn(cx, screenH * 0.74f, bw, bh);
         modeBackBtn = makeBtn(cx, screenH * 0.86f, bw, bh);
 

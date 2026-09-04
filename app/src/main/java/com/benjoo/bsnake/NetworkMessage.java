@@ -50,17 +50,6 @@ class NetworkMessage {
         } catch (Exception e) { return null; }
     }
 
-    static String input(int dx, int dy, int tick) {
-        try {
-            return new JSONObject()
-                    .put("type", "input")
-                    .put("dx", dx)
-                    .put("dy", dy)
-                    .put("tick", tick)
-                    .toString() + "\n";
-        } catch (Exception e) { return null; }
-    }
-
     static String clientState(ArrayList<Point> body, int dirX, int dirY, int score, boolean alive) {
         try {
             JSONObject msg = new JSONObject();
@@ -82,7 +71,8 @@ class NetworkMessage {
                         ArrayList<GameState.WallCell> walls,
                         ArrayList<Point> wallPreviewPositions, int wallPreviewStartTick,
                         boolean wallPreviewActive, int nextWallTick,
-                        int headColor0, int headColor1, int bodyColor0, int bodyColor1) {
+                        int headColor0, int headColor1, int bodyColor0, int bodyColor1,
+                        ArrayList<GameState.MinionSnake> minions) {
         try {
             JSONObject msg = new JSONObject();
             msg.put("type", "state");
@@ -121,7 +111,22 @@ class NetworkMessage {
                 bj.put("growthPending", boss.growthPending);
                 bj.put("type", boss.type.ordinal());
                 bj.put("storedFruits", boss.storedFruits);
+                bj.put("phantomTangible", boss.phantomIsTangible ? 1 : 0);
+                bj.put("phantomPhaseTick", boss.phantomPhaseTick);
                 msg.put("boss", bj);
+            }
+            // Minions (SUMMONER)
+            if (minions != null && !minions.isEmpty()) {
+                JSONArray mj = new JSONArray();
+                for (GameState.MinionSnake minion : minions) {
+                    JSONObject mjo = new JSONObject();
+                    mjo.put("body", bodyToJson(minion.body));
+                    mjo.put("dirX", minion.dirX);
+                    mjo.put("dirY", minion.dirY);
+                    mjo.put("lastMoveTick", minion.lastMoveTick);
+                    mj.put(mjo);
+                }
+                msg.put("minions", mj);
             }
             JSONArray trArr = new JSONArray();
             for (GameState.BossTrailCell tc : trail) {
