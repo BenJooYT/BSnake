@@ -942,21 +942,43 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                     damageBoss(bossHitIdx, true);
                 }
 
-                // SUMMONER: minion collision with players (after boss movement)
+                // SUMMONER: minion collision with players (after boss movement).
+                // A player's head striking ANY part of a minion defeats it
+                // individually (+score +trail), so minions can be killed one by
+                // one. The minion's head is the threat: reaching the player's body
+                // costs a segment, and a short snake dies outright.
                 if (state.boss.type == GameState.BossType.SUMMONER) {
                     for (int mi = state.minions.size() - 1; mi >= 0; mi--) {
                         GameState.MinionSnake minion = state.minions.get(mi);
                         if (!minion.alive || minion.body.isEmpty()) continue;
                         Point mh = minion.body.get(0);
-                        for (int si = 0; si < 2; si++) {
-                            if (!state.snakes[si].alive) continue;
+                        boolean killed = false;
+                        for (int si = 0; si < 2 && !killed; si++) {
+                            if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
                             GameState.SnakeData psd = state.snakes[si];
-                            // Minion head overlaps player — player loses 1 segment
+                            Point ph = psd.body.get(0);
+
+                            // Player head on any minion segment -> defeat the minion.
+                            boolean headOnMinion = false;
+                            for (Point bp : minion.body) {
+                                if (ph.x == bp.x && ph.y == bp.y) { headOnMinion = true; break; }
+                            }
+                            if (headOnMinion) {
+                                defeatMinion(mi, psd);
+                                killed = true;
+                                break;
+                            }
+
+                            // Minion head reaches the player's body (not its head).
                             for (int pi = 0; pi < psd.body.size(); pi++) {
                                 Point pp = psd.body.get(pi);
                                 if (mh.x == pp.x && mh.y == pp.y) {
-                                    if (pi == 0) continue; // head overlap handled below
-                                    if (psd.body.size() > 3) {
+                                    if (pi == 0) {
+                                        // Head-on with the player head: the player
+                                        // struck the minion's head -> minion dies.
+                                        defeatMinion(mi, psd);
+                                        killed = true;
+                                    } else if (psd.body.size() > 3) {
                                         psd.body.remove(psd.body.size() - 1);
                                         psd.growthPending = Math.max(0, psd.growthPending - 1);
                                     } else {
@@ -966,28 +988,7 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                                     break;
                                 }
                             }
-                            if (!psd.alive) break;
-                            // Player head hits minion body — kill minion or player
-                            Point ph = psd.body.get(0);
-                            for (int bi = 0; bi < minion.body.size(); bi++) {
-                                Point bp = minion.body.get(bi);
-                                if (ph.x == bp.x && ph.y == bp.y) {
-                                    if (bi == 0) {
-                                        // Player head hits minion head — kill minion
-                                        minion.alive = false;
-                                        state.minions.remove(mi);
-                                        psd.score += BOSS_HIT_SCORE / 3;
-                                        state.score = psd.score;
-                                        state.triggerScorePop(BOSS_HIT_SCORE / 3);
-                                        spawnBossTrailAtPos(bp.x, bp.y);
-                                        if (sound != null) sound.playMinionDeath();
-                                    } else {
-                                        psd.alive = false;
-                                    }
-                                    break;
-                                }
-                            }
-                            if (!psd.alive) { killSnake(psd); break; }
+                            if (!psd.alive) killSnake(psd);
                         }
                     }
                 }
@@ -1542,6 +1543,21 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         return 0;
     }
 
+    // Wraps a coordinate into [0, size)
+    private int wrapCell(int v, int size) {
+        v %= size;
+        if (v < 0) v += size;
+        return v;
+    }
+
+    // Shortest wrapped step from `from` to `to` as -1/0/1
+    private int stepDir(int from, int to, int size) {
+        int d = to - from;
+        if (d > size / 2) d -= size;
+        else if (d < -size / 2) d += size;
+        return Integer.signum(d);
+    }
+
     private void damageBoss(int hitterIndex, boolean creditScore) {
         // PHANTOM in intangible phase cannot be damaged
         if (state.boss.type == GameState.BossType.PHANTOM && !state.boss.phantomIsTangible) {
@@ -2055,48 +2071,37 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
     }
 
     private void moveMinion(GameState.MinionSnake minion) {
-        if (minion.body.isEmpty()) return;
-        Point mh = minion.body.get(0);
-        // Chase nearest player head
-        int bestDx = 0, bestDy = 0;
+        if (minion.body.size() < 2) return;
+        // Derive the minion's current heading from head vs. second segment, so a
+        // minion always knows which way it is travelling (even across a wrap).
+        Point head = minion.body.get(0);
+        Point prev = minion.body.get(1);
+        minion.dirX = stepDir(prev.x, head.x, state.cols);
+        minion.dirY = stepDir(prev.y, head.y, state.rows);
+
+        // Preferred moves in priority order: keep going straight, then turn left,
+        // then turn right. Reversing 180 degrees is never allowed, so a minion
+        // can't flip into its own body when the player crosses it.
+        int fx = minion.dirX, fy = minion.dirY;
+        int[][] dirs = new int[][]{ {fx, fy}, {-fy, fx}, {fy, -fx} };
+
         int bestDist = Integer.MAX_VALUE;
-        for (int si = 0; si < 2; si++) {
-            if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
-            Point ph = state.snakes[si].body.get(0);
-            int ddx = wrappedDir(mh.x, ph.x, state.cols);
-            int ddy = wrappedDir(mh.y, ph.y, state.rows);
-            int dist = Math.abs(ddx) + Math.abs(ddy);
+        int chosenX = 0, chosenY = 0;
+        for (int[] d : dirs) {
+            int nx = wrapCell(head.x + d[0], state.cols);
+            int ny = wrapCell(head.y + d[1], state.rows);
+            if (minionBlocked(minion, nx, ny)) continue;
+            int dist = minionDistanceToPlayers(nx, ny);
             if (dist < bestDist) {
                 bestDist = dist;
-                bestDx = ddx;
-                bestDy = ddy;
+                chosenX = d[0];
+                chosenY = d[1];
             }
         }
-        if (bestDx == 0 && bestDy == 0) return;
-        // Pick the axis with larger distance
-        int ndx, ndy;
-        if (Math.abs(bestDx) >= Math.abs(bestDy)) {
-            ndx = clampDir(bestDx);
-            ndy = 0;
-        } else {
-            ndx = 0;
-            ndy = clampDir(bestDy);
-        }
-        int nx = (mh.x + ndx + state.cols) % state.cols;
-        int ny = (mh.y + ndy + state.rows) % state.rows;
-        // Validate: don't walk into boss body, other minions, or walls
-        boolean blocked = overlapsBoss(nx, ny) || overlapsWall(nx, ny);
-        if (!blocked) {
-            for (GameState.MinionSnake other : state.minions) {
-                if (other == minion || !other.alive) continue;
-                for (Point op : other.body) {
-                    if (op.x == nx && op.y == ny) { blocked = true; break; }
-                }
-                if (blocked) break;
-            }
-        }
-        if (blocked) return;
-        minion.body.add(0, new Point(nx, ny));
+        if (chosenX == 0 && chosenY == 0) return; // every option blocked
+
+        minion.body.add(0, new Point(wrapCell(head.x + chosenX, state.cols),
+                                     wrapCell(head.y + chosenY, state.rows)));
         if (minion.growthPending > 0) {
             minion.growthPending--;
         } else {
@@ -2106,6 +2111,51 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
         while (minion.body.size() > GameState.MINION_MAX_SEGMENTS) {
             minion.body.remove(minion.body.size() - 1);
         }
+    }
+
+    // True if placing a minion head at (x, y) would collide with the minion's
+    // own body, the boss body, another minion, or a wall.
+    private boolean minionBlocked(GameState.MinionSnake minion, int x, int y) {
+        if (overlapsBoss(x, y) || overlapsWall(x, y)) return true;
+        for (int i = 1; i < minion.body.size(); i++) {
+            Point p = minion.body.get(i);
+            if (p.x == x && p.y == y) return true;
+        }
+        for (GameState.MinionSnake other : state.minions) {
+            if (other == minion || !other.alive) continue;
+            for (Point op : other.body) {
+                if (op.x == x && op.y == y) return true;
+            }
+        }
+        return false;
+    }
+
+    // Manhattan distance from (x, y) to the nearest alive player head.
+    private int minionDistanceToPlayers(int x, int y) {
+        int best = Integer.MAX_VALUE;
+        for (int si = 0; si < 2; si++) {
+            if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
+            Point ph = state.snakes[si].body.get(0);
+            int dx = stepDir(x, ph.x, state.cols);
+            int dy = stepDir(y, ph.y, state.rows);
+            int dist = Math.abs(dx) + Math.abs(dy);
+            if (dist < best) best = dist;
+        }
+        return best;
+    }
+
+    // Defeats a single minion (by its list index): awards the striking player
+    // score, drops a trail cell, plays the death sound, and removes it.
+    private void defeatMinion(int index, GameState.SnakeData psd) {
+        GameState.MinionSnake minion = state.minions.get(index);
+        Point mh = minion.body.isEmpty() ? null : minion.body.get(0);
+        minion.alive = false;
+        state.minions.remove(index);
+        psd.score += BOSS_HIT_SCORE / 3;
+        state.score = psd.score;
+        state.triggerScorePop(BOSS_HIT_SCORE / 3);
+        if (mh != null) spawnBossTrailAtPos(mh.x, mh.y);
+        if (sound != null) sound.playMinionDeath();
     }
 
     private void killAllMinions() {
