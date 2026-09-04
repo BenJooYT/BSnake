@@ -943,15 +943,15 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                 }
 
                 // SUMMONER: minion collision with players (after boss movement).
-                // A player's head striking ANY part of a minion defeats it
-                // individually (+score +trail), so minions can be killed one by
-                // one. The minion's head is the threat: reaching the player's body
-                // costs a segment, and a short snake dies outright.
+                // A player's HEAD striking any part of a minion defeats it
+                // individually (+score +trail). But the rest of the player's body
+                // is vulnerable: any minion segment (head or body) that reaches the
+                // player's body costs a segment, so a minion's whole body is a real
+                // collision hazard you can't just walk through.
                 if (state.boss.type == GameState.BossType.SUMMONER) {
                     for (int mi = state.minions.size() - 1; mi >= 0; mi--) {
                         GameState.MinionSnake minion = state.minions.get(mi);
                         if (!minion.alive || minion.body.isEmpty()) continue;
-                        Point mh = minion.body.get(0);
                         boolean killed = false;
                         for (int si = 0; si < 2 && !killed; si++) {
                             if (!state.snakes[si].alive || state.snakes[si].body.isEmpty()) continue;
@@ -959,34 +959,33 @@ public class SnakeEngine implements OpenWorldChunkManager.ChunkListener {
                             Point ph = psd.body.get(0);
 
                             // Player head on any minion segment -> defeat the minion.
-                            boolean headOnMinion = false;
                             for (Point bp : minion.body) {
-                                if (ph.x == bp.x && ph.y == bp.y) { headOnMinion = true; break; }
-                            }
-                            if (headOnMinion) {
-                                defeatMinion(mi, psd);
-                                killed = true;
-                                break;
-                            }
-
-                            // Minion head reaches the player's body (not its head).
-                            for (int pi = 0; pi < psd.body.size(); pi++) {
-                                Point pp = psd.body.get(pi);
-                                if (mh.x == pp.x && mh.y == pp.y) {
-                                    if (pi == 0) {
-                                        // Head-on with the player head: the player
-                                        // struck the minion's head -> minion dies.
-                                        defeatMinion(mi, psd);
-                                        killed = true;
-                                    } else if (psd.body.size() > 3) {
-                                        psd.body.remove(psd.body.size() - 1);
-                                        psd.growthPending = Math.max(0, psd.growthPending - 1);
-                                    } else {
-                                        psd.alive = false;
-                                        killSnake(psd);
-                                    }
+                                if (ph.x == bp.x && ph.y == bp.y) {
+                                    defeatMinion(mi, psd);
+                                    killed = true;
                                     break;
                                 }
+                            }
+                            if (killed) break;
+
+                            // Any minion segment touching the player's BODY (not the
+                            // player's head) damages the player — lose one segment,
+                            // or die outright if already too short.
+                            boolean hitPlayer = false;
+                            for (int pi = 1; pi < psd.body.size() && !hitPlayer; pi++) {
+                                Point pp = psd.body.get(pi);
+                                for (Point bp : minion.body) {
+                                    if (pp.x == bp.x && pp.y == bp.y) { hitPlayer = true; break; }
+                                }
+                            }
+                            if (!hitPlayer) continue;
+
+                            if (psd.body.size() > 3) {
+                                psd.body.remove(psd.body.size() - 1);
+                                psd.growthPending = Math.max(0, psd.growthPending - 1);
+                            } else {
+                                psd.alive = false;
+                                killSnake(psd);
                             }
                             if (!psd.alive) killSnake(psd);
                         }
